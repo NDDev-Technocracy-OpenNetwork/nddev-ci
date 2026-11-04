@@ -1,0 +1,54 @@
+name: Reusable source validation
+on:
+  workflow_call:
+    inputs:
+      contract:
+        type: string
+        default: .github/nddev-ci.toml
+      uv:
+        type: string
+        default: '0.13.5'
+      python:
+        type: string
+        default: '3.13'
+    outputs:
+      library-ref:
+        description: Exact implementation commit to use for the delivery composite
+        value: ${{ jobs.source.outputs.library-ref }}
+      status:
+        description: Success only when actual selected source checks completed
+        value: ${{ jobs.source.outputs.status }}
+permissions:
+  contents: read
+jobs:
+  source:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.repository.visibility == 'public' }}
+    runs-on: ubuntu-26.04
+    outputs:
+      library-ref: '6c1b11e8a890bd3aa8e361ac467fafd78fa59efe'
+      status: ${{ steps.native.outputs.status }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: ${{ inputs.uv }}
+          python-version: ${{ inputs.python }}
+          enable-cache: 'false'
+      - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/ci@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+        id: native
+        with:
+          contract: ${{ inputs.contract }}
+          python: ${{ inputs.python }}
+  gate:
+    needs: [source]
+    if: ${{ !cancelled() && github.event.repository.visibility == 'public' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULT: ${{ needs.source.result }}
+        run: test "$RESULT" = success

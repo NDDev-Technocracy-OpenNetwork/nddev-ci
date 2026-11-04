@@ -1,0 +1,86 @@
+name: integrated-release-candidate
+on:
+  workflow_call:
+    inputs:
+      run-id:
+        type: string
+        required: true
+      source-workflow:
+        type: string
+        default: .github/workflows/main-ci.yml
+      files:
+        type: string
+        default: '["dist/*.whl","dist/*.tar.gz"]'
+    outputs:
+      status:
+        value: ${{ jobs.candidate.outputs.status }}
+      artifact-name:
+        value: ${{ jobs.candidate.outputs.artifact-name }}
+permissions: {}
+jobs:
+  candidate:
+    if: ${{ github.event.repository.private == false && ((github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')) }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    outputs:
+      status: ${{ steps.complete.outputs.status }}
+      artifact-name: ${{ steps.complete.outputs.name }}
+    steps:
+      - id: prepare
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/prepare-release@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          run-id: ${{ inputs.run-id }}
+          source-workflow: ${{ inputs.source-workflow }}
+          files: ${{ inputs.files }}
+      - name: Attest actual candidate provenance through GitHub
+        id: provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.prepare.outputs.candidate }}
+          create-storage-record: false
+      - name: Attest the native SPDX inventory of the candidate payload
+        id: sbom
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.prepare.outputs.candidate }}
+          sbom-path: ${{ steps.prepare.outputs.sbom }}
+          create-storage-record: false
+      - name: Verify both actual GitHub signatures and retain a complete candidate
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NDDEV_CANDIDATE: ${{ steps.prepare.outputs.candidate }}
+          NDDEV_PROVENANCE: ${{ steps.provenance.outputs.bundle-path }}
+          NDDEV_SBOM_ATTESTATION: ${{ steps.sbom.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          signer=NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/release.yml
+          gh attestation verify "$NDDEV_CANDIDATE" --repo "$GITHUB_REPOSITORY" --signer-workflow "$signer" --deny-self-hosted-runners --source-digest "$GITHUB_SHA" --bundle "$NDDEV_PROVENANCE"
+          gh attestation verify "$NDDEV_CANDIDATE" --repo "$GITHUB_REPOSITORY" --signer-workflow "$signer" --deny-self-hosted-runners --source-digest "$GITHUB_SHA" --bundle "$NDDEV_SBOM_ATTESTATION" --predicate-type https://spdx.dev/Document/v2.3
+          publication="$RUNNER_TEMP/nddev-publication"
+          mkdir "$publication"
+          cp "$NDDEV_CANDIDATE" "$publication/candidate.tar.gz"
+          cp "$NDDEV_PROVENANCE" "$publication/provenance.sigstore.json"
+          cp "$NDDEV_SBOM_ATTESTATION" "$publication/sbom.sigstore.json"
+          (cd "$publication" && sha256sum candidate.tar.gz provenance.sigstore.json sbom.sigstore.json > SHA256SUMS)
+          echo "name=release-candidate-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.verify.outputs.name }}
+          path: ${{ runner.temp }}/nddev-publication
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - id: complete
+        env:
+          NDDEV_CANDIDATE_NAME: ${{ steps.verify.outputs.name }}
+        run: |
+          echo "status=success" >> "$GITHUB_OUTPUT"
+          echo "name=$NDDEV_CANDIDATE_NAME" >> "$GITHUB_OUTPUT"
