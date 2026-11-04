@@ -1,0 +1,5 @@
+schema=1
+profiles=["swift"]
+[commands.swift]
+dependencies=["swift","package","resolve"]
+lint=["swiftc","-typecheck","Sources/CiwfFixture/Checksum.swift"]

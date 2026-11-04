@@ -1,0 +1,10 @@
+schema=1
+profiles=["sql-data"]
+[commands.sql-data]
+lint="uv sync --locked && uv run sqlfluff lint --dialect sqlite migrations"
+empty-migration=["uv","run","pytest","-q","test_migrations.py::test_empty_database_to_current_schema"]
+previous-migration=["uv","run","pytest","-q","test_migrations.py::test_previous_schema_preserves_existing_data"]
+test=["uv","run","pytest","--junitxml=.nddev-reports/sql.xml"]
+[reports.sql-data]
+kind="junit"
+path=".nddev-reports/sql.xml"

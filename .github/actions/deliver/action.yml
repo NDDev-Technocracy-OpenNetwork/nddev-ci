@@ -1,0 +1,49 @@
+name: Deliver an integrated artifact
+description: Verify the native main run and exact artifact lineage, serialize one existing target, then use its native module.
+inputs:
+  run-id:
+    description: Completed full main source run ID, not the CD run ID
+    required: true
+  source-workflow:
+    description: Exact caller source workflow path
+    default: .github/workflows/main-ci.yml
+  target-config:
+    description: Existing trusted target-owner JSON path; credentials come from caller secrets
+    required: true
+  transport-config:
+    description: Optional trusted SSH JSON path; private key and host-key files are caller-owned
+    default: ''
+  remote-environment:
+    description: Optional caller-owned JSON path for selected native target credentials/settings
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        NDDEV_ACTION_PATH: ${{ github.action_path }}
+        NDDEV_LIBRARY_REPOSITORY: ${{ github.action_repository }}
+        NDDEV_LIBRARY_REF: ${{ github.action_ref }}
+        NDDEV_SOURCE_RUN: ${{ inputs.run-id }}
+        NDDEV_SOURCE_WORKFLOW: ${{ inputs.source-workflow }}
+        NDDEV_TARGET_CONFIG: ${{ inputs.target-config }}
+        NDDEV_TRANSPORT_CONFIG: ${{ inputs.transport-config }}
+        NDDEV_REMOTE_ENVIRONMENT: ${{ inputs.remote-environment }}
+        UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/nddev-delivery-runtime
+      run: |
+        set -euo pipefail
+        if [[ -z "${NDDEV_CACHE_PROVIDER:-}" ]]; then
+          export UV_CACHE_DIR="${NDDEV_UV_CACHE_ROOT:-$RUNNER_TEMP/nddev-downloads}"
+        fi
+        library="$(cd "$NDDEV_ACTION_PATH/../../.." && pwd)"
+        library_uv="$(bash "$library/scripts/library-uv.sh")"
+        transport=()
+        if [ -n "$NDDEV_TRANSPORT_CONFIG" ]; then
+          transport=(--transport-config "$NDDEV_TRANSPORT_CONFIG")
+        fi
+        if [ -n "$NDDEV_REMOTE_ENVIRONMENT" ]; then
+          transport+=(--remote-environment "$NDDEV_REMOTE_ENVIRONMENT")
+        fi
+        "$library_uv" run --project "$library" --locked --no-dev --python 3.13 python -m nddev_cicd apply \
+          --config "$NDDEV_TARGET_CONFIG" --download "$RUNNER_TEMP/nddev-delivery-bundle" \
+          --run-id "$NDDEV_SOURCE_RUN" --workflow "$NDDEV_SOURCE_WORKFLOW" "${transport[@]}"

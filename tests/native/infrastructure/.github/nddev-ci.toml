@@ -1,0 +1,10 @@
+schema=1
+profiles=["infrastructure"]
+[commands.infrastructure]
+format=["tofu","fmt","-check","-recursive"]
+validate=["bash","-c","tofu init -backend=false -input=false && tofu validate -no-color"]
+security=["trivy","config","--exit-code","1","--severity","HIGH,CRITICAL","."]
+generate=["bash","-c","tofu providers schema -json > generated/schema.json"]
+[tools.tofu]
+command=["tofu","version"]
+pattern="^OpenTofu v1[.]13[.]2"

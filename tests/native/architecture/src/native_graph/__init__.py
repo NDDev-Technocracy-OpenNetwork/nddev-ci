@@ -1,0 +1,1 @@
+"""Native architectural dependency fixture."""

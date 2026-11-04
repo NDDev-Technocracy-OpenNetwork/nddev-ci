@@ -1,0 +1,6 @@
+schema=1
+profiles=["architecture"]
+[architecture]
+scopes=["src/native_graph"]
+[commands.architecture]
+dependencies=["bash","-c","uv sync --locked && uv run lint-imports"]

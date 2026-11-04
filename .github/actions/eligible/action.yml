@@ -1,0 +1,40 @@
+name: Admit a completed source candidate
+description: Validate native run, attempt, source tree and current main before checking out delivery code.
+inputs:
+  run-id:
+    required: true
+  revision:
+    required: true
+  source-workflow:
+    default: .github/workflows/main-ci.yml
+outputs:
+  revision:
+    value: ${{ steps.admit.outputs.revision }}
+  run-id:
+    value: ${{ steps.admit.outputs.run_id }}
+  status:
+    value: ${{ steps.admit.outputs.status }}
+runs:
+  using: composite
+  steps:
+    - id: admit
+      shell: bash
+      env:
+        NDDEV_ACTION_PATH: ${{ github.action_path }}
+        NDDEV_SOURCE_RUN: ${{ inputs.run-id }}
+        NDDEV_SOURCE_REVISION: ${{ inputs.revision }}
+        NDDEV_SOURCE_WORKFLOW: ${{ inputs.source-workflow }}
+      run: |
+        set -euo pipefail
+        library="$(cd "$NDDEV_ACTION_PATH/../../.." && pwd)"
+        library_uv="$(bash "$library/scripts/library-uv.sh")"
+        export UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/nddev-eligibility-runtime"
+        if [[ -z "${NDDEV_CACHE_PROVIDER:-}" ]]; then
+          export UV_CACHE_DIR="${NDDEV_UV_CACHE_ROOT:-$RUNNER_TEMP/nddev-downloads}"
+        fi
+        "$library_uv" run --project "$library" --locked --no-dev --python 3.13 python -m nddev_cicd eligible \
+          --repository "$GITHUB_REPOSITORY" --run-id "$NDDEV_SOURCE_RUN" --revision "$NDDEV_SOURCE_REVISION" \
+          --workflow "$NDDEV_SOURCE_WORKFLOW"
+        echo "revision=$NDDEV_SOURCE_REVISION" >> "$GITHUB_OUTPUT"
+        echo "run_id=$NDDEV_SOURCE_RUN" >> "$GITHUB_OUTPUT"
+        echo 'status=success' >> "$GITHUB_OUTPUT"

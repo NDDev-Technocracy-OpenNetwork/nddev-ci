@@ -1,0 +1,62 @@
+name: Publish the tested OCI artifact
+description: Consume the exact integrated PR archive and preserve its digest in the approved existing registry
+inputs:
+  run-id:
+    required: true
+  source-workflow:
+    default: .github/workflows/main-ci.yml
+  image-file:
+    default: dist/image.oci.tar
+  metadata-file:
+    default: dist/image.oci.json
+  repository:
+    description: Existing approved registry/repository without a mutable tag
+    required: true
+  auth-file:
+    description: Optional private native registry auth JSON file supplied by the caller's secrets step
+    default: ''
+  certificates:
+    description: Optional native CA/client-certificate directory; TLS verification remains enabled
+    default: ''
+outputs:
+  image:
+    description: Actual immutable registry reference
+    value: ${{ steps.publish.outputs.image }}
+  digest:
+    description: Digest verified after native registry publication
+    value: ${{ steps.publish.outputs.digest }}
+runs:
+  using: composite
+  steps:
+    - id: publish
+      shell: bash
+      env:
+        NDDEV_ACTION_PATH: ${{ github.action_path }}
+        NDDEV_LIBRARY_REPOSITORY: ${{ github.action_repository }}
+        NDDEV_LIBRARY_REF: ${{ github.action_ref }}
+        NDDEV_SOURCE_RUN: ${{ inputs.run-id }}
+        NDDEV_SOURCE_WORKFLOW: ${{ inputs.source-workflow }}
+        NDDEV_IMAGE_FILE: ${{ inputs.image-file }}
+        NDDEV_METADATA_FILE: ${{ inputs.metadata-file }}
+        NDDEV_REGISTRY_REPOSITORY: ${{ inputs.repository }}
+        NDDEV_REGISTRY_AUTH: ${{ inputs.auth-file }}
+        NDDEV_REGISTRY_CERTIFICATES: ${{ inputs.certificates }}
+        UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/nddev-oci-runtime
+      run: |
+        set -euo pipefail
+        library="$(cd "$NDDEV_ACTION_PATH/../../.." && pwd)"
+        library_uv="$(bash "$library/scripts/library-uv.sh")"
+        credentials=()
+        if [ -n "$NDDEV_REGISTRY_AUTH" ]; then credentials+=(--auth-file "$NDDEV_REGISTRY_AUTH"); fi
+        if [ -n "$NDDEV_REGISTRY_CERTIFICATES" ]; then credentials+=(--certificates "$NDDEV_REGISTRY_CERTIFICATES"); fi
+        "$library_uv" run --project "$library" --locked --no-dev --python 3.13 python -m nddev_cicd oci-publish \
+          --run-id "$NDDEV_SOURCE_RUN" --workflow "$NDDEV_SOURCE_WORKFLOW" \
+          --download "$RUNNER_TEMP/nddev-oci-publication" --image-file "$NDDEV_IMAGE_FILE" \
+          --metadata-file "$NDDEV_METADATA_FILE" --repository "$NDDEV_REGISTRY_REPOSITORY" "${credentials[@]}" > "$RUNNER_TEMP/nddev-oci-published.json"
+        python3 - <<'PYCODE' >> "$GITHUB_OUTPUT"
+        import json, os
+        from pathlib import Path
+        record = json.loads((Path(os.environ["RUNNER_TEMP"])/"nddev-oci-published.json").read_text())
+        print("image=" + record["image"])
+        print("digest=" + record["digest"])
+        PYCODE

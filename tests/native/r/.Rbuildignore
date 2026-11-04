@@ -1,0 +1,8 @@
+^renv\.lock$
+^renv$
+^renv.lock$
+^\.Rprofile$
+^\.github$
+^\.nddev-reports$
+^.*[.]tar[.]gz$
+^ciwffixture[.]Rcheck$

@@ -1,0 +1,11 @@
+schema=1
+profiles=["android-kotlin"]
+[commands.android-kotlin]
+build=["bash","-c","./gradlew assembleDebug bundleDebug && mkdir -p \"$NDDEV_RESULT_DIR/mobile\" && cp app/build/outputs/bundle/debug/app-debug.aab \"$NDDEV_RESULT_DIR/mobile/fixture.aab\" && cp app/build/outputs/apk/debug/app-debug.apk \"$NDDEV_RESULT_DIR/mobile/fixture.apk\""]
+[environment]
+GRADLE_OPTS="-Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2"
+[artifacts]
+files=["app/build/outputs/apk/debug/*.apk","app/build/outputs/bundle/debug/*.aab"]
+[tools.java]
+command=["java","-version"]
+pattern='version "21[.]'

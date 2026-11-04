@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Native checksum fixture</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Checksum</h1>
+      <form>
+        <label for="text">Text</label><input id="text" value="ci" /><button
+          type="submit"
+        >
+          Calculate</button
+        ><output aria-live="polite" id="result"></output>
+      </form>
+    </main>
+    <script>
+      document.querySelector("form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        document.querySelector("#result").textContent = String(
+          [
+            ...new TextEncoder().encode(document.querySelector("#text").value),
+          ].reduce((a, b) => (a + b) % 256, 0),
+        );
+      });
+    </script>
+  </body>
+</html>

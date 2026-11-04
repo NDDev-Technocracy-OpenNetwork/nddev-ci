@@ -1,0 +1,10 @@
+schema=1
+profiles=["sql-data"]
+[commands.sql-data]
+lint=["uv","run","--locked","ruff","check","."]
+empty-migration=["uv","run","--locked","python","native.py","empty"]
+previous-migration=["uv","run","--locked","python","native.py","previous"]
+test=["uv","run","--locked","pytest","--junitxml=.nddev-reports/migrations.xml"]
+[reports.sql-data]
+kind="junit"
+path=".nddev-reports/migrations.xml"

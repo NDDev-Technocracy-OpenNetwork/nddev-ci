@@ -1,0 +1,10 @@
+Package: ciwffixture
+Title: Smallest Package That Proves r-ci Runs
+Version: 0.1.0
+Authors@R: person("NDDev", role = c("aut", "cre"), email = "ci@nddev.example")
+Description: A single function and its test, so testthat::test_local() has
+    something real to run without the fixture becoming a CRAN availability test.
+License: AGPL-3
+Encoding: UTF-8
+Suggests: testthat (>= 3.0.0), lintr, renv
+Config/testthat/edition: 3

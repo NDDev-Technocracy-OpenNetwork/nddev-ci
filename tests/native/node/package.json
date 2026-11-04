@@ -1,0 +1,24 @@
+{
+  "name": "ciwf-native-node-fixture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native locked JavaScript checks and distributable package fixture.",
+  "type": "module",
+  "files": [
+    "dist/"
+  ],
+  "exports": "./dist/checksum.js",
+  "scripts": {
+    "format:check": "prettier --check checksum.js checksum.test.js eslint.config.js tsconfig.json package.json",
+    "lint": "eslint checksum.js checksum.test.js",
+    "typecheck": "tsc --noEmit",
+    "test:ci": "node --test --test-reporter=junit --test-reporter-destination=.nddev-reports/node.xml checksum.test.js",
+    "build": "tsc",
+    "package": "npm pack --dry-run"
+  },
+  "devDependencies": {
+    "eslint": "10.13.0",
+    "prettier": "3.9.10",
+    "typescript": "7.0.2"
+  }
+}

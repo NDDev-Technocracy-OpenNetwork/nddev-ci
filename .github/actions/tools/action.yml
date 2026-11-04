@@ -1,0 +1,17 @@
+name: Prepare native Linux tools
+description: Install verified binaries into the owned job temporary directory without shared-host packages.
+inputs:
+  capability:
+    description: Space/comma-separated rust, security, quality, compiler, shell, container or infrastructure; workflow/docs tools are always included
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        NDDEV_ACTION_PATH: ${{ github.action_path }}
+        NDDEV_TOOL_CAPABILITY: ${{ inputs.capability }}
+      run: |
+        set -euo pipefail
+        library="$(cd "$NDDEV_ACTION_PATH/../../.." && pwd)"
+        "$library/scripts/prepare-linux-tools.sh" "$NDDEV_TOOL_CAPABILITY"

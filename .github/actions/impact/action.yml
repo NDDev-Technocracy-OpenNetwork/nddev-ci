@@ -1,0 +1,55 @@
+name: Plan affected components
+description: Expose the same conservative impact closure before dependent jobs allocate capacity.
+inputs:
+  working-directory:
+    default: .
+  contract:
+    default: .github/nddev-ci.toml
+  base:
+    description: Optional exact comparison revision; absent PR base retains all coverage
+    default: ''
+  head:
+    description: Optional tested revision; default is the actual checkout
+    default: ''
+outputs:
+  selected:
+    description: JSON array of selected component names
+    value: ${{ steps.plan.outputs.selected }}
+  not-applicable:
+    description: JSON object of unselected components and reasons
+    value: ${{ steps.plan.outputs.not_applicable }}
+  base:
+    description: JSON comparison base (null when unavailable)
+    value: ${{ steps.plan.outputs.base }}
+  profiles:
+    description: JSON selected profile array
+    value: ${{ steps.plan.outputs.profiles }}
+runs:
+  using: composite
+  steps:
+    - id: plan
+      shell: bash
+      env:
+        NDDEV_ACTION_PATH: ${{ github.action_path }}
+        NDDEV_DIRECTORY: ${{ inputs.working-directory }}
+        NDDEV_CONTRACT: ${{ inputs.contract }}
+        NDDEV_BASE: ${{ inputs.base }}
+        NDDEV_HEAD: ${{ inputs.head }}
+      run: |
+        set -euo pipefail
+        library="$(cd "$NDDEV_ACTION_PATH/../../.." && pwd)"
+        library_uv="$(bash "$library/scripts/library-uv.sh")"
+        export UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/nddev-impact-runtime"
+        if [[ -z "${NDDEV_CACHE_PROVIDER:-}" ]]; then
+          export UV_CACHE_DIR="${NDDEV_UV_CACHE_ROOT:-$RUNNER_TEMP/nddev-downloads}"
+        fi
+        project="$("$library_uv" run --project "$library" --locked --no-dev --python 3.13 python -c \
+          'import os; from pathlib import Path; from nddev_cicd.model import contained; print(contained(Path(os.environ["GITHUB_WORKSPACE"]),os.environ["NDDEV_DIRECTORY"],exists=True))')"
+        comparison=()
+        if [[ -n "$NDDEV_BASE" ]]; then comparison+=(--base "$NDDEV_BASE"); fi
+        if [[ -n "$NDDEV_HEAD" ]]; then comparison+=(--head "$NDDEV_HEAD"); fi
+        plan="$("$library_uv" run --project "$library" --locked --no-dev --python 3.13 python -m nddev_cicd impact \
+          --root "$project" --contract "$NDDEV_CONTRACT" "${comparison[@]}")"
+        export NDDEV_IMPACT_PLAN="$plan"
+        "$library_uv" run --project "$library" --locked --no-dev --python 3.13 python -c \
+          'import json,os; p=json.loads(os.environ["NDDEV_IMPACT_PLAN"]); [print(k+"="+json.dumps(p[k])) for k in ("selected","not_applicable","base","profiles")]' >> "$GITHUB_OUTPUT"

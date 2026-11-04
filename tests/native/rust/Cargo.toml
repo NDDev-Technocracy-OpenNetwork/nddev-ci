@@ -1,0 +1,13 @@
+[package]
+name = "ciwf-fixture"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.99.0"
+description = "Smallest crate that proves rust-ci runs."
+license = "MIT"
+
+[dependencies]
+
+[features]
+default = []
+iterator = []

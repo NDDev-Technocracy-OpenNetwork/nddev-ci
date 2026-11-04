@@ -1,0 +1,37 @@
+name: Admit capacity
+description: Select an explicitly admitted provider before scheduling the affected job.
+inputs:
+  policy:
+    description: Trusted JSON routing policy, never PR body or unreviewed labels
+    required: true
+outputs:
+  runner:
+    description: Native runs-on JSON (classic labels or an explicit scale-set group/label object)
+    value: ${{ steps.route.outputs.runner }}
+  provider:
+    description: Admitted provider
+    value: ${{ steps.route.outputs.provider }}
+  availability:
+    description: Native availability verification limit; label selection is not an online runner check
+    value: ${{ steps.route.outputs.availability }}
+runs:
+  using: composite
+  steps:
+    - id: route
+      shell: bash
+      env:
+        NDDEV_ACTION_PATH: ${{ github.action_path }}
+        NDDEV_ROUTING_POLICY: ${{ inputs.policy }}
+        UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/nddev-admission-runtime
+      run: |
+        set -euo pipefail
+        if [[ -z "${NDDEV_CACHE_PROVIDER:-}" ]]; then
+          export UV_CACHE_DIR="${NDDEV_UV_CACHE_ROOT:-$RUNNER_TEMP/nddev-downloads}"
+        fi
+        library="$(cd "$NDDEV_ACTION_PATH/../../.." && pwd)"
+        library_uv="$(bash "$library/scripts/library-uv.sh")"
+        printf '%s\n' "$NDDEV_ROUTING_POLICY" > "$RUNNER_TEMP/nddev-routing.json"
+        "$library_uv" run --project "$library" --locked --no-dev --python 3.13 python -m nddev_cicd route \
+          --policy "$RUNNER_TEMP/nddev-routing.json" > "$RUNNER_TEMP/nddev-admitted.json"
+        "$library_uv" run --project "$library" --locked --no-dev --python 3.13 python -c \
+          'import json,os,pathlib; r=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"nddev-admitted.json").read_text()); print("runner="+json.dumps(r["runner"])); print("provider="+r["provider"]); print("availability="+r.get("availability","provider-policy")); print("\n".join(r.get("limitations",[])),file=__import__("sys").stderr)' >> "$GITHUB_OUTPUT"

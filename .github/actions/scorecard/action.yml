@@ -1,0 +1,46 @@
+name: Native source-host assessment
+description: Collect read-only Scorecard assessments and enforce only explicitly selected project scores
+inputs:
+  required-scores:
+    description: JSON object of native check names to required scores; empty selects advisory analysis
+    default: '{}'
+outputs:
+  report:
+    description: Original native JSON assessment in the caller workspace
+    value: .nddev-reports/scorecard.json
+runs:
+  using: composite
+  steps:
+    - name: Prepare a fresh owned native assessment destination
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        set -euo pipefail
+        test "$(uname -s)" = Linux
+        test ! -L .nddev-reports
+        test ! -L .nddev-reports/scorecard.json
+        test ! -e .nddev-reports/scorecard.json
+        mkdir -p .nddev-reports
+    - name: Run the pinned native assessment without publication or extra token grants
+      uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+      with:
+        results_file: .nddev-reports/scorecard.json
+        results_format: json
+        publish_results: false
+        repo_token: ${{ github.token }}
+    - name: Preserve unavailable checks and evaluate explicit project thresholds
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        NDDEV_ACTION_PATH: ${{ github.action_path }}
+        NDDEV_REQUIRED_SCORES: ${{ inputs.required-scores }}
+        UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/nddev-assessment-runtime
+      run: |
+        set -euo pipefail
+        if [[ -z "${NDDEV_CACHE_PROVIDER:-}" ]]; then
+          export UV_CACHE_DIR="$RUNNER_TEMP/nddev-assessment-downloads"
+        fi
+        library="$(cd "$NDDEV_ACTION_PATH/../../.." && pwd)"
+        library_uv="$(bash "$library/scripts/library-uv.sh")"
+        "$library_uv" run --project "$library" --locked --no-dev --python 3.13 python -c \
+          'import json,os; from pathlib import Path; from nddev_cicd.reports import scorecard; result=scorecard(Path(os.environ["GITHUB_WORKSPACE"])/".nddev-reports/scorecard.json",os.environ["GITHUB_REPOSITORY"],json.loads(os.environ["NDDEV_REQUIRED_SCORES"])); print(json.dumps(result)); raise SystemExit(0 if result["status"]=="success" else 1)'

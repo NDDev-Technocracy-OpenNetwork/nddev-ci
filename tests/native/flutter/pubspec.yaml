@@ -1,0 +1,21 @@
+name: ci_workflows_flutter_fixture
+description: Minimal dependency-controlled Flutter widget fixture for reusable CI evidence.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.13.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  generate: true
+  uses-material-design: true

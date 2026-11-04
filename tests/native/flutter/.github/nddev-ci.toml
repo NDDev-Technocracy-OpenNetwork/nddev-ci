@@ -1,0 +1,8 @@
+schema=1
+profiles=["dart-flutter"]
+[commands.dart-flutter]
+generate=["flutter","gen-l10n"]
+build=["flutter","build","web","--release"]
+[tools.flutter]
+command=["flutter","--version"]
+pattern="Flutter 3[.]47[.]7"

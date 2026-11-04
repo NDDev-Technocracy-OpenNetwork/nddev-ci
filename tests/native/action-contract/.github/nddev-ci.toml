@@ -1,0 +1,18 @@
+schema=1
+profiles=["documentation"]
+[tools.uv]
+command=["uv","--version"]
+pattern="^uv 0[.]12[.]24 "
+[commands.documentation]
+external-links=["python3","native.py","external-links"]
+generate=["git","diff","--exit-code"]
+examples=["python3","native.py","test"]
+[reports.documentation]
+kind="unittest"
+
+[impact.components.runtime]
+paths=["**"]
+profiles=["documentation"]
+
+[diagnostics]
+tail_lines=5

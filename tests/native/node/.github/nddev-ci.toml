@@ -1,0 +1,8 @@
+schema=1
+profiles=["typescript-javascript"]
+[reports.typescript-javascript]
+kind="junit"
+path=".nddev-reports/node.xml"
+[tools.node]
+command=["node","--version"]
+pattern="^v24[.]"

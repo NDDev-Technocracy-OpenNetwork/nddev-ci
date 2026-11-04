@@ -1,0 +1,13 @@
+schema=1
+profiles=["php"]
+[commands.php]
+toolchain=["python3", "native.py", "php", "--version"]
+setup=["python3", "native.py", "composer", "install", "--no-interaction", "--prefer-dist"]
+locks=["python3", "native.py", "composer", "validate", "--strict"]
+lint=["python3", "native.py", "composer", "run", "lint"]
+type=["python3", "native.py", "composer", "run", "analyse"]
+test=["python3", "native.py", "vendor/bin/phpunit", "--log-junit", ".nddev-reports/phpunit.xml", "--configuration", "phpunit.xml"]
+package=["python3", "native.py", "composer", "archive", "--format=zip"]
+[tools.php]
+command=["python3","native.py","php","--version"]
+pattern="^PHP 8[.]5[.]11"

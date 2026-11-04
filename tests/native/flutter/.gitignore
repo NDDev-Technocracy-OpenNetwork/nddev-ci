@@ -1,0 +1,11 @@
+/.dart_tool/
+/build/
+
+.nddev-reports/
+.venv/
+__pycache__/
+.pytest_cache/
+.coverage
+dist/
+build/
+target/

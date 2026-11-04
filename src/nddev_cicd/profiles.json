@@ -1,0 +1,903 @@
+{
+  "python": {
+    "manifests": [
+      "pyproject.toml",
+      "requirements*.txt",
+      "requirements/*.txt"
+    ],
+    "stages": {
+      "setup": [
+        "uv",
+        "sync",
+        "--locked"
+      ],
+      "toolchain": "uv --version && uv run python --version",
+      "format": [
+        "uv",
+        "run",
+        "ruff",
+        "format",
+        "--check",
+        "."
+      ],
+      "lint": [
+        "uv",
+        "run",
+        "ruff",
+        "check",
+        "."
+      ],
+      "type": [
+        "uv",
+        "run",
+        "basedpyright"
+      ],
+      "test": [
+        "uv",
+        "run",
+        "pytest",
+        "--junitxml=.nddev-reports/pytest.xml",
+        "--cov",
+        "--cov-report=xml:.nddev-reports/coverage.xml"
+      ],
+      "build": [
+        "uv",
+        "build"
+      ],
+      "consumer": [
+        "@library",
+        "package-check"
+      ]
+    },
+    "report": {
+      "kind": "junit",
+      "path": ".nddev-reports/pytest.xml"
+    },
+    "dependencies": {
+      "consumer": [
+        "build"
+      ]
+    },
+    "waivable_stages": [
+      "build",
+      "consumer"
+    ]
+  },
+  "rust": {
+    "manifests": [
+      "Cargo.toml"
+    ],
+    "stages": {
+      "toolchain": [
+        "rustc",
+        "--version"
+      ],
+      "format": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "lint": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "test": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-targets"
+      ],
+      "doctest": [
+        "cargo",
+        "test",
+        "--locked",
+        "--doc"
+      ],
+      "build": [
+        "cargo",
+        "package",
+        "--locked"
+      ],
+      "policy": [
+        "cargo",
+        "deny",
+        "check"
+      ]
+    },
+    "report": {
+      "kind": "cargo"
+    }
+  },
+  "go": {
+    "manifests": [
+      "go.mod"
+    ],
+    "stages": {
+      "toolchain": [
+        "go",
+        "version"
+      ],
+      "format": [
+        "gofmt",
+        "-l",
+        "."
+      ],
+      "lint": [
+        "go",
+        "vet",
+        "./..."
+      ],
+      "dependencies": [
+        "go",
+        "mod",
+        "verify"
+      ],
+      "test": [
+        "go",
+        "test",
+        "-json",
+        "-coverprofile=.nddev-reports/go.cover",
+        "./..."
+      ],
+      "build": [
+        "go",
+        "build",
+        "./..."
+      ],
+      "package": [
+        "go",
+        "list",
+        "-m",
+        "-json",
+        "all"
+      ]
+    },
+    "report": {
+      "kind": "go-json"
+    },
+    "empty_output": [
+      "format"
+    ]
+  },
+  "typescript-javascript": {
+    "manifests": [
+      "package.json"
+    ],
+    "stages": {
+      "setup": [
+        "npm",
+        "ci"
+      ],
+      "toolchain": [
+        "node",
+        "--version"
+      ],
+      "format": [
+        "npm",
+        "run",
+        "format:check"
+      ],
+      "lint": [
+        "npm",
+        "run",
+        "lint"
+      ],
+      "type": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "test": [
+        "npm",
+        "run",
+        "test:ci"
+      ],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "package": [
+        "npm",
+        "pack",
+        "--dry-run"
+      ]
+    },
+    "report": {
+      "kind": "junit",
+      "path": ".nddev-reports/*.xml"
+    },
+    "dependencies": {
+      "package": [
+        "build"
+      ]
+    },
+    "waivable_stages": [
+      "package"
+    ]
+  },
+  "c-cpp": {
+    "manifests": [
+      "CMakeLists.txt",
+      "meson.build",
+      "Makefile"
+    ],
+    "stages": {
+      "configure": [
+        "cmake",
+        "-S",
+        ".",
+        "-B",
+        "build",
+        "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+      ],
+      "format": null,
+      "lint": null,
+      "build": [
+        "cmake",
+        "--build",
+        "build",
+        "--parallel",
+        "2"
+      ],
+      "test": [
+        "ctest",
+        "--test-dir",
+        "build",
+        "--output-on-failure",
+        "--no-tests=error",
+        "--output-junit",
+        "../.nddev-reports/ctest.xml"
+      ],
+      "package": [
+        "cpack",
+        "--config",
+        "build/CPackConfig.cmake"
+      ]
+    },
+    "report": {
+      "kind": "junit",
+      "path": ".nddev-reports/ctest.xml"
+    },
+    "dependencies": {
+      "lint": [
+        "configure"
+      ],
+      "build": [
+        "configure"
+      ],
+      "test": [
+        "build"
+      ],
+      "package": [
+        "build"
+      ]
+    }
+  },
+  "qt": {
+    "manifests": [
+      "CMakeLists.txt",
+      "*.pro"
+    ],
+    "stages": {
+      "toolchain": [
+        "qtpaths",
+        "--qt-version"
+      ],
+      "configure": [
+        "cmake",
+        "-S",
+        ".",
+        "-B",
+        "build"
+      ],
+      "build": [
+        "cmake",
+        "--build",
+        "build",
+        "--parallel",
+        "2"
+      ],
+      "test": [
+        "ctest",
+        "--test-dir",
+        "build",
+        "--output-on-failure",
+        "--no-tests=error",
+        "--output-junit",
+        "../.nddev-reports/qt.xml"
+      ],
+      "package": [
+        "cpack",
+        "--config",
+        "build/CPackConfig.cmake"
+      ]
+    },
+    "report": {
+      "kind": "junit",
+      "path": ".nddev-reports/qt.xml"
+    },
+    "dependencies": {
+      "build": [
+        "configure"
+      ],
+      "test": [
+        "build"
+      ],
+      "package": [
+        "build"
+      ]
+    }
+  },
+  "dart-flutter": {
+    "manifests": [
+      "pubspec.yaml"
+    ],
+    "stages": {
+      "setup": [
+        "flutter",
+        "pub",
+        "get",
+        "--enforce-lockfile"
+      ],
+      "toolchain": [
+        "flutter",
+        "--version"
+      ],
+      "format": [
+        "dart",
+        "format",
+        "--output=none",
+        "--set-exit-if-changed",
+        "."
+      ],
+      "lint": [
+        "flutter",
+        "analyze",
+        "--fatal-infos"
+      ],
+      "test": [
+        "flutter",
+        "test",
+        "--machine"
+      ],
+      "generate": null,
+      "build": null
+    },
+    "report": {
+      "kind": "dart-json"
+    }
+  },
+  "jvm": {
+    "manifests": [
+      "pom.xml",
+      "build.gradle",
+      "build.gradle.kts"
+    ],
+    "stages": {
+      "toolchain": [
+        "java",
+        "-version"
+      ],
+      "dependencies": null,
+      "lint": null,
+      "test": [
+        "./mvnw",
+        "--batch-mode",
+        "verify"
+      ],
+      "build": [
+        "./mvnw",
+        "--batch-mode",
+        "package",
+        "-DskipTests"
+      ]
+    },
+    "report": {
+      "kind": "junit",
+      "path": "target/surefire-reports/*.xml"
+    }
+  },
+  "android-kotlin": {
+    "manifests": [
+      "build.gradle",
+      "build.gradle.kts"
+    ],
+    "stages": {
+      "toolchain": [
+        "java",
+        "-version"
+      ],
+      "dependencies": [
+        "./gradlew",
+        "--dependency-verification=strict",
+        "dependencies"
+      ],
+      "lint": [
+        "./gradlew",
+        "lint"
+      ],
+      "test": [
+        "./gradlew",
+        "testDebugUnitTest"
+      ],
+      "build": [
+        "./gradlew",
+        "assembleDebug"
+      ]
+    },
+    "report": {
+      "kind": "junit",
+      "path": "**/build/test-results/**/*.xml"
+    }
+  },
+  "dotnet": {
+    "manifests": [
+      "*.sln",
+      "*.slnx",
+      "*.csproj"
+    ],
+    "stages": {
+      "toolchain": [
+        "dotnet",
+        "--info"
+      ],
+      "setup": [
+        "dotnet",
+        "restore",
+        "--locked-mode"
+      ],
+      "format": [
+        "dotnet",
+        "format",
+        "--verify-no-changes",
+        "--no-restore"
+      ],
+      "build": [
+        "dotnet",
+        "build",
+        "--no-restore",
+        "--configuration",
+        "Release"
+      ],
+      "test": [
+        "dotnet",
+        "test",
+        "--no-build",
+        "--logger",
+        "trx",
+        "--results-directory",
+        ".nddev-reports",
+        "--collect:XPlat Code Coverage",
+        "--configuration",
+        "Release"
+      ],
+      "package": [
+        "dotnet",
+        "pack",
+        "--no-build",
+        "--configuration",
+        "Release"
+      ]
+    },
+    "report": {
+      "kind": "trx",
+      "path": ".nddev-reports/*.trx"
+    },
+    "dependencies": {
+      "test": [
+        "build"
+      ],
+      "package": [
+        "build"
+      ]
+    }
+  },
+  "swift": {
+    "manifests": [
+      "Package.swift",
+      "*.xcodeproj"
+    ],
+    "stages": {
+      "toolchain": [
+        "swift",
+        "--version"
+      ],
+      "dependencies": [
+        "swift",
+        "package",
+        "resolve",
+        "--only-use-versions-from-resolved-file"
+      ],
+      "lint": null,
+      "test": [
+        "swift",
+        "test",
+        "--parallel",
+        "--xunit-output",
+        ".nddev-reports/swift.xml"
+      ],
+      "build": [
+        "swift",
+        "build",
+        "-c",
+        "release"
+      ],
+      "package": [
+        "swift",
+        "package",
+        "describe",
+        "--type",
+        "json"
+      ]
+    },
+    "report": {
+      "kind": "junit",
+      "path": ".nddev-reports/swift.xml"
+    }
+  },
+  "php": {
+    "manifests": [
+      "composer.json"
+    ],
+    "stages": {
+      "toolchain": [
+        "php",
+        "--version"
+      ],
+      "setup": [
+        "composer",
+        "install",
+        "--no-interaction",
+        "--prefer-dist"
+      ],
+      "locks": [
+        "composer",
+        "validate",
+        "--strict"
+      ],
+      "lint": [
+        "composer",
+        "run",
+        "lint"
+      ],
+      "type": [
+        "composer",
+        "run",
+        "analyse"
+      ],
+      "test": [
+        "vendor/bin/phpunit",
+        "--log-junit",
+        ".nddev-reports/phpunit.xml"
+      ],
+      "package": [
+        "composer",
+        "archive",
+        "--format=zip"
+      ]
+    },
+    "report": {
+      "kind": "junit",
+      "path": ".nddev-reports/phpunit.xml"
+    },
+    "locked_inputs": [
+      "composer.lock"
+    ]
+  },
+  "ruby": {
+    "manifests": [
+      "Gemfile"
+    ],
+    "stages": {
+      "toolchain": [
+        "ruby",
+        "--version"
+      ],
+      "setup": [
+        "bundle",
+        "install"
+      ],
+      "lint": [
+        "bundle",
+        "exec",
+        "rubocop"
+      ],
+      "test": [
+        "bundle",
+        "exec",
+        "rspec",
+        "--format",
+        "RspecJunitFormatter",
+        "--out",
+        ".nddev-reports/rspec.xml"
+      ],
+      "build": "gem build *.gemspec"
+    },
+    "report": {
+      "kind": "junit",
+      "path": ".nddev-reports/rspec.xml"
+    },
+    "locked_inputs": [
+      "Gemfile.lock"
+    ]
+  },
+  "r": {
+    "manifests": [
+      "DESCRIPTION",
+      "renv.lock"
+    ],
+    "stages": {
+      "toolchain": [
+        "R",
+        "--version"
+      ],
+      "setup": [
+        "Rscript",
+        "-e",
+        "renv::restore(prompt=FALSE)"
+      ],
+      "lint": [
+        "Rscript",
+        "-e",
+        "stopifnot(length(lintr::lint_package()) == 0)"
+      ],
+      "test": [
+        "Rscript",
+        "-e",
+        "testthat::test_local(reporter=testthat::JunitReporter$new(file=file.path(getwd(),\".nddev-reports/testthat.xml\")))"
+      ],
+      "build": [
+        "R",
+        "CMD",
+        "build",
+        "."
+      ],
+      "package": null
+    },
+    "report": {
+      "kind": "junit",
+      "path": ".nddev-reports/testthat.xml"
+    },
+    "dependencies": {
+      "package": [
+        "build"
+      ]
+    },
+    "locked_inputs": [
+      "renv.lock"
+    ]
+  },
+  "sql-data": {
+    "manifests": [
+      "**/*.sql",
+      "alembic.ini",
+      "**/alembic.ini",
+      "**/migrations/**/*.py",
+      "**/schema.prisma"
+    ],
+    "stages": {
+      "lint": [
+        "sqlfluff",
+        "lint",
+        "."
+      ],
+      "empty-migration": null,
+      "previous-migration": null,
+      "test": null
+    },
+    "report": {
+      "kind": "junit",
+      "path": ".nddev-reports/*.xml"
+    }
+  },
+  "shell-powershell": {
+    "manifests": [
+      "**/*.sh",
+      "**/*.ps1"
+    ],
+    "stages": {
+      "syntax": null,
+      "lint": null,
+      "test": null
+    },
+    "report": {
+      "kind": "junit",
+      "path": ".nddev-reports/*.xml"
+    }
+  },
+  "documentation": {
+    "manifests": [],
+    "stages": {
+      "syntax": [],
+      "external-links": null,
+      "generate": null,
+      "examples": null
+    }
+  },
+  "workflows": {
+    "manifests": [
+      ".github/workflows/*.yml",
+      ".github/workflows/*.yaml"
+    ],
+    "stages": {
+      "lint": [
+        "actionlint"
+      ],
+      "security": [
+        "zizmor",
+        "--offline",
+        "--no-progress",
+        ".github"
+      ],
+      "contracts": [
+        "@library",
+        "workflow-check"
+      ]
+    }
+  },
+  "container": {
+    "manifests": [
+      "**/Dockerfile",
+      "**/*.Dockerfile",
+      "**/Dockerfile.*",
+      "**/Containerfile",
+      "**/Containerfile.*"
+    ],
+    "stages": {
+      "lint": [
+        "hadolint",
+        "Dockerfile"
+      ],
+      "build": null,
+      "test": null,
+      "scan": null,
+      "sbom": null,
+      "cleanup": null
+    },
+    "report": {
+      "kind": "junit",
+      "path": ".nddev-reports/*.xml"
+    },
+    "dependencies": {
+      "test": [
+        "build"
+      ],
+      "scan": [
+        "build"
+      ],
+      "sbom": [
+        "build"
+      ]
+    },
+    "optional_stages": [
+      "cleanup"
+    ],
+    "finally_stages": [
+      "cleanup"
+    ]
+  },
+  "infrastructure": {
+    "manifests": [
+      "*.tf",
+      "*.yaml",
+      "*.yml",
+      "**/*.yaml"
+    ],
+    "stages": {
+      "format": null,
+      "validate": null,
+      "security": null,
+      "generate": null,
+      "cleanup": null
+    },
+    "optional_stages": [
+      "cleanup"
+    ],
+    "finally_stages": [
+      "cleanup"
+    ]
+  },
+  "security": {
+    "manifests": [],
+    "stages": {
+      "secrets": [
+        "gitleaks",
+        "git",
+        "--redact",
+        "--no-banner"
+      ],
+      "dependencies": [
+        "osv-scanner",
+        "scan",
+        "source",
+        "--recursive",
+        "."
+      ],
+      "sast": [
+        "@library",
+        "security-sast"
+      ],
+      "licenses": [
+        "@library",
+        "security-licenses"
+      ]
+    }
+  },
+  "architecture": {
+    "manifests": [],
+    "stages": {
+      "scope": [],
+      "dependencies": null
+    }
+  },
+  "advanced-testing": {
+    "manifests": [],
+    "stages": {
+      "bounded-operation": null,
+      "result": null
+    },
+    "test_stage": "bounded-operation",
+    "report": {
+      "kind": "junit",
+      "path": ".nddev-reports/property.xml"
+    }
+  },
+  "web": {
+    "manifests": [
+      "package.json",
+      "index.html"
+    ],
+    "stages": {
+      "setup": [
+        "npm",
+        "ci"
+      ],
+      "toolchain": [
+        "node",
+        "--version"
+      ],
+      "browser": [
+        "npm",
+        "run",
+        "install:browser"
+      ],
+      "format": [
+        "npm",
+        "run",
+        "format:check"
+      ],
+      "html": [
+        "npm",
+        "run",
+        "lint:html"
+      ],
+      "css": [
+        "npm",
+        "run",
+        "lint:css"
+      ],
+      "test": [
+        "npm",
+        "run",
+        "test:web"
+      ],
+      "build": [
+        "npm",
+        "run",
+        "build"
+      ]
+    },
+    "test_stage": "test",
+    "report": {
+      "kind": "junit",
+      "path": ".nddev-reports/web.xml"
+    }
+  }
+}

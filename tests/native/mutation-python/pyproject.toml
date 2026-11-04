@@ -1,0 +1,7 @@
+[tool.mutmut]
+source_paths=["src/"]
+pytest_add_cli_args_test_selection=["tests/"]
+use_setproctitle=false
+
+[tool.pytest.ini_options]
+pythonpath=["src"]

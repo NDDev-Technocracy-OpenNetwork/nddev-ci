@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "strict": true,
+    "declaration": true,
+    "target": "ES2023",
+    "module": "NodeNext",
+    "outDir": "dist"
+  },
+  "include": ["checksum.js"]
+}

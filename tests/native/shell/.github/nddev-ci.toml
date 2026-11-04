@@ -1,0 +1,9 @@
+schema=1
+profiles=["shell-powershell"]
+[commands.shell-powershell]
+syntax=["bash","-n","checksum.sh"]
+lint=["shellcheck","checksum.sh"]
+test="bats --formatter junit checksum.bats > .nddev-reports/shell.xml"
+[reports.shell-powershell]
+kind="junit"
+path=".nddev-reports/shell.xml"

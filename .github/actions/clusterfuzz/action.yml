@@ -1,0 +1,90 @@
+name: Bounded native ClusterFuzzLite
+description: Build and batch-fuzz a project on an ephemeral public GitHub Linux executor
+inputs:
+  project-directory:
+    description: Caller directory containing the native .clusterfuzzlite build integration
+    default: .
+  phase:
+    description: all, build or run; split phases allow native corpus preparation after build validation
+    default: all
+  sanitizer:
+    description: Native address, undefined or memory sanitizer
+    default: address
+  seconds:
+    description: Explicit total fuzzing budget from one to six hundred seconds
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: prepare
+      name: Require the SDK's disposable executor and bounded native inputs
+      shell: bash
+      env:
+        NDDEV_PUBLIC: ${{ github.event.repository.private == false }}
+        NDDEV_PROJECT: ${{ inputs.project-directory }}
+        NDDEV_PHASE: ${{ inputs.phase }}
+        NDDEV_SANITIZER: ${{ inputs.sanitizer }}
+        NDDEV_SECONDS: ${{ inputs.seconds }}
+      run: |
+        set -euo pipefail
+        test "$RUNNER_ENVIRONMENT" = github-hosted
+        test "$RUNNER_OS" = Linux
+        test "$NDDEV_PUBLIC" = true
+        python3 - <<'PY'
+        import os
+        from pathlib import Path
+        root = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+        project = root / os.environ['NDDEV_PROJECT']
+        assert not Path(os.environ['NDDEV_PROJECT']).is_absolute() and project.resolve().is_relative_to(root)
+        assert all((project / '.clusterfuzzlite' / name).is_file() for name in ('Dockerfile', 'build.sh', 'project.yaml'))
+        assert os.environ['NDDEV_PHASE'] in {'all', 'build', 'run'}
+        assert os.environ['NDDEV_SANITIZER'] in {'address', 'undefined', 'memory'}
+        assert os.environ['NDDEV_SECONDS'].isdigit() and 1 <= int(os.environ['NDDEV_SECONDS']) <= 600
+        if os.environ['NDDEV_PHASE'] != 'run':
+            assert not (root / 'build-out').exists(), 'Never adopt an earlier native build'
+        PY
+    - name: Build and validate every selected native target
+      if: ${{ inputs.phase != 'run' }}
+      uses: docker://gcr.io/oss-fuzz-base/clusterfuzzlite-build-fuzzers@sha256:2e74e38ae081d6929157013ca8029eaa01f8fbdd5b6ff9d2c2636b17fd2355ed
+      env:
+        CFL_PLATFORM: standalone
+        WORKSPACE: /github/workspace
+        PROJECT_SRC_PATH: /github/workspace/${{ inputs.project-directory }}
+        REPOSITORY: ${{ github.repository }}
+        LANGUAGE: c++
+        SANITIZER: ${{ inputs.sanitizer }}
+        NO_CLUSTERFUZZ_DEPLOYMENT: 'true'
+        LOW_DISK_SPACE: 'true'
+        DRY_RUN: 'false'
+        BAD_BUILD_CHECK: 'true'
+        ALLOWED_BROKEN_TARGETS_PERCENTAGE: '0'
+        KEEP_UNAFFECTED_FUZZ_TARGETS: 'true'
+        UPLOAD_BUILD: 'false'
+    - id: native
+      name: Execute native batch fuzzing and retain SDK crash diagnostics
+      if: ${{ inputs.phase != 'build' }}
+      uses: docker://gcr.io/oss-fuzz-base/clusterfuzzlite-run-fuzzers@sha256:4aa8df69e03dd8ef13125501aaa683eaf73c26ab83fc8af7d46e93790115554d
+      env:
+        CFL_PLATFORM: standalone
+        WORKSPACE: /github/workspace
+        PROJECT_SRC_PATH: /github/workspace/${{ inputs.project-directory }}
+        REPOSITORY: ${{ github.repository }}
+        LANGUAGE: c++
+        SANITIZER: ${{ inputs.sanitizer }}
+        NO_CLUSTERFUZZ_DEPLOYMENT: 'true'
+        LOW_DISK_SPACE: 'true'
+        FUZZ_SECONDS: ${{ inputs.seconds }}
+        MODE: batch
+        DRY_RUN: 'false'
+        PARALLEL_FUZZING: 'false'
+        REPORT_TIMEOUTS: 'true'
+        REPORT_OOMS: 'true'
+        OUTPUT_SARIF: 'false'
+    - name: Retain reproducing inputs and native stacks without external storage
+      if: ${{ !cancelled() && steps.prepare.outcome == 'success' && steps.native.outcome != 'skipped' }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: clusterfuzz-${{ github.job }}-${{ inputs.sanitizer }}-${{ github.run_attempt }}
+        path: ${{ github.workspace }}/out/artifacts
+        if-no-files-found: ignore
+        retention-days: 3

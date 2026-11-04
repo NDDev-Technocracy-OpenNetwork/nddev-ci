@@ -1,0 +1,21 @@
+{
+  "name": "native-web-fixture",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install:browser": "playwright install chromium",
+    "lint:html": "htmlhint index.html",
+    "lint:css": "node css-lint.mjs",
+    "test:web": "playwright test",
+    "build": "node -e \"require('fs').mkdirSync('dist',{recursive:true}); for(const f of ['index.html','style.css']) require('fs').copyFileSync(f,'dist/'+f)\"",
+    "format:check": "prettier --check index.html style.css server.mjs playwright.config.js web.spec.js css-lint.mjs package.json"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@axe-core/playwright": "4.14.0",
+    "htmlhint": "1.9.2",
+    "css-tree": "3.2.1",
+    "prettier": "3.9.10"
+  }
+}

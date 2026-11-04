@@ -1,0 +1,11 @@
+schema=1
+profiles=["python"]
+
+[package]
+commands=[["ciwf-check"]]
+
+[coverage.application]
+profile="python"
+path=".nddev-reports/coverage.xml"
+format="cobertura"
+minimum_percent=50

@@ -1,0 +1,17 @@
+[project]
+name="native-graph"
+version="0.1.0"
+requires-python=">=3.11"
+dependencies=[]
+[dependency-groups]
+dev=["import-linter==2.15"]
+[build-system]
+requires=["uv_build>=0.13.1,<0.14"]
+build-backend="uv_build"
+[tool.importlinter]
+root_package="native_graph"
+[[tool.importlinter.contracts]]
+name="Domain never imports the adapter"
+type="forbidden"
+source_modules=["native_graph.domain"]
+forbidden_modules=["native_graph.adapter"]

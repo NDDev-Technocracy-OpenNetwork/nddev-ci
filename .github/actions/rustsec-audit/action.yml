@@ -1,0 +1,28 @@
+name: Native RustSec audit
+description: Refresh the bounded Cargo cache through native shallow Git, then run cargo-audit without another DB fetch.
+inputs:
+  working-directory:
+    description: Caller directory containing the Cargo.lock to audit
+    default: .
+  reserve-bytes:
+    default: '1073741824'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        NDDEV_ACTION_PATH: ${{ github.action_path }}
+        NDDEV_AUDIT_ROOT: ${{ inputs.working-directory }}
+        NDDEV_AUDIT_RESERVE: ${{ inputs.reserve-bytes }}
+      run: |
+        set -euo pipefail
+        library="$(cd "$NDDEV_ACTION_PATH/../../.." && pwd)"
+        library_uv="$(bash "$library/scripts/library-uv.sh")"
+        export UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/nddev-rustsec-runtime"
+        if [[ -z "${NDDEV_CACHE_PROVIDER:-}" ]]; then
+          export UV_CACHE_DIR="${NDDEV_UV_CACHE_ROOT:-$RUNNER_TEMP/nddev-downloads}"
+        fi
+        root="$("$library_uv" run --project "$library" --locked --no-dev --python 3.13 python -c \
+          'import os; from pathlib import Path; from nddev_cicd.model import contained; print(contained(Path(os.environ["GITHUB_WORKSPACE"]),os.environ["NDDEV_AUDIT_ROOT"],exists=True))')"
+        "$library_uv" run --project "$library" --locked --no-dev --python 3.13 python -m nddev_cicd rustsec-audit \
+          --root "$root" --storage "${NDDEV_RUSTSEC_CACHE_ROOT:-${CARGO_HOME:-$HOME/.cargo}/nddev-rustsec}" --reserve "$NDDEV_AUDIT_RESERVE"

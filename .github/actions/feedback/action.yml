@@ -1,0 +1,68 @@
+name: Publish native failure feedback
+description: Read bounded run metadata and deduplicate failure Issues without executing candidate code.
+inputs:
+  workflows:
+    description: JSON array of exact allowed workflow paths
+    required: true
+  creators:
+    description: JSON array of allowed native run actors
+    required: true
+  run-id:
+    description: Exact completed run, or empty for bounded reconciliation
+    default: ''
+  task-issue:
+    description: Existing owning Issue for deduplicated comments, or empty to create a failure Issue
+    default: ''
+  conclusions:
+    default: '["failure","timed_out","action_required","startup_failure","stale"]'
+  events:
+    description: JSON event allowlist; PR feedback requires explicit selection
+    default: '["push","schedule","workflow_dispatch"]'
+  branches:
+    description: JSON exact branch names, or empty for the native default branch
+    default: ''
+  since:
+    description: Reconciliation UTC lower bound within the past 30 days, or empty for seven days
+    default: ''
+  page-budget:
+    description: Total run-list request budget; exhaustion fails before publication
+    default: '50'
+  infrastructure-hints:
+    description: Read bounded check annotations for typed unavailable inputs; requires checks read permission
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        NDDEV_ACTION_PATH: ${{ github.action_path }}
+        NDDEV_WORKFLOWS: ${{ inputs.workflows }}
+        NDDEV_CREATORS: ${{ inputs.creators }}
+        NDDEV_FEEDBACK_RUN: ${{ inputs.run-id }}
+        NDDEV_TASK_ISSUE: ${{ inputs.task-issue }}
+        NDDEV_EVENTS: ${{ inputs.events }}
+        NDDEV_BRANCHES: ${{ inputs.branches }}
+        NDDEV_SINCE: ${{ inputs.since }}
+        NDDEV_PAGE_BUDGET: ${{ inputs.page-budget }}
+        NDDEV_CONCLUSIONS: ${{ inputs.conclusions }}
+        NDDEV_INFRASTRUCTURE_HINTS: ${{ inputs.infrastructure-hints }}
+      run: |
+        set -euo pipefail
+        library="$(cd "$NDDEV_ACTION_PATH/../../.." && pwd)"
+        library_uv="$(bash "$library/scripts/library-uv.sh")"
+        export UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/nddev-feedback-runtime"
+        if [[ -z "${NDDEV_CACHE_PROVIDER:-}" ]]; then
+          export UV_CACHE_DIR="${NDDEV_UV_CACHE_ROOT:-$RUNNER_TEMP/nddev-downloads}"
+        fi
+        selection=()
+        case "$NDDEV_INFRASTRUCTURE_HINTS" in
+          true) selection+=(--infrastructure-hints) ;;
+          false) ;;
+          *) echo 'infrastructure-hints must be true or false' >&2; exit 2 ;;
+        esac
+        if [[ -n "$NDDEV_FEEDBACK_RUN" ]]; then selection+=(--run-id "$NDDEV_FEEDBACK_RUN"); fi
+        if [[ -n "$NDDEV_BRANCHES" ]]; then selection+=(--branches "$NDDEV_BRANCHES"); fi
+        if [[ -n "$NDDEV_SINCE" ]]; then selection+=(--since "$NDDEV_SINCE"); fi
+        if [[ -n "$NDDEV_TASK_ISSUE" ]]; then selection+=(--task-issue "$NDDEV_TASK_ISSUE"); fi
+        "$library_uv" run --project "$library" --locked --no-dev --python 3.13 python -m nddev_cicd feedback \
+          --workflows "$NDDEV_WORKFLOWS" --creators "$NDDEV_CREATORS" --conclusions "$NDDEV_CONCLUSIONS" --events "$NDDEV_EVENTS" --page-budget "$NDDEV_PAGE_BUDGET" "${selection[@]}"

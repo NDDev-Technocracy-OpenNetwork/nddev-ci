@@ -1,0 +1,14 @@
+analyzer:
+  exclude:
+    - build/**
+    - web/**
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+
+linter:
+  rules:
+    - avoid_print
+    - prefer_const_constructors
+    - prefer_const_declarations

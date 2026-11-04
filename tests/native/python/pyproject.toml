@@ -1,0 +1,22 @@
+[project]
+name = "ciwf-fixture"
+version = "0.1.0"
+description = "Smallest installable package that proves python-ci runs."
+requires-python = ">=3.10"
+
+[build-system]
+requires = ["hatchling==1.29.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ciwf_fixture"]
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "pytest-cov==7.1.0", "ruff==0.17.1", "basedpyright==1.40.2"]
+
+[tool.basedpyright]
+include = ["src"]
+typeCheckingMode = "standard"
+
+[project.scripts]
+ciwf-check = "ciwf_fixture:main"

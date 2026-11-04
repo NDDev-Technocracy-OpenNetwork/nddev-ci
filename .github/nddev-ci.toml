@@ -1,0 +1,59 @@
+schema = 1
+profiles = ["python", "architecture", "documentation", "workflows"]
+
+[architecture]
+scopes = ["src/nddev_cicd"]
+
+[commands.architecture]
+dependencies = ["uv", "run", "lint-imports"]
+
+[commands.documentation]
+external-links = ["lychee", "--no-progress", "--max-retries", "2", "--timeout", "20", "--", "README.md", "SECURITY.md", "docs/usage.md", "docs/origins.md", "docs/examples.md", "docs/speed.md"]
+generate = ["uv", "run", "python", "-m", "nddev_cicd", "reference", "--check"]
+examples = ["uv", "run", "python", "-m", "doctest", "docs/examples.md"]
+
+[commands.workflows]
+security = ["uv", "run", "zizmor", "--offline", "--no-progress", ".github"]
+
+[artifacts]
+files = ["dist/*.whl", "dist/*.tar.gz", "dist/target-fixture/index.html", "dist/image.oci.tar", "dist/image.oci.json"]
+
+[timeouts]
+python = 900
+workflows = 120
+
+[extras.delivery-fixture]
+purpose="Bind a nonproduction HTTP target to the actual tested revision and built wheel for post-merge delivery."
+command=["uv","run","python","scripts/build-delivery-fixture.py"]
+timeout=30
+
+[extras.secrets]
+purpose="Protect the public source boundary with a native full-history secret scan."
+command=["@library","secrets-check"]
+timeout=120
+
+[package]
+commands=[["nddev-cicd","profiles"]]
+
+[extras.oci-fixture]
+purpose="Build and inspect a genuine OCI archive of the tested fixture revision for post-merge immutable registry promotion."
+command=["@library","oci-build","--context","dist/target-fixture","--dockerfile","tests/native/container/Dockerfile","--output","dist/image.oci.tar"]
+timeout=900
+
+[documentation]
+exclude=["archive/"]
+
+[documentation.style]
+authored=["README.md","SECURITY.md","AGENTS.md","docs/usage.md","docs/cache-lifecycle.md","docs/examples.md","docs/origins.md","docs/speed.md","src/*/README.md","src/*/AGENTS.md","tests/native/flutter/README.md"]
+generated=["generated/*.md","docs/profiles.md","archive/README.md"]
+historical=["archive/*/*.md"]
+
+[extras.runtime-binding]
+purpose="Verify native facade/backend pins and package identity against their exact Git sources."
+command=["uv","run","python","scripts/check-runtime-lock.py"]
+timeout=30
+
+[extras.command-interface]
+purpose="Check the native command source without applying SDK or deployment operations."
+command=["just","just-check"]
+timeout=30

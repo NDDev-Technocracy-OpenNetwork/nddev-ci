@@ -1,0 +1,11 @@
+body {
+  margin: 2rem;
+  font-family: system-ui, sans-serif;
+  color: #111;
+  background: #fff;
+}
+input,
+button,
+output {
+  margin: 0.5rem;
+}

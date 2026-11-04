@@ -1,0 +1,7 @@
+schema=1
+profiles=["ruby"]
+[environment]
+BUNDLE_FROZEN="true"
+[tools.ruby]
+command=["ruby","--version"]
+pattern="^ruby 3[.]3[.]"

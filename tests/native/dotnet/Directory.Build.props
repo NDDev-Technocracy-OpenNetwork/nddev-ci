@@ -1,0 +1,7 @@
+<Project>
+    <PropertyGroup>
+        <Version>0.1.0</Version>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+        <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    </PropertyGroup>
+</Project>

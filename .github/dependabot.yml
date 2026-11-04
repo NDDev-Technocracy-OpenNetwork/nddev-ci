@@ -1,0 +1,28 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ['*']
+    ignore:
+      # Self references follow the reviewed runtime lock, not tag discovery.
+      - dependency-name: NDDev-Technocracy-Standarts/std-0004-ci-cd-workflows*
+  - package-ecosystem: uv
+    directories:
+      - /
+      - /.github/native-tools
+      - /tools/security
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      python:
+        patterns: ['*']

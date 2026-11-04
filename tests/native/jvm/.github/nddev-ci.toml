@@ -1,0 +1,8 @@
+schema=1
+profiles=["jvm"]
+[commands.jvm]
+dependencies=["./mvnw","--batch-mode","--strict-checksums","dependency:go-offline"]
+lint=["./mvnw","--batch-mode","--strict-checksums","checkstyle:check"]
+[tools.java]
+command=["java","-version"]
+pattern='version "21[.]'

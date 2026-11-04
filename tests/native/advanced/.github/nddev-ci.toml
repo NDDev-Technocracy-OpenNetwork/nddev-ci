@@ -1,0 +1,7 @@
+schema=1
+profiles=["advanced-testing"]
+[commands.advanced-testing]
+bounded-operation="uv sync --locked && uv run pytest --junitxml=.nddev-reports/property.xml"
+result=["uv","run","pytest","-q","test_properties.py::test_known_boundary_values"]
+[timeouts]
+advanced-testing=120
