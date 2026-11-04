@@ -13,7 +13,7 @@ updates:
         patterns: ['*']
     ignore:
       # Self references follow the reviewed runtime lock, not tag discovery.
-      - dependency-name: NDDev-Technocracy-Standarts/std-0004-ci-cd-workflows*
+      - dependency-name: NDDev-Technocracy-OpenNetwork/nddev-ci*
   - package-ecosystem: uv
     directories:
       - /

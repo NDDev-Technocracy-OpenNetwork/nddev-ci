@@ -1,0 +1,61 @@
+name: Native retained artifact qualification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source:
+    if: github.ref == 'refs/heads/main' && github.actor == 'rldyourmnd'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    outputs:
+      artifact-id: ${{ steps.native.outputs.artifact-id }}
+      artifact-digest: ${{ steps.native.outputs.artifact-digest }}
+      producer-attempt: ${{ steps.native.outputs.producer-attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+        with:
+          version: '0.13.5'
+          python-version: '3.13'
+          enable-cache: false
+      - name: Build and retain the real Python fixture
+        id: native
+        # Qualify the exact checked-out implementation without downloading a second copy.
+        uses: ./.github/actions/ci # zizmor: ignore[self-repository]
+        with:
+          working-directory: tests/native/python
+          contract: .github/artifact-smoke.toml
+
+  controlled:
+    if: github.ref == 'refs/heads/main' && github.actor == 'rldyourmnd'
+    needs: source
+    runs-on: ubuntu-26.04
+    timeout-minutes: 2
+    steps:
+      - name: Fail only the first attempt to qualify the native failed-only rerun
+        run: |
+          if [ "$GITHUB_RUN_ATTEMPT" = 1 ]; then
+            echo 'Expected negative control: rerun only failed jobs after the source producer succeeds.'
+            exit 31
+          fi
+
+  retained:
+    if: github.ref == 'refs/heads/main' && github.actor == 'rldyourmnd'
+    needs: [source, controlled]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 2
+    steps:
+      - name: Require the retained native producer outputs
+        env:
+          PRODUCER_ATTEMPT: ${{ needs.source.outputs.producer-attempt }}
+          ARTIFACT_ID: ${{ needs.source.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ needs.source.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          test "$PRODUCER_ATTEMPT" = 1
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]+$ ]]
+          [[ "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]]

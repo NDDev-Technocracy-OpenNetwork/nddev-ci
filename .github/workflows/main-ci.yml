@@ -1,0 +1,647 @@
+name: main-ci
+'on':
+  push:
+    branches:
+    - main
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: main-validation
+  # Complete the running validation; GitHub retains only the newest pending push.
+  cancel-in-progress: false
+jobs:
+  source:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+        fetch-depth: 0
+    - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3
+      with:
+        just-version: '1.59.0'
+    - name: Prepare pinned job-local native tools
+      run: scripts/prepare-linux-tools.sh security
+    - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      with:
+        version: 0.13.5
+        python-version: '3.13'
+        enable-cache: 'false'
+    - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/ci@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+  native:
+    name: native (${{ matrix.profile }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.impact-plan.outputs.matrix) }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      with:
+        version: 0.13.5
+        enable-cache: 'false'
+        python-version: '3.13'
+    - name: Select the declared native Node toolchain
+      if: ${{ matrix.profile == 'node' || matrix.profile == 'web' || matrix.profile == 'bun' }}
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 24.22.0
+        package-manager-cache: false
+    - name: Select the fixture's native bun manager alongside Node
+      if: ${{ matrix.profile == 'bun' }}
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+      with:
+        bun-version: 1.4.4
+    - name: Use only the image's signed Ubuntu sources for native R system dependencies
+      if: ${{ matrix.profile == 'r' }}
+      run: scripts/prepare-native-apt.sh
+    - name: Select the R SDK declared by the native lockfile
+      if: ${{ matrix.profile == 'r' }}
+      uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05
+      with:
+        r-version: 4.5.2
+        Ncpus: '2'
+    - name: Select Ruby and the lockfile's Bundler without shared cache
+      if: ${{ matrix.profile == 'ruby' }}
+      uses: ruby/setup-ruby@7f797815d8adceb1c412e7abefdd1ab4abc47a5f
+      with:
+        ruby-version: '3.3'
+        bundler: 4.0.23
+        bundler-cache: false
+    - name: Select the declared native JDK
+      if: ${{ matrix.profile == 'jvm' || matrix.profile == 'android' }}
+      run: 'test -n "$JAVA_HOME_21_X64"
+
+        echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+
+        echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+
+        '
+    - name: Select the native .NET SDK
+      if: ${{ matrix.profile == 'dotnet' }}
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+      with:
+        dotnet-version: 10.0.112
+    - name: Select native Flutter without external cache ownership
+      if: ${{ matrix.profile == 'flutter' }}
+      uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+      with:
+        flutter-version: 3.47.7
+        channel: stable
+        cache: 'false'
+        pub-cache: 'false'
+    - name: Select the fixture minimum supported Rust compiler
+      if: ${{ matrix.profile == 'rust' }}
+      uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+      with:
+        toolchain: 1.99.0
+        components: rustfmt, clippy
+    - name: Prepare pinned native Rust policy tools
+      if: ${{ matrix.profile == 'rust' }}
+      run: scripts/prepare-linux-tools.sh rust
+    - name: Exercise the hosted Cargo cache path
+      if: ${{ matrix.profile == 'rust' }}
+      uses: ./.github/actions/hosted-cache # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/
+      with:
+        ecosystems: cargo
+        working-directory: tests/native/rust
+        key: native_rust
+    - name: Prepare native source security tools
+      if: ${{ matrix.profile == 'security' }}
+      run: scripts/prepare-linux-tools.sh security
+    - name: Prepare the native shell test framework
+      if: ${{ matrix.profile == 'shell' }}
+      run: scripts/prepare-linux-tools.sh shell
+    - name: Select the declared native Android SDK
+      if: ${{ matrix.profile == 'android' }}
+      uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      with:
+        cmdline-tools-version: '15859902'
+        packages: platforms;android-36 build-tools;36.0.0 platform-tools
+        log-accepted-android-sdk-licenses: false
+    - name: Select the actual native IaC toolchain
+      if: ${{ matrix.profile == 'infrastructure' }}
+      uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4
+      with:
+        tofu_version: 1.13.2
+        tofu_wrapper: false
+        cache: false
+    - name: Prepare native container and infrastructure scanners
+      if: ${{ matrix.profile == 'infrastructure' || matrix.profile == 'container' }}
+      env:
+        NDDEV_SCAN_CAPABILITY: ${{ matrix.profile }}
+      run: scripts/prepare-linux-tools.sh "$NDDEV_SCAN_CAPABILITY"
+    - name: Prepare versioned Qt with its runtime dependency
+      if: ${{ matrix.profile == 'qt' }}
+      run: scripts/prepare-qt.sh
+    - name: Prepare the verified native compiler cache
+      if: ${{ matrix.profile == 'cpp' || matrix.profile == 'qt' }}
+      run: scripts/prepare-linux-tools.sh compiler
+    - name: Execute native fixture and reject invalid source
+      env:
+        NDDEV_NATIVE_PROFILE: ${{ matrix.profile }}
+        TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
+        RENV_PATHS_ROOT: ${{ runner.temp }}/renv
+        GRADLE_USER_HOME: ${{ runner.temp }}/gradle
+        ANDROID_USER_HOME: ${{ runner.temp }}/android-user
+        RENV_CONFIG_CONSENT: 'TRUE'
+        NDDEV_CACHE_ROOT: ${{ matrix.profile == 'rust' && format('{0}/nddev-native-cache', runner.temp) || '' }}
+      run: uv run --locked python tests/run_native.py "$NDDEV_NATIVE_PROFILE" --output "$RUNNER_TEMP/native-fixture"
+    - name: Reject known findings with the default provisioned scanners
+      if: ${{ matrix.profile == 'security' }}
+      run: uv run --locked pytest -q tests/native_tools_acceptance.py
+    - name: Prepare the pinned native Android bundle validator
+      if: ${{ matrix.profile == 'android' }}
+      run: scripts/prepare-mobile-tools.sh
+    - name: Deliver and verify the actual built Android package
+      if: ${{ matrix.profile == 'android' }}
+      env:
+        NDDEV_ANDROID_APK: ${{ runner.temp }}/native-fixture/positive/mobile/fixture.apk
+      run: uv run --locked pytest -q tests/native_delivery.py -k mobile
+    - name: Retain actual native logs
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: native-${{ matrix.profile }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/native-fixture
+        if-no-files-found: error
+        retention-days: 3
+    needs: impact-plan
+    if: ${{ needs.impact-plan.outputs.native == 'true' }}
+  impact-plan:
+    name: Affected main validation
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      base: ${{ steps.impact.outputs.base }}
+      native: ${{ steps.matrix.outputs.native }}
+      runtime: ${{ steps.matrix.outputs.runtime }}
+      windows: ${{ steps.matrix.outputs.windows }}
+      apple: ${{ steps.matrix.outputs.apple }}
+      advanced: ${{ steps.matrix.outputs.advanced }}
+      quality: ${{ steps.matrix.outputs.quality }}
+      benchmark: ${{ steps.matrix.outputs.benchmark }}
+      assessment: ${{ steps.matrix.outputs.assessment }}
+      clusterfuzz: ${{ steps.matrix.outputs.clusterfuzz }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+        fetch-depth: 0
+    - id: impact
+      uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/impact@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+      with:
+        contract: .github/impact.toml
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    - id: matrix
+      env:
+        SELECTED: ${{ steps.impact.outputs.selected }}
+      run: python3 scripts/plan-main-jobs.py
+  contract-actions:
+    needs: impact-plan
+    if: ${{ needs.impact-plan.outputs.runtime == 'true' }}
+    name: Consumer actions (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      actions: read
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+        - ubuntu-26.04
+        - windows-2025
+        - macos-15
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+        fetch-depth: 0
+    - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      with:
+        version: 0.12.24
+        python-version: '3.13'
+        enable-cache: 'false'
+    - name: Capture the caller's executable
+      run: command -v uv > "$RUNNER_TEMP/caller-uv-path"
+    - id: hosted-cache
+      uses: ./.github/actions/hosted-cache # zizmor: ignore[self-repository] actionlint 1.7.12 rejects $/
+      with:
+        ecosystems: bun
+        working-directory: tests/native/bun
+    - id: positive
+      uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/ci@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+      with:
+        working-directory: tests/native/action-contract
+        result-key: contract-${{ runner.os }}-positive
+        upload: failure
+    - id: negative
+      continue-on-error: true
+      uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/ci@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+      with:
+        working-directory: tests/native/action-contract
+        contract: .github/failure.toml
+        result-key: contract-${{ runner.os }}-negative
+        upload: failure
+        retention-days: '1'
+    - id: never
+      uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/ci@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+      with:
+        working-directory: tests/native/action-contract
+        result-key: contract-${{ runner.os }}-never
+        upload: never
+    - name: Inspect actual results and retained upload
+      env:
+        POSITIVE: ${{ steps.positive.outputs.result-directory }}
+        NEGATIVE: ${{ steps.negative.outputs.result-directory }}
+        NEVER: ${{ steps.never.outputs.result-directory }}
+        NEGATIVE_OUTCOME: ${{ steps.negative.outcome }}
+        HOSTED_ENABLED: ${{ steps.hosted-cache.outputs.enabled }}
+        HOSTED_SAVE: ${{ steps.hosted-cache.outputs.save }}
+        GH_TOKEN: ${{ github.token }}
+      run: 'test "$(command -v uv)" = "$(cat "$RUNNER_TEMP/caller-uv-path")"
+
+        test "$HOSTED_ENABLED" = true && test "$HOSTED_SAVE" = true
+
+        test -d "$BUN_INSTALL_CACHE_DIR"
+
+        uv --version | grep ''^uv 0[.]12[.]24 ''
+
+        python3 scripts/check-action-fixture.py
+
+        '
+  admission:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      windows: ${{ steps.windows.outputs.runner }}
+      macos: ${{ steps.macos.outputs.runner }}
+    steps:
+    - id: windows
+      uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/admit@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+      with:
+        policy: '{"visibility":"public","platform":"windows","architecture":"x64"}'
+    - id: macos
+      uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/admit@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+      with:
+        policy: '{"visibility":"public","platform":"macos","architecture":"arm64"}'
+    needs: impact-plan
+    if: ${{ needs.impact-plan.outputs.windows == 'true' || needs.impact-plan.outputs.apple == 'true' }}
+  windows:
+    needs:
+    - admission
+    - impact-plan
+    runs-on: ${{ fromJSON(needs.admission.outputs.windows) }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      with:
+        version: 0.13.5
+        enable-cache: 'false'
+        python-version: '3.13'
+    - name: Execute real Windows Python package and rejected source
+      run: uv run --locked python tests/run_native.py python --output "$RUNNER_TEMP/native-windows"
+    if: ${{ needs.impact-plan.outputs.windows == 'true' }}
+  macos:
+    needs:
+    - admission
+    - impact-plan
+    runs-on: ${{ fromJSON(needs.admission.outputs.macos) }}
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      with:
+        version: 0.13.5
+        enable-cache: 'false'
+        python-version: '3.13'
+    - name: Execute real Apple ARM Swift package and rejected source
+      run: uv run --locked python tests/run_native.py swift --output "$RUNNER_TEMP/native-swift"
+    if: ${{ needs.impact-plan.outputs.apple == 'true' }}
+  delivery:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      with:
+        version: 0.13.5
+        enable-cache: 'false'
+        python-version: '3.13'
+    - name: Prepare the pinned native release inventory tool
+      run: scripts/prepare-release-tools.sh
+    - name: Exercise native registries, target concurrency and data-compatible recovery
+      run: uv run --locked pytest -q tests/native_delivery.py tests/native_remote.py tests/native_release.py tests/native_oci.py
+        -k 'not systemd and not mobile' --junitxml="$RUNNER_TEMP/native-delivery.xml"
+    needs: impact-plan
+    if: ${{ needs.impact-plan.outputs.runtime == 'true' }}
+  advanced-native:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+    - name: Select an owned job-local Cargo dependency cache
+      run: echo "CARGO_HOME=$RUNNER_TEMP/nddev-advanced-cargo" >> "$GITHUB_ENV"
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      with:
+        version: 0.13.5
+        enable-cache: 'false'
+        python-version: '3.13'
+    - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+      with:
+        toolchain: nightly-2026-10-19
+        components: rust-src
+    - name: Use only the image's signed Ubuntu sources for native compiler dependencies
+      run: scripts/prepare-native-apt.sh
+    - name: Select a compatible native Clang and libFuzzer runtime
+      run: 'sudo apt-get update
+
+        sudo apt-get install --yes --no-install-recommends clang-18 libclang-rt-18-dev
+
+        echo "CXX=clang++-18" >> "$GITHUB_ENV"
+
+        '
+    - name: Prepare checksum-pinned native fuzz and mutation tools
+      run: scripts/prepare-advanced-tools.sh
+    - name: Exercise native fuzz, mutation and paired benchmark failures
+      run: uv run --locked pytest -q tests/native_advanced.py --junitxml="$RUNNER_TEMP/advanced.xml"
+    needs: impact-plan
+    if: ${{ needs.impact-plan.outputs.advanced == 'true' }}
+  native-quality:
+    needs: impact-plan
+    if: ${{ needs.impact-plan.outputs.quality == 'true' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+        fetch-depth: 0
+    - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      with:
+        version: 0.13.5
+        python-version: '3.13'
+        enable-cache: 'false'
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      with:
+        node-version: 24.22.0
+        package-manager-cache: false
+    - name: Prepare isolated native quality and vulnerability tools
+      run: scripts/prepare-linux-tools.sh quality security
+    - name: Reject real source, mutation, spelling and unused-dependency findings
+      run: uv run --locked pytest -q tests/native_quality.py --basetemp="$RUNNER_TEMP/native-quality" --junitxml="$RUNNER_TEMP/native-quality.xml"
+    - name: Scan the library and its owned SDK locks without a license policy
+      run: osv-scanner scan source --lockfile=uv.lock --lockfile=.github/native-tools/uv.lock --lockfile=tests/native/mutation-node/package-lock.json --format=json --all-packages --output-file="$RUNNER_TEMP/owned-dependencies.json"
+    - name: Retain native outcomes, original reports and dependency feedback
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        name: native-quality-${{ github.run_attempt }}
+        path: |
+          ${{ runner.temp }}/native-quality
+          ${{ runner.temp }}/native-quality.xml
+          ${{ runner.temp }}/owned-dependencies.json
+        if-no-files-found: error
+        retention-days: 3
+  native-benchmark:
+    needs: impact-plan
+    if: ${{ needs.impact-plan.outputs.benchmark == 'true' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-26.04, windows-2025, macos-15]
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+        fetch-depth: 0
+    - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      with:
+        version: 0.13.5
+        python-version: '3.13'
+        enable-cache: 'false'
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.27.3'
+        cache: false
+    - name: Measure the actual unchanged earlier Go implementation
+      run: uv run --locked python tests/benchmark_driver.py prepare "$RUNNER_TEMP/native-benchmark"
+    - id: record
+      uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/benchmark@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+      with:
+        tool: go
+        mode: record
+        measurement-file: ${{ runner.temp }}/native-benchmark/before.txt
+        maximum-ratio: '2'
+    - name: Select that measured implementation as the controlled SDK baseline
+      env:
+        NDDEV_HISTORY: ${{ steps.record.outputs.history }}
+      run: uv run --locked python tests/benchmark_driver.py baseline "$RUNNER_TEMP/native-benchmark" "$NDDEV_HISTORY"
+    - name: Measure the actual positive candidate
+      run: uv run --locked python tests/benchmark_driver.py positive "$RUNNER_TEMP/native-benchmark"
+    - id: positive
+      uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/benchmark@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+      with:
+        tool: go
+        measurement-file: ${{ runner.temp }}/native-benchmark/positive.txt
+        history-file: ${{ runner.temp }}/native-benchmark/accepted.json
+        maximum-ratio: '2'
+    - name: Measure an actual controlled performance regression
+      run: uv run --locked python tests/benchmark_driver.py negative "$RUNNER_TEMP/native-benchmark"
+    - id: negative
+      continue-on-error: true
+      uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/benchmark@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+      with:
+        tool: go
+        measurement-file: ${{ runner.temp }}/native-benchmark/negative.txt
+        history-file: ${{ runner.temp }}/native-benchmark/accepted.json
+        maximum-ratio: '2'
+    - name: Require native regression failure and preserve the accepted baseline
+      env:
+        NEGATIVE_OUTCOME: ${{ steps.negative.outcome }}
+        NEGATIVE_HISTORY: ${{ steps.negative.outputs.history }}
+        POSITIVE_HISTORY: ${{ steps.positive.outputs.history }}
+      run: uv run --locked python tests/benchmark_driver.py verify "$RUNNER_TEMP/native-benchmark"
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      if: ${{ !cancelled() }}
+      with:
+        name: native-benchmark-${{ runner.os }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/native-benchmark
+        if-no-files-found: error
+        retention-days: 3
+  native-assessment:
+    needs: impact-plan
+    if: ${{ needs.impact-plan.outputs.assessment == 'true' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/scorecard@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      if: ${{ !cancelled() }}
+      with:
+        name: native-assessment-${{ github.run_attempt }}
+        path: .nddev-reports/scorecard.json
+        if-no-files-found: error
+        retention-days: 3
+  native-clusterfuzz:
+    needs: impact-plan
+    if: ${{ needs.impact-plan.outputs.clusterfuzz == 'true' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - variant: positive
+          sanitizer: address
+        - variant: negative
+          sanitizer: undefined
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+        fetch-depth: 0
+    - name: Inject the controlled native source defect only in the negative cell
+      if: ${{ matrix.variant == 'negative' }}
+      run: |
+        python3 - <<'PY'
+        from pathlib import Path
+        source = Path('tests/native/clusterfuzz/parser.cc')
+        before = source.read_text()
+        assert before.count('constexpr bool injected_defect = false;') == 1
+        source.write_text(before.replace('constexpr bool injected_defect = false;', 'constexpr bool injected_defect = true;'))
+        PY
+    - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/clusterfuzz@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+      with:
+        phase: build
+        project-directory: tests/native/clusterfuzz
+        sanitizer: ${{ matrix.sanitizer }}
+        seconds: '5'
+    - name: Seed the controlled native defect after the mandatory build check
+      if: ${{ matrix.variant == 'negative' }}
+      run: |
+        sudo python3 - <<'PY'
+        from pathlib import Path
+        from zipfile import ZipFile
+        output = Path('build-out/native_parser_seed_corpus.zip')
+        assert output.parent.is_dir()
+        with ZipFile(output, 'w') as archive:
+            archive.writestr('controlled-input', b'NDDev controlled ClusterFuzzLite negative acceptance seed')
+        PY
+    - id: fuzz
+      continue-on-error: ${{ matrix.variant == 'negative' }}
+      uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/clusterfuzz@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+      with:
+        phase: run
+        project-directory: tests/native/clusterfuzz
+        sanitizer: ${{ matrix.sanitizer }}
+        seconds: '5'
+    - name: Require actual native failure and retained reproducing input and stack
+      if: ${{ matrix.variant == 'negative' }}
+      env:
+        NDDEV_NATIVE_OUTCOME: ${{ steps.fuzz.outcome }}
+      run: |
+        test "$NDDEV_NATIVE_OUTCOME" = failure
+        python3 - <<'PY'
+        from pathlib import Path
+        summaries = list(Path('out/artifacts/native_parser/undefined').glob('*.summary'))
+        assert summaries and all(path.stat().st_size for path in summaries)
+        assert all(path.with_suffix('').is_file() for path in summaries)
+        PY
+  public-security:
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/public-security.yml@f3dec01aba5fc900b91874766bda8463461fe94d
+    with:
+      languages: python,actions
+      comparison-base: ${{ fromJSON(needs.impact-plan.outputs.base) || '' }}
+    needs: impact-plan
+    if: ${{ needs.impact-plan.outputs.runtime == 'true' }}
+  online-refs:
+    name: Native online action reference audit
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
+      with:
+        version: 0.13.5
+        python-version: '3.13'
+        enable-cache: 'false'
+    - name: Check actual remote references with read-only metadata access
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: uv run --locked zizmor --persona auditor --min-severity medium --format plain .github
+  gate:
+    needs:
+    - source
+    - impact-plan
+    - native
+    - contract-actions
+    - admission
+    - windows
+    - macos
+    - delivery
+    - advanced-native
+    - public-security
+    - online-refs
+    - native-quality
+    - native-benchmark
+    - native-assessment
+    - native-clusterfuzz
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 2
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      with:
+        persist-credentials: false
+    - env:
+        NDDEV_EXPECTED_JOBS: ${{ toJSON(needs) }}
+        NDDEV_RUNTIME_SELECTED: ${{ needs.impact-plan.outputs.runtime }}
+        NDDEV_NATIVE_SELECTED: ${{ needs.impact-plan.outputs.native }}
+        NDDEV_PUBLIC_SECURITY_STATUS: ${{ needs.public-security.outputs.status }}
+        NDDEV_WINDOWS_SELECTED: ${{ needs.impact-plan.outputs.windows }}
+        NDDEV_APPLE_SELECTED: ${{ needs.impact-plan.outputs.apple }}
+        NDDEV_ADVANCED_SELECTED: ${{ needs.impact-plan.outputs.advanced }}
+        NDDEV_QUALITY_SELECTED: ${{ needs.impact-plan.outputs.quality }}
+        NDDEV_BENCHMARK_SELECTED: ${{ needs.impact-plan.outputs.benchmark }}
+        NDDEV_ASSESSMENT_SELECTED: ${{ needs.impact-plan.outputs.assessment }}
+        NDDEV_CLUSTERFUZZ_SELECTED: ${{ needs.impact-plan.outputs.clusterfuzz }}
+      run: python3 scripts/check-main-jobs.py

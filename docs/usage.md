@@ -642,7 +642,7 @@ jobs:
           ref: refs/tags/${{ needs.resolve.outputs.version }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: NDDev-Technocracy-Standarts/std-0004-ci-cd-workflows/.github/actions/source-release@<sha> # nddev-cicd-v<version>
+      - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/source-release@<sha> # nddev-cicd-v<version>
         with:
           version: ${{ needs.resolve.outputs.version }}
           package-name: my-package

@@ -1,0 +1,43 @@
+name: source-ci
+on:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: pr-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3
+        with:
+          just-version: '1.59.0'
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: '0.13.5'
+          python-version: '3.13'
+          enable-cache: 'false'
+      - name: Prepare verified workflow and secret tools
+        run: scripts/prepare-linux-tools.sh security
+      - name: Check changed candidate with the short native contract
+        run: |
+          just just-check
+          uv run --locked ruff format --check src tests
+          uv run --locked ruff check src tests
+          uv run --locked basedpyright
+          uv run --locked pytest -q
+          uv run --locked python -m doctest docs/examples.md
+          uv run --locked python -m nddev_cicd reference --check
+          uv run --locked python scripts/check-runtime-lock.py
+          uv run --locked python -c 'from pathlib import Path; from nddev_cicd import config,documentation; documentation.check(Path.cwd(),config.load(Path.cwd()).get("documentation"))'
+          actionlint
+          uv run --locked python -m nddev_cicd runners-check
+          uv run --locked zizmor --offline --no-progress .github
+          uv run --locked python -m nddev_cicd secrets-check --output "$RUNNER_TEMP/pr-secrets"

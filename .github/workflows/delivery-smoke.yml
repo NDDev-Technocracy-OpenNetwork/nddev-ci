@@ -1,0 +1,80 @@
+name: integrated-delivery-smoke
+# Trusted successful main run is admitted before its source checkout.
+on: # zizmor: ignore[dangerous-triggers] Exact reviewed admission precedes candidate checkout and target work.
+  workflow_run:
+    workflows: [main-ci]
+    types: [completed]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: integrated-main-delivery
+  cancel-in-progress: false
+jobs:
+  artifact:
+    if: ${{ github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    outputs:
+      source-run-id: ${{ steps.fixture.outputs.run_id }}
+    steps:
+      - id: eligible
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/eligible@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          revision: ${{ github.event.workflow_run.head_sha }}
+          source-workflow: .github/workflows/main-ci.yml
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ steps.eligible.outputs.revision }}
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: '0.13.5'
+          enable-cache: 'false'
+          python-version: '3.13'
+      - name: Prepare only the authorized temporary target and select its completed main source run
+        id: fixture
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: uv run --locked python scripts/delivery-smoke.py prepare "$RUNNER_TEMP/integrated-smoke"
+      - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/deliver@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          run-id: ${{ steps.fixture.outputs.run_id }}
+          source-workflow: .github/workflows/main-ci.yml
+          target-config: ${{ steps.fixture.outputs.target }}
+          transport-config: ${{ steps.fixture.outputs.transport }}
+      - name: Publish the exact tested OCI archive to the owned HTTPS registry
+        id: image
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/actions/oci-publish@6c1b11e8a890bd3aa8e361ac467fafd78fa59efe
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          run-id: ${{ steps.fixture.outputs.run_id }}
+          source-workflow: .github/workflows/main-ci.yml
+          repository: ${{ steps.fixture.outputs.oci_repository }}
+          certificates: ${{ steps.fixture.outputs.oci_certificates }}
+      - name: Verify the remote served revision and stop the owned SSH server
+        if: ${{ always() && steps.fixture.outcome == 'success' }}
+        env:
+          NDDEV_PUBLISHED_IMAGE: ${{ steps.image.outputs.image }}
+          NDDEV_PUBLISHED_DIGEST: ${{ steps.image.outputs.digest }}
+        run: uv run --locked python scripts/delivery-smoke.py finish "$RUNNER_TEMP/integrated-smoke"
+      - name: Remove only owned isolated targets even after interrupted preparation
+        if: ${{ always() && contains(fromJSON('["success","failure","cancelled"]'), steps.fixture.outcome) }}
+        run: uv run --locked python scripts/delivery-smoke.py cleanup "$RUNNER_TEMP/integrated-smoke"
+  release:
+    needs: artifact
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/release.yml@f3dec01aba5fc900b91874766bda8463461fe94d
+    with:
+      run-id: ${{ needs.artifact.outputs.source-run-id }}
+      source-workflow: .github/workflows/main-ci.yml

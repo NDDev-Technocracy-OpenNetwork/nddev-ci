@@ -1,6 +1,6 @@
 # Security reporting
 
-Report a suspected vulnerability through [Report a vulnerability](https://github.com/NDDev-Technocracy-Standarts/std-0004-ci-cd-workflows/security/advisories/new).
+Report a suspected vulnerability through [Report a vulnerability](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-ci/security/advisories/new).
 The repository owner, [rldyourmnd](https://github.com/rldyourmnd), triages private reports.
 
 Include the affected source or package identity, impact, and a minimal reproduction. Keep credentials
