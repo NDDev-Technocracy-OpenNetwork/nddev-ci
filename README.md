@@ -17,5 +17,5 @@ Run `just setup` to install the locked development environment. The
 `just check`, `just fix`, `just test` and `just build` commands cover source
 checks, formatting, regressions and the Python distribution respectively.
 
-The first implementation tree derives from the published `nddev-cicd`
-0.6.25 source. Its distribution and module names remain stable for callers.
+The implementation derives from the published `nddev-cicd` source. The
+Python distribution and module names remain stable for callers.

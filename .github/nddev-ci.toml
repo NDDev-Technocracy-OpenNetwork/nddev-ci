@@ -41,12 +41,11 @@ command=["@library","oci-build","--context","dist/target-fixture","--dockerfile"
 timeout=900
 
 [documentation]
-exclude=["archive/"]
+exclude=[]
 
 [documentation.style]
 authored=["README.md","SECURITY.md","AGENTS.md","docs/usage.md","docs/cache-lifecycle.md","docs/examples.md","docs/origins.md","docs/speed.md","src/*/README.md","src/*/AGENTS.md","tests/native/flutter/README.md"]
-generated=["generated/*.md","docs/profiles.md","archive/README.md"]
-historical=["archive/*/*.md"]
+generated=["docs/profiles.md"]
 
 [extras.runtime-binding]
 purpose="Verify native facade/backend pins and package identity against their exact Git sources."

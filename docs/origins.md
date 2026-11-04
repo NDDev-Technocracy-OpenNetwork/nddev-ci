@@ -1,6 +1,6 @@
 # Implementation origins
 
-The [native source register](../spec/sources.yaml) retains exact original fixture references and paths.
+The [native source register](https://github.com/NDDev-Technocracy-Standarts/std-0004-ci-cd-workflows/blob/068c887870bc3cd34ecd69fd762aea3bfd9a4171/spec/sources.yaml) retains exact original fixture references and paths.
 Imported language fixtures keep their [original notice](../tests/native/NOTICE), copyright and grants.
 The library's own source uses the [root license](../LICENSE); imported grants are not narrowed.
 Fixture-specific native package license declarations remain authoritative.
