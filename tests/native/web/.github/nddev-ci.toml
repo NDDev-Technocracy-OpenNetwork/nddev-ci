@@ -1,5 +1,0 @@
-schema=1
-profiles=["web"]
-[tools.node]
-command=["node","--version"]
-pattern="^v24[.]"
