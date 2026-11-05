@@ -81,7 +81,11 @@ jobs:
             echo "::error::$GATEWAY_SETTINGS lacks the gateway's addresses or bucket"
             exit 1
           fi
+          # Rust cache keys hold the paths of the dependency sources, so every job builds with the
+          # machine's one Cargo home and its dependencies match across runner slots and jobs.
+          cargo_home=${NDDEV_CARGO_DOWNLOAD_CACHE:-${CARGO_HOME:-$HOME/.cargo}}
           {
+            echo "CARGO_HOME=$cargo_home"
             echo "RUSTC_WRAPPER=$RUNNER_TEMP/nddev-ci/bin/sccache"
             echo "CARGO_INCREMENTAL=0"
             echo "SCCACHE_CONF=/dev/null"
@@ -92,7 +96,7 @@ jobs:
             echo "SCCACHE_S3_NO_CREDENTIALS=true"
             echo "SCCACHE_S3_KEY_PREFIX=sccache"
             echo "SCCACHE_S3_RW_MODE=$mode"
-            echo "SCCACHE_BASEDIRS=$GITHUB_WORKSPACE:${CARGO_HOME:-$HOME/.cargo}"
+            echo "SCCACHE_BASEDIRS=$GITHUB_WORKSPACE:$cargo_home"
             echo "NO_PROXY=127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}"
             echo "no_proxy=127.0.0.1,localhost${no_proxy:+,$no_proxy}"
           } >> "$GITHUB_ENV"
