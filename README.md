@@ -13,8 +13,11 @@ repository.
 | Pull request | `just check`, then `just test` |
 | Push to `dev`, or a run by hand | `just verify` |
 
-- Private repositories run on our runners, the label in the `runner` input, and public ones on
-  GitHub's runners.
+- Public repositories always run on GitHub's runners. Private ones run on our runners, the label
+  in the `runner` input, unless the pull request carries the label `runner:blacksmith`
+  (Blacksmith's 2-vCPU runners, within their free minutes) or `runner:github` (GitHub's runners),
+  or a run by hand chooses `blacksmith` or `github` in its `runner` input. Adding such a label
+  reruns the check there; other labels do not. Nothing moves a waiting job on its own.
 - On our runners, Rust builds compile through sccache into the contour's R2 cache, by way of the
   cache gateway of the machine named in `/etc/contour/caches/environment.toml`. Jobs of `dev` and
   `main` read and write; every other job only reads, so a pull request never writes what a

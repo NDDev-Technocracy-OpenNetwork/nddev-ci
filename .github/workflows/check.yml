@@ -1,6 +1,8 @@
 # The check of an NDDev project. A pull request gets the short check, `just check` and `just test`;
-# a push to `dev` or a run by hand gets the full check, `just verify`. Private repositories run on
-# our runners and public ones on GitHub's, as delivery.md asks.
+# a push to `dev` or a run by hand gets the full check, `just verify`. As delivery.md asks, public
+# repositories run on GitHub's runners and private ones on ours, unless the pull request carries
+# the label `runner:blacksmith` or `runner:github`, or a run by hand chooses `blacksmith` or
+# `github` in its `runner` input.
 name: check
 
 on:
@@ -28,7 +30,9 @@ permissions: {}
 jobs:
   check:
     name: ${{ github.event_name == 'pull_request' && 'short check' || 'full check' }}
-    runs-on: ${{ github.event.repository.private && inputs.runner || 'ubuntu-24.04' }}
+    # A new label reruns the check only when it chooses the runner.
+    if: github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:')
+    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || (contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') || github.event.inputs.runner == 'blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || (contains(github.event.pull_request.labels.*.name, 'runner:github') || github.event.inputs.runner == 'github') && 'ubuntu-24.04' || inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
@@ -144,8 +148,8 @@ jobs:
     # The merge stops of security.md: a secret in the change, and a dangerous workflow (a broken
     # file, an action not pinned by commit, a high-severity zizmor finding).
     name: merge stops
-    if: github.event_name == 'pull_request'
-    runs-on: ${{ github.event.repository.private && inputs.runner || 'ubuntu-24.04' }}
+    if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:'))
+    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || (contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') || github.event.inputs.runner == 'blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || (contains(github.event.pull_request.labels.*.name, 'runner:github') || github.event.inputs.runner == 'github') && 'ubuntu-24.04' || inputs.runner }}
     timeout-minutes: 10
     permissions:
       contents: read
