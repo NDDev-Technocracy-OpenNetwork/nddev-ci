@@ -22,6 +22,8 @@ repository.
 - Every job builds with the machine's one Cargo home, `NDDEV_CARGO_DOWNLOAD_CACHE`: Rust cache keys
   hold the paths of the dependency sources, so dependencies compiled in one job match in every other.
 - The check step reports how many compilations came from the cache.
+- A project may name an `artifact`, such as a release binary, and an `artifact-name`. The full
+  check keeps it with its run for 90 days, so a deployment takes the build of a checked commit.
 - A pull request also runs the merge stops of security.md: gitleaks over the change's commits, and
   actionlint and zizmor (high severity) over the workflows. Either finding stops the merge.
 
