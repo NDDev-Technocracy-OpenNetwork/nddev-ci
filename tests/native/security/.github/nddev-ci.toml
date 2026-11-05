@@ -1,5 +1,0 @@
-schema=1
-profiles=["security"]
-[security]
-python=["app.py"]
-licenses=["MIT"]

@@ -1,9 +1,12 @@
-# NDDev CI library
+# Agents
 
-This repository supplies reusable GitHub Actions, workflows and the Python
-implementation that they invoke. Keep public and external runner execution
-isolated from managed cache and private fleet credentials.
+Follow the [agent standards](https://github.com/NDDev-Technocracy-Standarts/agent-standards),
+starting with `vision.md`; delivery.md describes this library.
 
-Use the locked native commands in the justfile. Treat published action and
-workflow SHAs as immutable. Update the implementation and facade pins before
-changing a caller. Preserve old published entrypoints during migration.
+- The repository is public. It holds only workflows and their code. Hosts, keys and private
+  settings reach it as inputs or from the runner machine, never from this repository.
+- A project's justfile defines its checks; the library only decides which recipes run and prepares
+  the tools and the network cache around them.
+- Callers pin a commit. A change that alters what callers get ships as a new commit they move to.
+
+`just check` before every commit.

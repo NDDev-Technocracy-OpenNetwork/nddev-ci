@@ -1,21 +1,29 @@
 # NDDev CI
 
-Reusable GitHub Actions and workflows for source checks, runner routing,
-artifacts, provenance and release publication. Use an immutable commit SHA
-from a release when calling a workflow or action.
+The shared CI library of NDDev projects. A project calls one reusable workflow, pinned by commit,
+and it runs the same `just` commands an agent runs.
 
-The library defaults to GitHub-hosted runners for public workflows. Private
-managed callers may select an admitted runner class. External runner
-providers use their own cache. Deployment runs on each project's release host
-through its release controller.
+## Use
 
-- [Consumer configuration](docs/usage.md)
-- [Routing examples](docs/examples.md)
-- [Managed cache lifecycle](docs/cache-lifecycle.md)
+Copy [examples/ci.yml](examples/ci.yml) to `.github/workflows/ci.yml` and pin a commit of this
+repository.
 
-Run `just setup` to install the locked development environment. The
-`just check`, `just fix`, `just test` and `just build` commands cover source
-checks, formatting, regressions and the Python distribution respectively.
+| Event | Runs |
+| --- | --- |
+| Pull request | `just check`, then `just test` |
+| Push to `dev`, or a run by hand | `just verify` |
 
-The implementation derives from the published `nddev-cicd` source. The
-Python distribution and module names remain stable for callers.
+- Private repositories run on our runners, the label in the `runner` input, and public ones on
+  GitHub's runners.
+- On our runners, Rust builds compile through sccache into the contour's R2 cache, by way of the
+  cache gateway of the machine named in `/etc/contour/caches/environment.toml`. Jobs of `dev` and
+  `main` read and write; every other job only reads, so a pull request never writes what a
+  release build reads. This separates honest builds, not hostile ones, as jobs share an account.
+- The check step reports how many compilations came from the cache.
+
+## Check
+
+```sh
+just check    # format, actionlint and zizmor
+just verify   # everything the full check runs
+```

@@ -1,0 +1,16 @@
+# A project's whole CI: the library's check, pinned by commit.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@0000000000000000000000000000000000000000 # replace with a commit of this repository
+    permissions:
+      contents: read

@@ -1,3 +1,0 @@
-#!/bin/sh
-# The shared bootstrap owns preparation; the pinned native frontend owns the store and leases.
-exec python3 "$(dirname "$0")/../native_cache.py" run-uv "$@"

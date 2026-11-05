@@ -1,28 +1,10 @@
+# Dependabot watches this repository, as technologies.md asks: alerts, security updates at once,
+# and version updates after its three-day wait.
 version: 2
 updates:
   - package-ecosystem: github-actions
-    directories:
-      - /
-      - /.github/actions/*
+    directory: /
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
-      default-days: 7
-    groups:
-      actions:
-        patterns: ['*']
-    ignore:
-      # Self references follow the reviewed runtime lock, not tag discovery.
-      - dependency-name: NDDev-Technocracy-OpenNetwork/nddev-ci*
-  - package-ecosystem: uv
-    directories:
-      - /
-      - /.github/native-tools
-      - /tools/security
-    schedule:
-      interval: weekly
-    cooldown:
-      default-days: 7
-    groups:
-      python:
-        patterns: ['*']
+      default-days: 3
