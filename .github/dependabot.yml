@@ -1,0 +1,10 @@
+# Dependabot watches this repository, as technologies.md asks: alerts, security updates at once,
+# and version updates after its three-day wait.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 3

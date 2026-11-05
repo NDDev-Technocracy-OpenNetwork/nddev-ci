@@ -1,0 +1,118 @@
+# The check of an NDDev project. A pull request gets the short check, `just check` and `just test`;
+# a push to `dev` or a run by hand gets the full check, `just verify`. Private repositories run on
+# our runners and public ones on GitHub's, as delivery.md asks.
+name: check
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: The label of our runners, used by private repositories.
+        type: string
+        default: nddev-linux-standart
+      timeout-minutes:
+        description: How long the check may run.
+        type: number
+        default: 30
+
+permissions: {}
+
+jobs:
+  check:
+    name: ${{ github.event_name == 'pull_request' && 'short check' || 'full check' }}
+    runs-on: ${{ github.event.repository.private && inputs.runner || 'ubuntu-24.04' }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    env:
+      JUST_VERSION: "1.59.0"
+      JUST_SHA256: "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e"
+      SCCACHE_VERSION: "0.19.0"
+      SCCACHE_SHA256: "aa73c7270c997894038c0d8f0d297865f57569e1687883322bc431713d4bb9dd"
+      # The contour cache gateway's settings on our runner machines.
+      GATEWAY_SETTINGS: /etc/contour/caches/environment.toml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Tools
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/nddev-ci/bin"
+          archive="$RUNNER_TEMP/nddev-ci/archive.tar.gz"
+          mkdir -p "$bin"
+          fetch() {
+            curl -fsSL --retry 3 -o "$archive" "$1"
+            echo "$2  $archive" | sha256sum --check --quiet
+            tar -xzf "$archive" -C "$bin" --strip-components="$3" "$4"
+          }
+          fetch "https://github.com/casey/just/releases/download/$JUST_VERSION/just-$JUST_VERSION-x86_64-unknown-linux-musl.tar.gz" \
+            "$JUST_SHA256" 0 just
+          if [ -r "$GATEWAY_SETTINGS" ]; then
+            fetch "https://github.com/mozilla/sccache/releases/download/v$SCCACHE_VERSION/sccache-v$SCCACHE_VERSION-x86_64-unknown-linux-musl.tar.gz" \
+              "$SCCACHE_SHA256" 1 "sccache-v$SCCACHE_VERSION-x86_64-unknown-linux-musl/sccache"
+          fi
+          rm -f "$archive"
+          echo "$bin" >> "$GITHUB_PATH"
+
+      - name: Network cache
+        # Jobs of dev and main read and write the contour's R2 cache; every other job only reads it,
+        # so a pull request never writes what a release build reads.
+        run: |
+          set -euo pipefail
+          if [ ! -r "$GATEWAY_SETTINGS" ]; then
+            echo "This runner has no contour cache gateway; the build runs without the network cache."
+            exit 0
+          fi
+          setting() { sed -n "s/^$1 = \"\(.*\)\"$/\1/p" "$GATEWAY_SETTINGS" | head -n 1; }
+          case "$GITHUB_EVENT_NAME:$GITHUB_REF" in
+            push:refs/heads/dev | push:refs/heads/main | workflow_dispatch:refs/heads/dev | workflow_dispatch:refs/heads/main | schedule:refs/heads/dev | schedule:refs/heads/main)
+              address=$(setting trusted_listen)
+              mode=READ_WRITE
+              ;;
+            *)
+              address=$(setting untrusted_listen)
+              mode=READ_ONLY
+              ;;
+          esac
+          bucket=$(setting bucket)
+          if [ -z "$address" ] || [ -z "$bucket" ]; then
+            echo "::error::$GATEWAY_SETTINGS lacks the gateway's addresses or bucket"
+            exit 1
+          fi
+          {
+            echo "RUSTC_WRAPPER=$RUNNER_TEMP/nddev-ci/bin/sccache"
+            echo "CARGO_INCREMENTAL=0"
+            echo "SCCACHE_CONF=/dev/null"
+            echo "SCCACHE_BUCKET=$bucket"
+            echo "SCCACHE_ENDPOINT=http://$address"
+            echo "SCCACHE_REGION=auto"
+            echo "SCCACHE_S3_USE_SSL=false"
+            echo "SCCACHE_S3_NO_CREDENTIALS=true"
+            echo "SCCACHE_S3_KEY_PREFIX=sccache"
+            echo "SCCACHE_S3_RW_MODE=$mode"
+            echo "SCCACHE_BASEDIRS=$GITHUB_WORKSPACE:${CARGO_HOME:-$HOME/.cargo}"
+            echo "NO_PROXY=127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}"
+            echo "no_proxy=127.0.0.1,localhost${no_proxy:+,$no_proxy}"
+          } >> "$GITHUB_ENV"
+          echo "Rust builds compile through the network cache at $address, $mode."
+
+      - name: Check
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = pull_request ]; then
+            just check
+            just test
+          else
+            just verify
+          fi
+
+      - name: Cache use
+        if: always()
+        run: |
+          if [ -n "${RUSTC_WRAPPER:-}" ] && [ -x "$RUSTC_WRAPPER" ]; then
+            "$RUSTC_WRAPPER" --show-stats 2>/dev/null | grep -E '^(Compile requests|Cache hits|Cache misses|Cache hits rate|Cache read errors|Cache write errors)' || true
+          fi
