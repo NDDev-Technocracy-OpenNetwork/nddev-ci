@@ -20,6 +20,8 @@ repository.
   `main` read and write; every other job only reads, so a pull request never writes what a
   release build reads. This separates honest builds, not hostile ones, as jobs share an account.
 - The check step reports how many compilations came from the cache.
+- A pull request also runs the merge stops of security.md: gitleaks over the change's commits, and
+  actionlint and zizmor (high severity) over the workflows. Either finding stops the merge.
 
 ## Check
 
