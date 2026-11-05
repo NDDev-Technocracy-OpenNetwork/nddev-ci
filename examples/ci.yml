@@ -3,9 +3,17 @@ name: ci
 
 on:
   pull_request:
+    # `labeled` lets the labels `runner:blacksmith` and `runner:github` rerun the check there.
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [dev]
   workflow_dispatch:
+    inputs:
+      runner:
+        description: Where a private repository's check runs.
+        type: choice
+        options: [ours, blacksmith, github]
+        default: ours
 
 permissions: {}
 
