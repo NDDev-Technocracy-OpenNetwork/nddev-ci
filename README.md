@@ -39,8 +39,9 @@ repository.
   receive them.
 - A project may name an `artifact`, such as a release binary, and an `artifact-name`. The full
   check keeps it with its run for 90 days, so a deployment takes the build of a checked commit.
-- A pull request also runs the merge stops of security.md: gitleaks over the change's commits, and
-  actionlint and zizmor (high severity) over the workflows. Either finding stops the merge.
+- A pull request also runs the merge stops of security.md: Betterleaks over the change's commits,
+  and actionlint, zizmor (high severity) and poutine (warnings and errors; its notes are only
+  reported) over the workflows. Any of them stops the merge.
 
 ## Check
 
