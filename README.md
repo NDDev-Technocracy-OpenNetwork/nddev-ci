@@ -43,6 +43,30 @@ repository.
   and actionlint, zizmor (high severity) and poutine (warnings and errors; its notes are only
   reported) over the workflows. Any of them stops the merge.
 
+## Daily security
+
+`security.yml` is the daily run of security.md, called from a schedule in each repository with
+`contents: read` and `issues: write`:
+
+```yaml
+jobs:
+  security:
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/security.yml@<commit>
+    permissions:
+      contents: read
+      issues: write
+    with:
+      images: |            # optional: the container images the project releases
+        ghcr.io/<owner>/<image>:<tag>
+```
+
+- TruffleHog and Kingfisher look for live secrets in the whole history: only secrets their makers'
+  services accept count.
+- OSV-Scanner checks every lock file against its offline database, without deps.dev.
+- Syft makes an SBOM of the repository and of each image; Trivy and Grype check it.
+- One open issue, "Security report", holds the latest run's findings. A finding never fails the
+  run; a scanner that cannot run does. No scanner reports to its maker or checks for updates.
+
 ## Check
 
 ```sh

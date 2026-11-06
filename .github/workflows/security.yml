@@ -1,0 +1,172 @@
+# The daily security run of security.md: live secrets in the whole history (TruffleHog and
+# Kingfisher), every known vulnerability in the dependencies (OSV-Scanner with its offline
+# database), and the packages of the repository and of its images on an SBOM made by Syft (Trivy
+# and Grype). A finding never fails the run; the run keeps one report issue per repository. A
+# scanner that cannot run fails it.
+name: security
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: The runner label the scan runs on.
+        type: string
+        default: nddev-linux-standart
+      images:
+        description: Container images the project releases, one per line, scanned on their SBOM.
+        type: string
+        default: ""
+      timeout-minutes:
+        description: The longest the scan may take.
+        type: number
+        default: 60
+
+permissions: {}
+
+jobs:
+  scan:
+    name: daily security
+    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+      issues: write
+    env:
+      TRUFFLEHOG_VERSION: "3.99.8"
+      TRUFFLEHOG_SHA256: "7c3b02f160f28929a467e29e20fba98746e0729f6e37c3c25761e4f8789abe08"
+      KINGFISHER_VERSION: "2.16.0"
+      KINGFISHER_SHA256: "97cdbe7706a722ea085d1e83a00a98b0e9432fc58b21c9a3e36f591b5c1446d7"
+      OSV_SCANNER_VERSION: "2.7.0"
+      OSV_SCANNER_SHA256: "160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b"
+      SYFT_VERSION: "1.56.0"
+      SYFT_SHA256: "1c2493cfcf52d3367d6cb25780d9190c111c2219c34c820574c43e8bae15c528"
+      GRYPE_VERSION: "0.121.1"
+      GRYPE_SHA256: "bc3ea3f9e6fd56ac781c08c6c5e614271b79f438200757f6932085c19b0a4657"
+      TRIVY_VERSION: "0.76.1"
+      TRIVY_SHA256: "c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0"
+      # No scanner reports to its maker or looks for its own updates.
+      DO_NOT_TRACK: "1"
+      TRIVY_DISABLE_TELEMETRY: "true"
+      TRIVY_SKIP_VERSION_CHECK: "true"
+      GRYPE_CHECK_FOR_APP_UPDATE: "false"
+      SYFT_CHECK_FOR_APP_UPDATE: "false"
+      IMAGES: ${{ inputs.images }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Tools
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/security/bin"
+          download="$RUNNER_TEMP/security/download"
+          mkdir -p "$bin"
+          fetch() {
+            curl -fsSL --retry 3 -o "$download" "$1"
+            echo "$2  $download" | sha256sum --check --quiet
+          }
+          fetch "https://github.com/trufflesecurity/trufflehog/releases/download/v$TRUFFLEHOG_VERSION/trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz" "$TRUFFLEHOG_SHA256"
+          tar -xzf "$download" -C "$bin" trufflehog
+          fetch "https://github.com/mongodb/kingfisher/releases/download/v$KINGFISHER_VERSION/kingfisher-linux-x64.tgz" "$KINGFISHER_SHA256"
+          tar -xzf "$download" -C "$bin" kingfisher
+          fetch "https://github.com/google/osv-scanner/releases/download/v$OSV_SCANNER_VERSION/osv-scanner_linux_amd64" "$OSV_SCANNER_SHA256"
+          install -m 0755 "$download" "$bin/osv-scanner"
+          fetch "https://github.com/anchore/syft/releases/download/v$SYFT_VERSION/syft_${SYFT_VERSION}_linux_amd64.tar.gz" "$SYFT_SHA256"
+          tar -xzf "$download" -C "$bin" syft
+          fetch "https://github.com/anchore/grype/releases/download/v$GRYPE_VERSION/grype_${GRYPE_VERSION}_linux_amd64.tar.gz" "$GRYPE_SHA256"
+          tar -xzf "$download" -C "$bin" grype
+          fetch "https://github.com/aquasecurity/trivy/releases/download/v$TRIVY_VERSION/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" "$TRIVY_SHA256"
+          tar -xzf "$download" -C "$bin" trivy
+          rm -f "$download"
+          echo "$bin" >> "$GITHUB_PATH"
+
+      - name: Scan
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/security/out"
+          mkdir -p "$out"
+          # Each scanner's own exit code: findings are reported, never fatal; anything else is.
+          trufflehog git "file://$PWD" --results=verified --json --no-update > "$out/trufflehog.jsonl"
+          status=0
+          kingfisher scan . --only-valid --no-update-check --format json > "$out/kingfisher.json" || status=$?
+          [ "$status" -eq 0 ] || [ "$status" -eq 200 ] || { echo "::error::Kingfisher ended with $status"; exit 1; }
+          status=0
+          osv-scanner scan source -r --allow-no-lockfiles --offline-vulnerabilities --download-offline-databases \
+            --data-source native --format json . > "$out/osv.json" || status=$?
+          [ "$status" -eq 0 ] || [ "$status" -eq 1 ] || { echo "::error::OSV-Scanner ended with $status"; exit 1; }
+          syft "dir:." --quiet -o "cyclonedx-json=$out/sbom-repository.json"
+          number=0
+          while IFS= read -r image; do
+            [ -n "$image" ] || continue
+            number=$((number + 1))
+            syft "$image" --quiet -o "cyclonedx-json=$out/sbom-image-$number.json"
+            echo "$image" > "$out/sbom-image-$number.name"
+          done <<< "$IMAGES"
+          for sbom in "$out"/sbom-*.json; do
+            name=$(basename "$sbom" .json)
+            grype "sbom:$sbom" --quiet -o json > "$out/grype-$name.json"
+            trivy sbom --quiet --format json --output "$out/trivy-$name.json" "$sbom"
+          done
+
+      - name: Report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/security/out" > "$RUNNER_TEMP/security/report.md" <<'PY'
+          import json, pathlib, os, sys
+          out = pathlib.Path(sys.argv[1])
+          lines = ["The daily security run of security.md: findings never fail it, the agent fixes them the same day.", ""]
+          def section(title, rows):
+              lines.append(f"## {title}: {len(rows)}")
+              lines.extend(f"- {row}" for row in rows[:50])
+              if len(rows) > 50:
+                  lines.append(f"- … and {len(rows) - 50} more in the run")
+              lines.append("")
+          secrets = []
+          for line in (out / "trufflehog.jsonl").read_text().splitlines():
+              found = json.loads(line)
+              where = found.get("SourceMetadata", {}).get("Data", {}).get("Git", {})
+              secrets.append(f"TruffleHog, verified {found.get('DetectorName')}: {where.get('file')}:{where.get('line')} in {str(where.get('commit'))[:12]}")
+          # Kingfisher writes its findings on the first line and a summary on the second.
+          kingfisher = json.loads(((out / "kingfisher.json").read_text().splitlines() or ["{}"])[0])
+          for found in kingfisher.get("findings", []) if isinstance(kingfisher, dict) else []:
+              rule = found.get("rule", {})
+              where = found.get("finding", {})
+              secrets.append(f"Kingfisher, valid {rule.get('name')}: {where.get('path')}:{where.get('line')}")
+          section("Live secrets", secrets)
+          vulnerabilities = []
+          osv = json.loads((out / "osv.json").read_text() or "{}")
+          for result in osv.get("results") or []:
+              for package in result.get("packages") or []:
+                  info = package.get("package", {})
+                  for vulnerability in package.get("vulnerabilities") or []:
+                      vulnerabilities.append(f"{vulnerability.get('id')} in {info.get('ecosystem')} {info.get('name')} {info.get('version')} ({os.path.relpath(result.get('source', {}).get('path', '.'))})")
+          section("Vulnerable dependencies (OSV-Scanner)", sorted(set(vulnerabilities)))
+          for grype in sorted(out.glob("grype-*.json")):
+              name = grype.stem.removeprefix("grype-")
+              label = (out / f"{name}.name").read_text().strip() if (out / f"{name}.name").exists() else "the repository"
+              rows = set()
+              for match in json.loads(grype.read_text()).get("matches") or []:
+                  v = match.get("vulnerability", {})
+                  a = match.get("artifact", {})
+                  rows.add(f"Grype {v.get('severity')}: {v.get('id')} in {a.get('name')} {a.get('version')}")
+              trivy = out / f"trivy-{name}.json"
+              for result in json.loads(trivy.read_text()).get("Results") or []:
+                  for v in result.get("Vulnerabilities") or []:
+                      rows.add(f"Trivy {v.get('Severity')}: {v.get('VulnerabilityID')} in {v.get('PkgName')} {v.get('InstalledVersion')}")
+              section(f"Packages of {label} (SBOM by Syft)", sorted(rows))
+          lines.append(f"Run: {os.environ['RUN']}")
+          print("\n".join(lines))
+          PY
+          title="Security report"
+          number=$(gh issue list -R "$REPOSITORY" --state open --search "\"$title\" in:title" --json number,title --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          if [ -n "$number" ]; then
+            gh issue edit "$number" -R "$REPOSITORY" --body-file "$RUNNER_TEMP/security/report.md"
+          else
+            gh issue create -R "$REPOSITORY" --title "$title" --body-file "$RUNNER_TEMP/security/report.md"
+          fi
