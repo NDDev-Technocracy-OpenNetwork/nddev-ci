@@ -41,7 +41,9 @@ repository.
   check keeps it with its run for 90 days, so a deployment takes the build of a checked commit.
 - A pull request also runs the merge stops of security.md: Betterleaks over the change's commits,
   and actionlint, zizmor (high severity) and poutine (warnings and errors; its notes are only
-  reported) over the workflows. Any of them stops the merge.
+  reported) over the workflows, and committed over the change's commit messages: a Conventional
+  Commits subject in the imperative up to 72 characters, lines up to 100, no fixup or WIP commit,
+  unless the repository has its own `committed.toml`. Any of them stops the merge.
 
 ## Daily security
 
