@@ -248,7 +248,8 @@ jobs:
   merge-stops:
     # The merge stops of security.md: a secret in the change (Betterleaks), and a dangerous workflow
     # (a broken file, an action not pinned by commit, a high-severity zizmor finding, a poutine
-    # finding of warning or error level).
+    # finding of warning or error level). The change's commit messages are checked here too, as
+    # writing.md and checks.md ask (committed).
     name: merge stops
     if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:'))
     runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || (contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') || github.event.inputs.runner == 'blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || (contains(github.event.pull_request.labels.*.name, 'runner:github') || github.event.inputs.runner == 'github') && 'ubuntu-24.04' || inputs.runner }}
@@ -264,6 +265,8 @@ jobs:
       ACTIONLINT_VERSION: "1.7.12"
       ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
       ZIZMOR_VERSION: "1.32.0"
+      COMMITTED_VERSION: "1.1.11"
+      COMMITTED_SHA256: "1e5c20049eeaa4633e6798283913f92dc90a97f2b5c6dfc28e8c4b7e77a67157"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -285,6 +288,8 @@ jobs:
             "$BETTERLEAKS_SHA256" betterleaks
           fetch "https://github.com/boostsecurityio/poutine/releases/download/v$POUTINE_VERSION/poutine_Linux_x86_64.tar.gz" \
             "$POUTINE_SHA256" poutine
+          fetch "https://github.com/crate-ci/committed/releases/download/v$COMMITTED_VERSION/committed-v${COMMITTED_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+            "$COMMITTED_SHA256" ./committed
           fetch "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
             "$ACTIONLINT_SHA256" actionlint
           rm -f "$archive"
@@ -292,6 +297,30 @@ jobs:
           "$RUNNER_TEMP/nddev-ci/zizmor/bin/pip" install --quiet --disable-pip-version-check "zizmor==$ZIZMOR_VERSION"
           ln -s "$RUNNER_TEMP/nddev-ci/zizmor/bin/zizmor" "$bin/zizmor"
           echo "$bin" >> "$GITHUB_PATH"
+
+      - name: Commit messages
+        # writing.md: a Conventional Commits subject in the imperative, up to 72 characters, lines up
+        # to 100, no fixup or WIP commit. A repository's own committed.toml takes the place of this.
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          config="$RUNNER_TEMP/nddev-ci/committed.toml"
+          if [ -f committed.toml ]; then
+            config=committed.toml
+          else
+            printf '%s\n' \
+              'style = "conventional"' \
+              'allowed_types = ["feat", "fix", "chore", "docs", "style", "refactor", "perf", "test", "build", "ci", "revert"]' \
+              'subject_length = 72' \
+              'line_length = 100' \
+              'subject_capitalized = false' \
+              'imperative_subject = true' \
+              'no_fixup = true' \
+              'no_wip = true' > "$config"
+          fi
+          committed --config "$config" "$BASE..$HEAD"
 
       - name: No secret in the change
         env:
