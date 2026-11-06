@@ -122,7 +122,16 @@ jobs:
           while IFS= read -r image; do
             [ -n "$image" ] || continue
             number=$((number + 1))
-            syft "$image" --quiet -o "cyclonedx-json=$out/sbom-image-$number.json"
+            # An image of the token's registry is read from the registry itself: the runner's Docker
+            # daemon has no credentials for it.
+            source="$image"
+            if [ -n "$REGISTRY_TOKEN" ] && [ "${image%%/*}" = "$REGISTRY" ]; then
+              source="registry:$image"
+            fi
+            if ! syft "$source" --quiet -o "cyclonedx-json=$out/sbom-image-$number.json" 2> "$out/syft.log"; then
+              echo "::error::Syft could not read $image: $(tail -n 5 "$out/syft.log" | tr '\n' ' ')"
+              exit 1
+            fi
             echo "$image" > "$out/sbom-image-$number.name"
           done <<< "$IMAGES"
           for sbom in "$out"/sbom-*.json; do
