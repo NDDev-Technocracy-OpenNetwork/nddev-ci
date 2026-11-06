@@ -1,0 +1,16 @@
+# This repository's own daily security run, through the library's workflow.
+name: security
+
+on:
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  security:
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      issues: write
