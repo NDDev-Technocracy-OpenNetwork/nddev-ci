@@ -2,7 +2,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 actionlint_version := "1.7.12"
 actionlint_sha256 := "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
-zizmor_version := "1.31.1"
+zizmor_version := "1.32.0"
 tools := justfile_directory() / ".tools"
 
 # Lists the commands.
