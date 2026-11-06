@@ -25,6 +25,16 @@ repository.
 - Every job builds with the machine's one Cargo home, `NDDEV_CARGO_DOWNLOAD_CACHE`: Rust cache keys
   hold the paths of the dependency sources, so dependencies compiled in one job match in every other.
 - The check step reports how many compilations came from the cache.
+- `fetch-depth` (default 1; 0 is the whole history) and `filter` (such as `blob:none`) go to the
+  checkout, for checks that read history, such as a version rule that compares a pull request with
+  its base.
+- The optional secret `read-keys` lets the check read other private repositories, such as a
+  superproject's modules: for each repository a line `owner/repository`, then its read-only deploy
+  key. GitHub accepts a deploy key for its one repository only, so each repository gets an ssh host
+  alias with only its key, over GitHub's port 443, and git rewrites the repository's `git@`,
+  `ssh://` and `https://` addresses to it. `git submodule update --init` and `git clone` then work
+  in the project's recipes. The keys stay in the job's temporary folder, and the merge stops never
+  receive them.
 - A project may name an `artifact`, such as a release binary, and an `artifact-name`. The full
   check keeps it with its run for 90 days, so a deployment takes the build of a checked commit.
 - A pull request also runs the merge stops of security.md: gitleaks over the change's commits, and

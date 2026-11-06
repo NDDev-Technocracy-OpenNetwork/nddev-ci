@@ -24,6 +24,21 @@ on:
         description: The name the artifact is kept under.
         type: string
         default: build
+      fetch-depth:
+        description: How many commits the checkout fetches; 0 fetches the whole history.
+        type: number
+        default: 1
+      filter:
+        description: A partial clone filter for the checkout, such as blob:none.
+        type: string
+        default: ""
+    secrets:
+      read-keys:
+        description: >-
+          Read-only deploy keys of other private repositories the check reads, such as a
+          superproject's modules: for each repository a line owner/repository, then its OpenSSH
+          private key.
+        required: false
 
 permissions: {}
 
@@ -47,6 +62,82 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: ${{ inputs.fetch-depth }}
+          filter: ${{ inputs.filter }}
+
+      - name: Read keys
+        # GitHub accepts a deploy key for its one repository, and ssh stops at the first key that
+        # gets in, so each repository gets a host alias of its own with only its key, and git
+        # rewrites that repository's addresses to the alias. The keys stay in the job's temporary
+        # folder and are never printed.
+        env:
+          READ_KEYS: ${{ secrets.read-keys }}
+        run: |
+          set -euo pipefail
+          if [ -z "$READ_KEYS" ]; then
+            exit 0
+          fi
+          folder="$RUNNER_TEMP/nddev-ci/ssh"
+          mkdir -p "$folder"
+          chmod 0700 "$folder"
+          # GitHub's published host keys, the same on github.com and on ssh.github.com:443.
+          cat > "$folder/known_hosts" <<'KEYS'
+          github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+          github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+          github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+          KEYS
+          config="$folder/config"
+          : > "$config"
+          count=0
+          repository=""
+          key=""
+          add() {
+            [ -n "$repository" ] || return 0
+            case "$key" in
+              *"-----END OPENSSH PRIVATE KEY-----"*) ;;
+              *) echo "::error::read-keys has no OpenSSH private key for $repository"; exit 1 ;;
+            esac
+            alias="read-${repository//\//-}"
+            (umask 077 && printf '%s' "$key" > "$folder/$alias")
+            printf 'Host %s\n  HostName ssh.github.com\n  Port 443\n  User git\n  HostKeyAlias github.com\n  UserKnownHostsFile %s\n  StrictHostKeyChecking yes\n  IdentityFile %s\n  IdentitiesOnly yes\n' \
+              "$alias" "$folder/known_hosts" "$folder/$alias" >> "$config"
+            for address in "git@github.com:$repository" "ssh://git@github.com/$repository" "https://github.com/$repository"; do
+              {
+                echo "GIT_CONFIG_KEY_$count=url.$alias:$repository.insteadOf"
+                echo "GIT_CONFIG_VALUE_$count=$address"
+              } >> "$GITHUB_ENV"
+              count=$((count + 1))
+            done
+          }
+          # A key runs from its BEGIN line to its END line; outside a key, a line names a repository.
+          inside=false
+          while IFS= read -r line || [ -n "$line" ]; do
+            line=${line%$'\r'}
+            if $inside; then
+              key+="$line"$'\n'
+              [[ "$line" != -----END* ]] || inside=false
+            elif [[ "$line" == -----BEGIN* ]]; then
+              if [ -z "$repository" ] || [ -n "$key" ]; then
+                echo "::error::each key in read-keys follows its own line owner/repository"
+                exit 1
+              fi
+              key="$line"$'\n'
+              inside=true
+            elif [[ "$line" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+              add
+              repository=$line
+              key=""
+            elif [ -n "$line" ]; then
+              echo "::error::read-keys holds a line that is neither owner/repository nor part of a key"
+              exit 1
+            fi
+          done < <(printf '%s\n' "$READ_KEYS")
+          add
+          {
+            echo "GIT_CONFIG_COUNT=$count"
+            echo "GIT_SSH_COMMAND=ssh -F $config"
+          } >> "$GITHUB_ENV"
+          echo "Read keys for $((count / 3)) repositories."
 
       - name: Tools
         run: |

@@ -22,3 +22,12 @@ jobs:
     uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@0000000000000000000000000000000000000000 # replace with a commit of this repository
     permissions:
       contents: read
+    # A check that reads more history, or other private repositories such as a superproject's
+    # modules, passes them on:
+    # with:
+    #   fetch-depth: 0
+    #   filter: blob:none
+    # secrets:
+    #   read-keys: |
+    #     owner/repository
+    #     ${{ secrets.REPOSITORY_READ_KEY }}
