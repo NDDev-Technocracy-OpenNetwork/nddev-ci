@@ -60,9 +60,15 @@ jobs:
         ghcr.io/<owner>/<image>:<tag>
 ```
 
+Private images need a token that reads them: give the caller job `packages: read` and pass
+`secrets: registry-token: ${{ secrets.GITHUB_TOKEN }}` (the `registry` input names its registry,
+`ghcr.io` by default).
+
 - TruffleHog and Kingfisher look for live secrets in the whole history: only secrets their makers'
   services accept count.
-- OSV-Scanner checks every lock file against its offline database, without deps.dev.
+- OSV-Scanner checks every lock file against its offline database. A second, online run asks
+  deps.dev, the one source of a lock file's licences, and lists the dependencies outside
+  licenses.md's list; packages deps.dev knows no licence for are counted.
 - Syft makes an SBOM of the repository and of each image; Trivy and Grype check it.
 - One open issue, "Security report", holds the latest run's findings. A finding never fails the
   run; a scanner that cannot run does. No scanner reports to its maker or checks for updates.
