@@ -1,8 +1,9 @@
 # The daily security run of security.md: live secrets in the whole history (TruffleHog and
 # Kingfisher), every known vulnerability in the dependencies (OSV-Scanner with its offline
-# database), and the packages of the repository and of its images on an SBOM made by Syft (Trivy
-# and Grype). A finding never fails the run; the run keeps one report issue per repository. A
-# scanner that cannot run fails it.
+# database), the dependencies whose licence is outside licenses.md's list (OSV-Scanner with
+# deps.dev, the one source of a lock file's licences), and the packages of the repository and of
+# its images on an SBOM made by Syft (Trivy and Grype). A finding never fails the run; the run
+# keeps one report issue per repository. A scanner that cannot run fails it.
 name: security
 
 on:
@@ -20,6 +21,14 @@ on:
         description: The longest the scan may take.
         type: number
         default: 60
+      registry:
+        description: The registry whose private images the registry-token reads.
+        type: string
+        default: ghcr.io
+    secrets:
+      registry-token:
+        description: A token that reads the private images among `images`, such as the caller's GITHUB_TOKEN with packages read.
+        required: false
 
 permissions: {}
 
@@ -51,6 +60,8 @@ jobs:
       GRYPE_CHECK_FOR_APP_UPDATE: "false"
       SYFT_CHECK_FOR_APP_UPDATE: "false"
       IMAGES: ${{ inputs.images }}
+      # licenses.md's list, as SPDX identifiers.
+      LICENSES: MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,0BSD,ISC,Zlib,Unicode-3.0,Unicode-DFS-2016,CC0-1.0,MPL-2.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -83,6 +94,9 @@ jobs:
           echo "$bin" >> "$GITHUB_PATH"
 
       - name: Scan
+        env:
+          REGISTRY: ${{ inputs.registry }}
+          REGISTRY_TOKEN: ${{ secrets.registry-token }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/security/out"
@@ -96,7 +110,14 @@ jobs:
           osv-scanner scan source -r --allow-no-lockfiles --offline-vulnerabilities --download-offline-databases \
             --data-source native --format json . > "$out/osv.json" || status=$?
           [ "$status" -eq 0 ] || [ "$status" -eq 1 ] || { echo "::error::OSV-Scanner ended with $status"; exit 1; }
+          # Licences come only from deps.dev, so this second run is online.
+          status=0
+          osv-scanner scan source -r --allow-no-lockfiles --licenses="$LICENSES" --format json . > "$out/licenses.json" || status=$?
+          [ "$status" -eq 0 ] || [ "$status" -eq 1 ] || { echo "::error::OSV-Scanner (licences) ended with $status"; exit 1; }
           syft "dir:." --quiet -o "cyclonedx-json=$out/sbom-repository.json"
+          if [ -n "$REGISTRY_TOKEN" ]; then
+            export SYFT_REGISTRY_AUTH_AUTHORITY="$REGISTRY" SYFT_REGISTRY_AUTH_USERNAME="$GITHUB_ACTOR" SYFT_REGISTRY_AUTH_PASSWORD="$REGISTRY_TOKEN"
+          fi
           number=0
           while IFS= read -r image; do
             [ -n "$image" ] || continue
@@ -147,6 +168,22 @@ jobs:
                   for vulnerability in package.get("vulnerabilities") or []:
                       vulnerabilities.append(f"{vulnerability.get('id')} in {info.get('ecosystem')} {info.get('name')} {info.get('version')} ({os.path.relpath(result.get('source', {}).get('path', '.'))})")
           section("Vulnerable dependencies (OSV-Scanner)", sorted(set(vulnerabilities)))
+          outside, unknown = set(), set()
+          licences = json.loads((out / "licenses.json").read_text() or "{}")
+          for result in licences.get("results") or []:
+              for package in result.get("packages") or []:
+                  violations = package.get("license_violations") or []
+                  if not violations:
+                      continue
+                  info = package.get("package", {})
+                  name = f"{info.get('ecosystem')} {info.get('name')} {info.get('version')}"
+                  if set(violations) <= {"UNKNOWN"}:
+                      unknown.add(name)
+                      continue
+                  outside.add(f"{name}: {', '.join(package.get('licenses') or violations)} ({os.path.relpath(result.get('source', {}).get('path', '.'))})")
+          section("Licences outside licenses.md's list (OSV-Scanner with deps.dev)", sorted(outside))
+          if unknown:
+              lines.insert(-1, f"{len(unknown)} packages have no licence in deps.dev, such as the project's own and pub.dev's; check them by hand.")
           for grype in sorted(out.glob("grype-*.json")):
               name = grype.stem.removeprefix("grype-")
               label = (out / f"{name}.name").read_text().strip() if (out / f"{name}.name").exists() else "the repository"
