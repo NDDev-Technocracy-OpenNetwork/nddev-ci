@@ -32,6 +32,12 @@ on:
         description: A partial clone filter for the checkout, such as blob:none.
         type: string
         default: ""
+      setup:
+        description: >-
+          Runs `just setup` before the checks, so `just check` finds the project's dependencies and
+          data without network access.
+        type: boolean
+        default: false
     secrets:
       read-keys:
         description: >-
@@ -208,8 +214,12 @@ jobs:
       - name: Check
         env:
           EVENT: ${{ github.event_name }}
+          SETUP: ${{ inputs.setup }}
         run: |
           set -euo pipefail
+          if [ "$SETUP" = true ]; then
+            just setup
+          fi
           if [ "$EVENT" = pull_request ]; then
             just check
             just test
