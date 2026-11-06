@@ -21,14 +21,10 @@ on:
         description: The longest the scan may take.
         type: number
         default: 60
-      registry:
-        description: The registry whose private images the registry-token reads.
+      sboms:
+        description: An artifact of this run with SBOMs the caller made, such as of private images (`<name>.json`, CycloneDX, and `<name>.name` with the image).
         type: string
-        default: ghcr.io
-    secrets:
-      registry-token:
-        description: A token that reads the private images among `images`, such as the caller's GITHUB_TOKEN with packages read.
-        required: false
+        default: ""
 
 permissions: {}
 
@@ -93,10 +89,14 @@ jobs:
           rm -f "$download"
           echo "$bin" >> "$GITHUB_PATH"
 
+      - name: The caller's SBOMs
+        if: inputs.sboms != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.sboms }}
+          path: ${{ runner.temp }}/security/caller
+
       - name: Scan
-        env:
-          REGISTRY: ${{ inputs.registry }}
-          REGISTRY_TOKEN: ${{ secrets.registry-token }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/security/out"
@@ -115,25 +115,25 @@ jobs:
           osv-scanner scan source -r --allow-no-lockfiles --licenses="$LICENSES" --format json . > "$out/licenses.json" || status=$?
           [ "$status" -eq 0 ] || [ "$status" -eq 1 ] || { echo "::error::OSV-Scanner (licences) ended with $status"; exit 1; }
           syft "dir:." --quiet -o "cyclonedx-json=$out/sbom-repository.json"
-          if [ -n "$REGISTRY_TOKEN" ]; then
-            export SYFT_REGISTRY_AUTH_AUTHORITY="$REGISTRY" SYFT_REGISTRY_AUTH_USERNAME="$GITHUB_ACTOR" SYFT_REGISTRY_AUTH_PASSWORD="$REGISTRY_TOKEN"
-          fi
           number=0
           while IFS= read -r image; do
             [ -n "$image" ] || continue
             number=$((number + 1))
-            # An image of the token's registry is read from the registry itself: the runner's Docker
-            # daemon has no credentials for it.
-            source="$image"
-            if [ -n "$REGISTRY_TOKEN" ] && [ "${image%%/*}" = "$REGISTRY" ]; then
-              source="registry:$image"
-            fi
-            if ! syft "$source" --quiet -o "cyclonedx-json=$out/sbom-image-$number.json" 2> "$out/syft.log"; then
+            if ! syft "$image" -o "cyclonedx-json=$out/sbom-image-$number.json" > /dev/null 2> "$out/syft.log"; then
               echo "::error::Syft could not read $image: $(tail -n 5 "$out/syft.log" | tr '\n' ' ')"
               exit 1
             fi
             echo "$image" > "$out/sbom-image-$number.name"
           done <<< "$IMAGES"
+          # SBOMs the caller made (private images it alone can read) are scanned the same way.
+          for sbom in "$RUNNER_TEMP"/security/caller/*.json; do
+            [ -e "$sbom" ] || continue
+            name=$(basename "$sbom" .json)
+            cp "$sbom" "$out/sbom-caller-$name.json"
+            if [ -e "${sbom%.json}.name" ]; then
+              cp "${sbom%.json}.name" "$out/sbom-caller-$name.name"
+            fi
+          done
           for sbom in "$out"/sbom-*.json; do
             name=$(basename "$sbom" .json)
             grype "sbom:$sbom" --quiet -o json > "$out/grype-$name.json"

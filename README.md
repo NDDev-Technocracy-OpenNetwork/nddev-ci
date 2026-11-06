@@ -60,9 +60,9 @@ jobs:
         ghcr.io/<owner>/<image>:<tag>
 ```
 
-Private images need a token that reads them: give the caller job `packages: read` and pass
-`secrets: registry-token: ${{ secrets.GITHUB_TOKEN }}` (the `registry` input names its registry,
-`ghcr.io` by default).
+Private images are read by the caller, which alone has the credentials: a job before it makes
+their SBOMs with Syft, uploads them as one artifact (`<name>.json`, CycloneDX, and `<name>.name`
+holding the image) and passes its name as `sboms`; they are scanned with the rest.
 
 - TruffleHog and Kingfisher look for live secrets in the whole history: only secrets their makers'
   services accept count.
