@@ -25,6 +25,8 @@ repository.
 - Every job builds with the machine's one Cargo home, `NDDEV_CARGO_DOWNLOAD_CACHE`: Rust cache keys
   hold the paths of the dependency sources, so dependencies compiled in one job match in every other.
 - The check step reports how many compilations came from the cache.
+- `setup: true` runs `just setup` before the checks. A project whose `just check` works without
+  network access, as checks.md asks, takes its dependencies and data there first.
 - `fetch-depth` (default 1; 0 is the whole history) and `filter` (such as `blob:none`) go to the
   checkout, for checks that read history, such as a version rule that compares a pull request with
   its base.
