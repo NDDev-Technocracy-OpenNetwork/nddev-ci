@@ -63,9 +63,15 @@ jobs:
         ghcr.io/<owner>/<image>:<tag>
 ```
 
+Private images are read by the caller, which alone has the credentials: a job before it makes
+their SBOMs with Syft, uploads them as one artifact (`<name>.json`, CycloneDX, and `<name>.name`
+holding the image) and passes its name as `sboms`; they are scanned with the rest.
+
 - TruffleHog and Kingfisher look for live secrets in the whole history: only secrets their makers'
   services accept count.
-- OSV-Scanner checks every lock file against its offline database, without deps.dev.
+- OSV-Scanner checks every lock file against its offline database. A second, online run asks
+  deps.dev, the one source of a lock file's licences, and lists the dependencies outside
+  licenses.md's list; packages deps.dev knows no licence for are counted.
 - Syft makes an SBOM of the repository and of each image; Trivy and Grype check it.
 - One open issue, "Security report", holds the latest run's findings. A finding never fails the
   run; a scanner that cannot run does. No scanner reports to its maker or checks for updates.
