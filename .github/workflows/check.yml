@@ -301,9 +301,12 @@ jobs:
       - name: Commit messages
         # writing.md: a Conventional Commits subject in the imperative, up to 72 characters, lines up
         # to 100, no fixup or WIP commit. A repository's own committed.toml takes the place of this.
+        # Only the commits the change brings are checked: a merge commit is left out, and so is a
+        # commit another branch already holds, such as main's commits when main is merged into dev.
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           set -euo pipefail
           config="$RUNNER_TEMP/nddev-ci/committed.toml"
@@ -320,7 +323,13 @@ jobs:
               'no_fixup = true' \
               'no_wip = true' > "$config"
           fi
-          committed --config "$config" "$BASE..$HEAD"
+          failed=0
+          for commit in $(git rev-list --no-merges "$HEAD" "^$BASE" --not \
+            --exclude="refs/remotes/origin/$HEAD_REF" --remotes=origin); do
+            git log -1 --format='%h %s' "$commit"
+            committed --config "$config" "$commit^..$commit" || failed=1
+          done
+          exit "$failed"
 
       - name: No secret in the change
         env:
