@@ -325,7 +325,7 @@ jobs:
           fi
           failed=0
           for commit in $(git rev-list --no-merges "$HEAD" "^$BASE" --not \
-            --exclude="refs/remotes/origin/$HEAD_REF" --remotes=origin); do
+            --exclude="origin/$HEAD_REF" --remotes=origin); do
             git log -1 --format='%h %s' "$commit"
             committed --config "$config" "$commit^..$commit" || failed=1
           done
