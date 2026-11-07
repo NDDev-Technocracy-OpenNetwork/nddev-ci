@@ -151,12 +151,17 @@ jobs:
           import json, pathlib, os, sys
           out = pathlib.Path(sys.argv[1])
           lines = ["The daily security run of security.md: findings never fail it, the agent fixes them the same day.", ""]
+          # The issue shows 50 rows a section; the run log prints every row.
+          full = list(lines)
           def section(title, rows):
-              lines.append(f"## {title}: {len(rows)}")
+              for text in (lines, full):
+                  text.append(f"## {title}: {len(rows)}")
               lines.extend(f"- {row}" for row in rows[:50])
+              full.extend(f"- {row}" for row in rows)
               if len(rows) > 50:
-                  lines.append(f"- … and {len(rows) - 50} more in the run")
+                  lines.append(f"- … and {len(rows) - 50} more in the run log")
               lines.append("")
+              full.append("")
           secrets = []
           for line in (out / "trufflehog.jsonl").read_text().splitlines():
               found = json.loads(line)
@@ -192,7 +197,8 @@ jobs:
                   outside.add(f"{name}: {', '.join(package.get('licenses') or violations)} ({os.path.relpath(result.get('source', {}).get('path', '.'))})")
           section("Licences outside licenses.md's list (OSV-Scanner with deps.dev)", sorted(outside))
           if unknown:
-              lines.insert(-1, f"{len(unknown)} packages have no licence in deps.dev, such as the project's own and pub.dev's; check them by hand.")
+              for text in (lines, full):
+                  text.insert(-1, f"{len(unknown)} packages have no licence in deps.dev, such as the project's own and pub.dev's; check them by hand.")
           for grype in sorted(out.glob("grype-*.json")):
               name = grype.stem.removeprefix("grype-")
               label = (out / f"{name}.name").read_text().strip() if (out / f"{name}.name").exists() else "the repository"
@@ -206,9 +212,17 @@ jobs:
                   for v in result.get("Vulnerabilities") or []:
                       rows.add(f"Trivy {v.get('Severity')}: {v.get('VulnerabilityID')} in {v.get('PkgName')} {v.get('InstalledVersion')}")
               section(f"Packages of {label} (SBOM by Syft)", sorted(rows))
-          lines.append(f"Run: {os.environ['RUN']}")
-          print("\n".join(lines))
+          run = f"Run: {os.environ['RUN']}"
+          lines.append(run)
+          full.append(run)
+          (out / "full.md").write_text("\n".join(full) + "\n")
+          # GitHub refuses an issue body over 65536 characters.
+          body = "\n".join(lines)
+          if len(body) > 60000:
+              body = body[: body.rfind("\n", 0, 59000)] + f"\n\n… The report is longer than an issue holds; the run log has all of it.\n\n{run}"
+          print(body)
           PY
+          cat "$RUNNER_TEMP/security/out/full.md"
           title="Security report"
           number=$(gh issue list -R "$REPOSITORY" --state open --search "\"$title\" in:title" --json number,title --jq "map(select(.title == \"$title\")) | .[0].number // empty")
           if [ -n "$number" ]; then
