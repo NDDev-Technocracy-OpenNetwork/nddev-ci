@@ -43,7 +43,8 @@ repository.
   and actionlint, zizmor (high severity) and poutine (warnings and errors; its notes are only
   reported) over the workflows, and committed over the change's commit messages: a Conventional
   Commits subject in the imperative up to 72 characters, lines up to 100, no fixup or WIP commit,
-  unless the repository has its own `committed.toml`. Any of them stops the merge.
+  unless the repository has its own `committed.toml`. It checks only the commits the change brings:
+  merge commits and commits another branch already holds are left out. Any of them stops the merge.
 
 ## Daily security
 
