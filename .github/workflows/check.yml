@@ -277,7 +277,14 @@ jobs:
               echo "::error::the configured package registry lacks its listen address"
               exit 1
             fi
-            echo "NDDEV_CI_REGISTRIES_URL=http://$listen" >> "$GITHUB_ENV"
+            host=${listen%:*}
+            host=${host#\[}
+            host=${host%\]}
+            {
+              echo "NDDEV_CI_REGISTRIES_URL=http://$listen"
+              echo "NO_PROXY=$host,127.0.0.1,localhost,::1${NO_PROXY:+,$NO_PROXY}"
+              echo "no_proxy=$host,127.0.0.1,localhost,::1${no_proxy:+,$no_proxy}"
+            } >> "$GITHUB_ENV"
             echo "Pinned release tools use the configured package registry."
           fi
 
@@ -349,8 +356,6 @@ jobs:
             echo "SCCACHE_S3_KEY_PREFIX=sccache"
             echo "SCCACHE_S3_RW_MODE=$mode"
             echo "SCCACHE_BASEDIRS=$GITHUB_WORKSPACE:$cargo_home"
-            echo "NO_PROXY=127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}"
-            echo "no_proxy=127.0.0.1,localhost${no_proxy:+,$no_proxy}"
           } >> "$GITHUB_ENV"
           echo "Rust builds compile through the network cache at $address, $mode."
 
@@ -447,7 +452,14 @@ jobs:
               echo "::error::the configured package registry lacks its listen address"
               exit 1
             fi
-            echo "NDDEV_CI_REGISTRIES_URL=http://$listen" >> "$GITHUB_ENV"
+            host=${listen%:*}
+            host=${host#\[}
+            host=${host%\]}
+            {
+              echo "NDDEV_CI_REGISTRIES_URL=http://$listen"
+              echo "NO_PROXY=$host,127.0.0.1,localhost,::1${NO_PROXY:+,$NO_PROXY}"
+              echo "no_proxy=$host,127.0.0.1,localhost,::1${no_proxy:+,$no_proxy}"
+            } >> "$GITHUB_ENV"
             echo "Pinned release tools use the configured package registry."
           fi
 
