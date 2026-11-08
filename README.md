@@ -106,7 +106,12 @@ Specialized jobs keep services, signing, packaging and acceptance in their ownin
 workflow and use the recipe action for individual commands.
 
 For this repository, run `just setup` once before offline `just check`. Execution
-tests belong to `just test` and `just verify`.
+tests belong to `just test` and `just verify`. Its Linux x64 check tools use exact
+upstream archive/wheel digests and installed-binary receipts. Setup prepares each
+replacement privately before publishing it and removes the exact obsolete tool
+generations. Checks only verify that prepared content; a missing or changed tool
+requires setup. The pinned PyPI wheel supplies zizmor's standalone binary without
+a retained Python environment.
 
 ## Pinned public assets
 
