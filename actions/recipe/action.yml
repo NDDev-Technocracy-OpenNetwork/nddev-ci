@@ -1,0 +1,21 @@
+name: Run a project recipe
+description: Run a declared just recipe with structured arguments on a prepared native runner.
+inputs:
+  recipe:
+    description: The declared recipe name.
+    required: true
+  arguments:
+    description: JSON array of string arguments, passed without an intermediate shell.
+    default: '[]'
+  working-directory:
+    description: Directory inside the checked-out workspace.
+    default: '.'
+  justfile:
+    description: Justfile relative to the working directory.
+    default: justfile
+outputs:
+  just-version:
+    description: The admitted task runner version.
+runs:
+  using: node24
+  main: run.mjs

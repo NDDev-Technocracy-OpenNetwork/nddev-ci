@@ -12,5 +12,8 @@ permissions: {}
 jobs:
   check:
     uses: ./.github/workflows/check.yml
+    with:
+      setup: true
+      uv-version: "0.13.5"
     permissions:
       contents: read

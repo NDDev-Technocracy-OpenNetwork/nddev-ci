@@ -76,6 +76,29 @@ runner can miss cleanup; GitHub's installation-token expiration remains the boun
 Merge stops receive neither credential. The caller keeps the App key in its
 repository secret under its contour's key policy; this library stores no keys.
 
+## Native recipe steps
+
+Projects with separate native, database, browser or packaging jobs can invoke their
+own just recipes through `actions/recipe`, pinned to a commit. Each job keeps its
+runner, SDK preparation, services, permissions and acceptance evidence.
+
+```yaml
+- uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@<commit>
+  with:
+    recipe: desktop-test
+    arguments: '[]'
+```
+
+`arguments` is a JSON array of strings. The action passes argv directly to Just;
+the recipe owns any shell quoting within its commands. `working-directory` and
+`justfile` stay inside the checked-out workspace, including resolved symlinks.
+Hosted Linux, macOS and Windows runners receive a pinned Just executable whose
+archive, size and extracted bytes are verified. A self-hosted runner must already
+provide the matching managed frontend; this action installs no compiler or SDK.
+
+For this repository, run `just setup` once before offline `just check`. Execution
+tests belong to `just test` and `just verify`.
+
 ## Daily security
 
 `security.yml` is the daily run of security.md, called from a schedule in each repository with
@@ -109,7 +132,8 @@ holding the image) and passes its name as `sboms`; they are scanned with the res
 ## Check
 
 ```sh
-just check    # format, actionlint and zizmor
+just setup    # prepare the pinned analysis tools explicitly
+just check    # offline format, syntax, actionlint and zizmor checks
 just verify   # everything the full check runs
 ```
 
