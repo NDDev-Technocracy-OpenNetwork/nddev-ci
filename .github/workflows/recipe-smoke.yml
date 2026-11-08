@@ -31,3 +31,9 @@ jobs:
         env:
           ACTUAL_VERSION: ${{ steps.probe.outputs.just-version }}
         run: node -e "const p=require('./actions/recipe/just.json'); if(process.env.ACTUAL_VERSION!==p.version)process.exit(1)"
+      - name: Run a script recipe and its nested task runner
+        uses: ./actions/recipe
+        with:
+          justfile: tests/fixtures/portable.just
+          recipe: script-probe
+          arguments: '["path with spaces","$(must-stay-literal)","مرحبا-Ә-测试"]'

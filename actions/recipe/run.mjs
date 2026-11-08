@@ -214,10 +214,17 @@ export async function main(environment = process.env) {
       environment.GITHUB_OUTPUT,
       `just-version=${configuration.version}\n`,
     );
+  const childEnvironment = { ...environment };
+  if (path.isAbsolute(just)) {
+    const originalPath = environment.PATH ?? environment.Path ?? "";
+    for (const name of Object.keys(childEnvironment))
+      if (name.toLowerCase() === "path") delete childEnvironment[name];
+    childEnvironment.PATH = `${path.dirname(just)}${path.delimiter}${originalPath}`;
+  }
   const result = spawnSync(just, request.argv, {
     cwd: request.cwd,
     stdio: "inherit",
-    env: environment,
+    env: childEnvironment,
   });
   if (result.error || result.signal || result.status === null)
     throw new ActionError("Recipe process did not complete.");
