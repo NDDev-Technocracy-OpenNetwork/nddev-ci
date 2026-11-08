@@ -113,10 +113,8 @@ just check    # format, actionlint and zizmor
 just verify   # everything the full check runs
 ```
 
-When the runner supplies the canonical gateway settings, tool setup reads its package registry
-before downloading pinned GitHub release assets. Both workflow tools and `just setup` receive
-`NDDEV_CI_REGISTRIES_URL`; a project can fetch the same content-pinned release path through that
-origin. Digest checks remain required. A configured registry error fails setup without switching
-to upstream. Runners without gateway settings read public assets through the GitHub REST release API using
-`curl` and `jq`. These public downloads use no GitHub token or organization identity; digest
-verification still precedes execution.
+Bootstrap tools are fetched through the official GitHub REST release API, resolving the tag and
+exact asset name of their source URL. Every archive must match its pinned SHA-256 before
+execution. Workflow steps use their contents-read token for API rate limits; a local check may
+read public assets without a token. Package/compiler caching belongs to the runner SDK and
+network-cache contract. Tool bootstrap has one source and fails if it cannot fetch or verify it.

@@ -63,12 +63,6 @@ on:
 
 permissions: {}
 
-# The runner supplies this canonical gateway configuration; hosted runners have no such file.
-env:
-  GATEWAY_SETTINGS: /etc/contour/caches/environment.toml
-  GH_NO_UPDATE_NOTIFIER: "1"
-  GH_NO_EXTENSION_UPDATE_NOTIFIER: "1"
-
 jobs:
   check:
     name: ${{ github.event_name == 'pull_request' && 'short check' || 'full check' }}
@@ -83,6 +77,8 @@ jobs:
       JUST_SHA256: "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e"
       SCCACHE_VERSION: "0.19.0"
       SCCACHE_SHA256: "aa73c7270c997894038c0d8f0d297865f57569e1687883322bc431713d4bb9dd"
+      # The contour cache gateway's settings on our runner machines.
+      GATEWAY_SETTINGS: /etc/contour/caches/environment.toml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -268,48 +264,32 @@ jobs:
           GIT_CONFIG_VALUE_1=!f() { if [ "$1" = get ]; then printf "%s\n" "username=x-access-token" "password=$NDDEV_CI_READ_TOKEN"; fi; }; f
           GIT
 
-      - name: Package registry
-        run: |
-          set -euo pipefail
-          if [ -r "$GATEWAY_SETTINGS" ]; then
-            listen=$(sed -n '/^\[registries\]$/,/^\[/s/^listen = "\(.*\)"$/\1/p' "$GATEWAY_SETTINGS")
-            if [[ ! "$listen" =~ ^(\[[0-9A-Fa-f:]+\]|[0-9.]+):[0-9]+$ ]]; then
-              echo "::error::the configured package registry lacks its listen address"
-              exit 1
-            fi
-            host=${listen%:*}
-            host=${host#\[}
-            host=${host%\]}
-            {
-              echo "NDDEV_CI_REGISTRIES_URL=http://$listen"
-              echo "NO_PROXY=$host,127.0.0.1,localhost,::1${NO_PROXY:+,$NO_PROXY}"
-              echo "no_proxy=$host,127.0.0.1,localhost,::1${no_proxy:+,$no_proxy}"
-            } >> "$GITHUB_ENV"
-            echo "Pinned release tools use the configured package registry."
-          fi
-
       - name: Tools
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           bin="$RUNNER_TEMP/nddev-ci/bin"
           archive="$RUNNER_TEMP/nddev-ci/archive.tar.gz"
           mkdir -p "$bin"
           fetch() {
-            if [ -n "${NDDEV_CI_REGISTRIES_URL:-}" ]; then
-              source="${NDDEV_CI_REGISTRIES_URL%/}/github-releases/sha256/$4/$1/releases/download/$2/$3"
-              curl -fsSL --retry 3 -o "$archive" "$source"
-            else
-              asset=$(curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$1/releases/tags/$2" |
-                jq -er --arg name "$3" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
-              curl -fsSL -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/$1/releases/assets/$asset"
-            fi
-            echo "$4  $archive" | sha256sum --check --quiet
-            tar -xzf "$archive" -C "$bin" --strip-components="$5" "$6"
+            source=${1#https://github.com/}
+            repository=${source%%/releases/download/*}
+            release=${source#*/releases/download/}
+            tag=${release%%/*}
+            name=${release#*/}
+            auth=()
+            if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
+            asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
+              jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
+            curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/$repository/releases/assets/$asset"
+            echo "$2  $archive" | sha256sum --check --quiet
+            tar -xzf "$archive" -C "$bin" --strip-components="$3" "$4"
           }
-          fetch casey/just "$JUST_VERSION" "just-$JUST_VERSION-x86_64-unknown-linux-musl.tar.gz" \
+          fetch "https://github.com/casey/just/releases/download/$JUST_VERSION/just-$JUST_VERSION-x86_64-unknown-linux-musl.tar.gz" \
             "$JUST_SHA256" 0 just
           if [ -r "$GATEWAY_SETTINGS" ]; then
-            fetch mozilla/sccache "v$SCCACHE_VERSION" "sccache-v$SCCACHE_VERSION-x86_64-unknown-linux-musl.tar.gz" \
+            fetch "https://github.com/mozilla/sccache/releases/download/v$SCCACHE_VERSION/sccache-v$SCCACHE_VERSION-x86_64-unknown-linux-musl.tar.gz" \
               "$SCCACHE_SHA256" 1 "sccache-v$SCCACHE_VERSION-x86_64-unknown-linux-musl/sccache"
           fi
           rm -f "$archive"
@@ -356,11 +336,14 @@ jobs:
             echo "SCCACHE_S3_KEY_PREFIX=sccache"
             echo "SCCACHE_S3_RW_MODE=$mode"
             echo "SCCACHE_BASEDIRS=$GITHUB_WORKSPACE:$cargo_home"
+            echo "NO_PROXY=127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}"
+            echo "no_proxy=127.0.0.1,localhost${no_proxy:+,$no_proxy}"
           } >> "$GITHUB_ENV"
           echo "Rust builds compile through the network cache at $address, $mode."
 
       - name: Check
         env:
+          GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
           SETUP: ${{ inputs.setup }}
         run: |
@@ -442,51 +425,35 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Package registry
-        run: |
-          set -euo pipefail
-          if [ -r "$GATEWAY_SETTINGS" ]; then
-            listen=$(sed -n '/^\[registries\]$/,/^\[/s/^listen = "\(.*\)"$/\1/p' "$GATEWAY_SETTINGS")
-            if [[ ! "$listen" =~ ^(\[[0-9A-Fa-f:]+\]|[0-9.]+):[0-9]+$ ]]; then
-              echo "::error::the configured package registry lacks its listen address"
-              exit 1
-            fi
-            host=${listen%:*}
-            host=${host#\[}
-            host=${host%\]}
-            {
-              echo "NDDEV_CI_REGISTRIES_URL=http://$listen"
-              echo "NO_PROXY=$host,127.0.0.1,localhost,::1${NO_PROXY:+,$NO_PROXY}"
-              echo "no_proxy=$host,127.0.0.1,localhost,::1${no_proxy:+,$no_proxy}"
-            } >> "$GITHUB_ENV"
-            echo "Pinned release tools use the configured package registry."
-          fi
-
       - name: Tools
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           bin="$RUNNER_TEMP/nddev-ci/bin"
           archive="$RUNNER_TEMP/nddev-ci/archive.tar.gz"
           mkdir -p "$bin"
           fetch() {
-            if [ -n "${NDDEV_CI_REGISTRIES_URL:-}" ]; then
-              source="${NDDEV_CI_REGISTRIES_URL%/}/github-releases/sha256/$4/$1/releases/download/$2/$3"
-              curl -fsSL --retry 3 -o "$archive" "$source"
-            else
-              asset=$(curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$1/releases/tags/$2" |
-                jq -er --arg name "$3" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
-              curl -fsSL -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/$1/releases/assets/$asset"
-            fi
-            echo "$4  $archive" | sha256sum --check --quiet
-            tar -xzf "$archive" -C "$bin" "$5"
+            source=${1#https://github.com/}
+            repository=${source%%/releases/download/*}
+            release=${source#*/releases/download/}
+            tag=${release%%/*}
+            name=${release#*/}
+            auth=()
+            if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
+            asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
+              jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
+            curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/$repository/releases/assets/$asset"
+            echo "$2  $archive" | sha256sum --check --quiet
+            tar -xzf "$archive" -C "$bin" "$3"
           }
-          fetch betterleaks/betterleaks "v$BETTERLEAKS_VERSION" "betterleaks_${BETTERLEAKS_VERSION}_linux_x64.tar.gz" \
+          fetch "https://github.com/betterleaks/betterleaks/releases/download/v$BETTERLEAKS_VERSION/betterleaks_${BETTERLEAKS_VERSION}_linux_x64.tar.gz" \
             "$BETTERLEAKS_SHA256" betterleaks
-          fetch boostsecurityio/poutine "v$POUTINE_VERSION" poutine_Linux_x86_64.tar.gz \
+          fetch "https://github.com/boostsecurityio/poutine/releases/download/v$POUTINE_VERSION/poutine_Linux_x86_64.tar.gz" \
             "$POUTINE_SHA256" poutine
-          fetch crate-ci/committed "v$COMMITTED_VERSION" "committed-v${COMMITTED_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+          fetch "https://github.com/crate-ci/committed/releases/download/v$COMMITTED_VERSION/committed-v${COMMITTED_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
             "$COMMITTED_SHA256" ./committed
-          fetch rhysd/actionlint "v$ACTIONLINT_VERSION" "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+          fetch "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
             "$ACTIONLINT_SHA256" actionlint
           rm -f "$archive"
           python3 -m venv "$RUNNER_TEMP/nddev-ci/zizmor"
