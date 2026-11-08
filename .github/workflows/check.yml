@@ -285,9 +285,14 @@ jobs:
             printf 'Fetching check tool %s@%s: %s\n' "$repository" "$tag" "$name"
             auth=()
             if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
-            asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
-              jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
-            curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/$repository/releases/assets/$asset"
+            if [ -n "${NDS_CACHE_BASE:-}" ]; then
+              printf 'Using the configured artifact registry.\n'
+              curl -fsSL -o "$archive" "${NDS_CACHE_BASE%/}/github-releases/sha256/$2/$repository/releases/download/$tag/$name"
+            else
+              asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
+                jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
+              curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/$repository/releases/assets/$asset"
+            fi
             echo "$2  $archive" | sha256sum --check --quiet
             tar -xzf "$archive" -C "$bin" --strip-components="$3" "$4"
           }
@@ -429,6 +434,7 @@ jobs:
       ACTIONLINT_VERSION: "1.7.12"
       ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
       ZIZMOR_VERSION: "1.32.0"
+      ZIZMOR_SHA256: "84a6acb975accc13408786a2bd274b572537ca19c933ebbc13e78f3988562071"
       COMMITTED_VERSION: "1.1.11"
       COMMITTED_SHA256: "1e5c20049eeaa4633e6798283913f92dc90a97f2b5c6dfc28e8c4b7e77a67157"
     steps:
@@ -454,9 +460,14 @@ jobs:
             printf 'Fetching check tool %s@%s: %s\n' "$repository" "$tag" "$name"
             auth=()
             if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
-            asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
-              jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
-            curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/$repository/releases/assets/$asset"
+            if [ -n "${NDS_CACHE_BASE:-}" ]; then
+              printf 'Using the configured artifact registry.\n'
+              curl -fsSL -o "$archive" "${NDS_CACHE_BASE%/}/github-releases/sha256/$2/$repository/releases/download/$tag/$name"
+            else
+              asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
+                jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
+              curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/$repository/releases/assets/$asset"
+            fi
             echo "$2  $archive" | sha256sum --check --quiet
             tar -xzf "$archive" -C "$bin" "$3"
           }
@@ -469,9 +480,22 @@ jobs:
           fetch "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
             "$ACTIONLINT_SHA256" actionlint
           rm -f "$archive"
-          python3 -m venv "$RUNNER_TEMP/nddev-ci/zizmor"
-          "$RUNNER_TEMP/nddev-ci/zizmor/bin/pip" install --quiet --disable-pip-version-check "zizmor==$ZIZMOR_VERSION"
-          ln -s "$RUNNER_TEMP/nddev-ci/zizmor/bin/zizmor" "$bin/zizmor"
+          name="zizmor-$ZIZMOR_VERSION-py3-none-manylinux_2_28_x86_64.whl"
+          if [ -n "${NDS_CACHE_BASE:-}" ]; then
+            metadata="${NDS_CACHE_BASE%/}/pypi/simple/zizmor/"
+            origin="${NDS_CACHE_BASE%/}/pypi-files/"
+          else
+            metadata="https://pypi.org/simple/zizmor/"
+            origin="https://files.pythonhosted.org/"
+          fi
+          url=$(curl -fsSL -H 'Accept: application/vnd.pypi.simple.v1+json' "$metadata" |
+            jq -er --arg name "$name" '[.files[] | select(.filename == $name)] | if length == 1 then .[0].url | strings else error("wheel is missing or ambiguous") end')
+          case "$url" in "$origin"*) ;; *) echo "Wheel origin differs from the configured registry" >&2; exit 1 ;; esac
+          curl -fsSL -o "$archive" "$url"
+          echo "$ZIZMOR_SHA256  $archive" | sha256sum --check --quiet
+          python3 -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]))' "$archive" "zizmor-$ZIZMOR_VERSION.data/scripts/zizmor" > "$bin/zizmor"
+          chmod 0755 "$bin/zizmor"
+          rm -f "$archive"
           echo "$bin" >> "$GITHUB_PATH"
 
       - name: Commit messages

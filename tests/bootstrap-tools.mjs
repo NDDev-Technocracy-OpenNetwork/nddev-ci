@@ -22,7 +22,7 @@ test("retained bootstrap tools must match their pinned bytes", () => {
     path.join(root, "justfile"),
     readFileSync(new URL("../justfile", import.meta.url)),
   );
-  const run = (args, offline = false) =>
+  const run = (args, offline = false, environment = {}) =>
     spawnSync("just", args, {
       cwd: root,
       encoding: "utf8",
@@ -40,6 +40,7 @@ test("retained bootstrap tools must match their pinned bytes", () => {
               no_proxy: "",
             }
           : {}),
+        ...environment,
       },
     });
   const accepted = (args, offline = false) => {
@@ -81,6 +82,15 @@ test("retained bootstrap tools must match their pinned bytes", () => {
     const version = spawnSync(binary, ["--version"], { encoding: "utf8" });
     assert.equal(version.status, 0, "the changed ELF still reports its version");
     refused(["_tools", "check"], true);
+    const unavailable = run(["tools"], false, {
+      NDS_CACHE_BASE: "http://127.0.0.1:0",
+      NO_PROXY: "127.0.0.1",
+      no_proxy: "127.0.0.1",
+    });
+    assert.notEqual(unavailable.status, 0, "an unavailable configured registry cannot be bypassed");
+    assert.equal(unavailable.error, undefined, unavailable.error?.message);
+    assert.notEqual(digest(binary), original, "a failed configured route cannot replace existing content");
+    noScratch();
     accepted(["tools"]);
     assert.equal(digest(binary), original);
     accepted(["_tools", "check"], true);

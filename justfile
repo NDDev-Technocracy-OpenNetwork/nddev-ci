@@ -97,13 +97,24 @@ _tools mode:
       if [ "$tool" = actionlint ]; then
         auth=()
         if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
-        asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/rhysd/actionlint/releases/tags/v$version" |
-          jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
-        curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$stage/archive" "https://api.github.com/repos/rhysd/actionlint/releases/assets/$asset"
+        if [ -n "${NDS_CACHE_BASE:-}" ]; then
+          curl -fsSL -o "$stage/archive" "${NDS_CACHE_BASE%/}/github-releases/sha256/$sha/rhysd/actionlint/releases/download/v$version/$name"
+        else
+          asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/rhysd/actionlint/releases/tags/v$version" |
+            jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
+          curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$stage/archive" "https://api.github.com/repos/rhysd/actionlint/releases/assets/$asset"
+        fi
       else
-        url=$(curl -fsSL "https://pypi.org/pypi/zizmor/$version/json" |
-          jq -er --arg name "$name" '[.urls[] | select(.filename == $name)] | if length == 1 then .[0].url | strings else error("wheel is missing or ambiguous") end')
-        case "$url" in https://files.pythonhosted.org/*) ;; *) echo "Wheel origin differs from PyPI" >&2; exit 1 ;; esac
+        if [ -n "${NDS_CACHE_BASE:-}" ]; then
+          metadata="${NDS_CACHE_BASE%/}/pypi/simple/zizmor/"
+          origin="${NDS_CACHE_BASE%/}/pypi-files/"
+        else
+          metadata="https://pypi.org/simple/zizmor/"
+          origin="https://files.pythonhosted.org/"
+        fi
+        url=$(curl -fsSL -H 'Accept: application/vnd.pypi.simple.v1+json' "$metadata" |
+          jq -er --arg name "$name" '[.files[] | select(.filename == $name)] | if length == 1 then .[0].url | strings else error("wheel is missing or ambiguous") end')
+        case "$url" in "$origin"*) ;; *) echo "Wheel origin differs from the configured registry" >&2; exit 1 ;; esac
         curl -fsSL -o "$stage/archive" "$url"
       fi
       echo "$sha  $stage/archive" | sha256sum --check --quiet

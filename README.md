@@ -25,6 +25,9 @@ repository.
 - Every job builds with the machine's one Cargo home, `NDDEV_CARGO_DOWNLOAD_CACHE`: Rust cache keys
   hold the paths of the dependency sources, so dependencies compiled in one job match in every other.
 - The check step reports how many compilations came from the cache.
+- When the runner supplies `NDS_CACHE_BASE`, tool bootstrap uses its SHA-256-addressed GitHub
+  release and PyPI routes. Checksums still verify every archive and wheel. An unavailable declared
+  registry fails bootstrap; environments without one use upstream REST and PyPI directly.
 - A repository may omit recipes that have no work, as the command standard allows.
   The short check reads the parsed justfile before deciding whether to run `test`,
   aliases included. A failed check, a failed declared test or an invalid justfile
@@ -112,6 +115,7 @@ replacement privately before publishing it and removes the exact obsolete tool
 generations. Checks only verify that prepared content; a missing or changed tool
 requires setup. The pinned PyPI wheel supplies zizmor's standalone binary without
 a retained Python environment.
+The merge-stop job extracts the same pinned standalone wheel and creates no Python environment.
 
 ## Pinned public assets
 
