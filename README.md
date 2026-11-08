@@ -112,3 +112,9 @@ holding the image) and passes its name as `sboms`; they are scanned with the res
 just check    # format, actionlint and zizmor
 just verify   # everything the full check runs
 ```
+
+When the runner supplies the canonical gateway settings, tool setup reads its package registry
+before downloading pinned GitHub release assets. Both workflow tools and `just setup` receive
+`NDDEV_CI_REGISTRIES_URL`; a project can fetch the same content-pinned release path through that
+origin. Digest checks remain required. A configured registry error fails setup without switching
+to upstream. Hosted runners without gateway settings use their upstream-download mode.

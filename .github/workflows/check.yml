@@ -63,6 +63,10 @@ on:
 
 permissions: {}
 
+# The runner supplies this canonical gateway configuration; hosted runners have no such file.
+env:
+  GATEWAY_SETTINGS: /etc/contour/caches/environment.toml
+
 jobs:
   check:
     name: ${{ github.event_name == 'pull_request' && 'short check' || 'full check' }}
@@ -77,8 +81,6 @@ jobs:
       JUST_SHA256: "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e"
       SCCACHE_VERSION: "0.19.0"
       SCCACHE_SHA256: "aa73c7270c997894038c0d8f0d297865f57569e1687883322bc431713d4bb9dd"
-      # The contour cache gateway's settings on our runner machines.
-      GATEWAY_SETTINGS: /etc/contour/caches/environment.toml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -264,6 +266,19 @@ jobs:
           GIT_CONFIG_VALUE_1=!f() { if [ "$1" = get ]; then printf "%s\n" "username=x-access-token" "password=$NDDEV_CI_READ_TOKEN"; fi; }; f
           GIT
 
+      - name: Package registry
+        run: |
+          set -euo pipefail
+          if [ -r "$GATEWAY_SETTINGS" ]; then
+            listen=$(sed -n '/^\[registries\]$/,/^\[/s/^listen = "\(.*\)"$/\1/p' "$GATEWAY_SETTINGS")
+            if [[ ! "$listen" =~ ^(\[[0-9A-Fa-f:]+\]|[0-9.]+):[0-9]+$ ]]; then
+              echo "::error::the configured package registry lacks its listen address"
+              exit 1
+            fi
+            echo "NDDEV_CI_REGISTRIES_URL=http://$listen" >> "$GITHUB_ENV"
+            echo "Pinned release tools use the configured package registry."
+          fi
+
       - name: Tools
         run: |
           set -euo pipefail
@@ -271,7 +286,15 @@ jobs:
           archive="$RUNNER_TEMP/nddev-ci/archive.tar.gz"
           mkdir -p "$bin"
           fetch() {
-            curl -fsSL --retry 3 -o "$archive" "$1"
+            source=$1
+            if [ -n "${NDDEV_CI_REGISTRIES_URL:-}" ]; then
+              case "$source" in
+                https://github.com/*/releases/download/*) ;;
+                *) echo "::error::a pinned tool must name a GitHub release asset"; exit 1 ;;
+              esac
+              source="${NDDEV_CI_REGISTRIES_URL%/}/github-releases/sha256/$2/${source#https://github.com/}"
+            fi
+            curl -fsSL --retry 3 -o "$archive" "$source"
             echo "$2  $archive" | sha256sum --check --quiet
             tar -xzf "$archive" -C "$bin" --strip-components="$3" "$4"
           }
@@ -413,6 +436,19 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      - name: Package registry
+        run: |
+          set -euo pipefail
+          if [ -r "$GATEWAY_SETTINGS" ]; then
+            listen=$(sed -n '/^\[registries\]$/,/^\[/s/^listen = "\(.*\)"$/\1/p' "$GATEWAY_SETTINGS")
+            if [[ ! "$listen" =~ ^(\[[0-9A-Fa-f:]+\]|[0-9.]+):[0-9]+$ ]]; then
+              echo "::error::the configured package registry lacks its listen address"
+              exit 1
+            fi
+            echo "NDDEV_CI_REGISTRIES_URL=http://$listen" >> "$GITHUB_ENV"
+            echo "Pinned release tools use the configured package registry."
+          fi
+
       - name: Tools
         run: |
           set -euo pipefail
@@ -420,7 +456,15 @@ jobs:
           archive="$RUNNER_TEMP/nddev-ci/archive.tar.gz"
           mkdir -p "$bin"
           fetch() {
-            curl -fsSL --retry 3 -o "$archive" "$1"
+            source=$1
+            if [ -n "${NDDEV_CI_REGISTRIES_URL:-}" ]; then
+              case "$source" in
+                https://github.com/*/releases/download/*) ;;
+                *) echo "::error::a pinned tool must name a GitHub release asset"; exit 1 ;;
+              esac
+              source="${NDDEV_CI_REGISTRIES_URL%/}/github-releases/sha256/$2/${source#https://github.com/}"
+            fi
+            curl -fsSL --retry 3 -o "$archive" "$source"
             echo "$2  $archive" | sha256sum --check --quiet
             tar -xzf "$archive" -C "$bin" "$3"
           }

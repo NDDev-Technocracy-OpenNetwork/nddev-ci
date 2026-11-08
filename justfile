@@ -36,7 +36,11 @@ tools:
     mkdir -p "{{ tools }}"
     if [ ! -x "{{ tools }}/actionlint" ]; then
       archive="{{ tools }}/actionlint.tar.gz"
-      curl -fsSL --retry 3 -o "$archive" "https://github.com/rhysd/actionlint/releases/download/v{{ actionlint_version }}/actionlint_{{ actionlint_version }}_linux_amd64.tar.gz"
+      source="https://github.com/rhysd/actionlint/releases/download/v{{ actionlint_version }}/actionlint_{{ actionlint_version }}_linux_amd64.tar.gz"
+      if [ -n "${NDDEV_CI_REGISTRIES_URL:-}" ]; then
+        source="${NDDEV_CI_REGISTRIES_URL%/}/github-releases/sha256/{{ actionlint_sha256 }}/${source#https://github.com/}"
+      fi
+      curl -fsSL --retry 3 -o "$archive" "$source"
       echo "{{ actionlint_sha256 }}  $archive" | sha256sum --check --quiet
       tar -xzf "$archive" -C "{{ tools }}" actionlint
       rm "$archive"
