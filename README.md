@@ -96,6 +96,15 @@ Hosted Linux, macOS and Windows runners receive a pinned Just executable whose
 archive, size and extracted bytes are verified. A self-hosted runner must already
 provide the matching managed frontend; this action installs no compiler or SDK.
 
+For an entire command job, call `.github/workflows/recipe.yml` at a pinned commit.
+It accepts an explicit hosted `runner`, `recipe`, JSON `arguments`, optional
+dependency `prepare` recipe and checkout depth. Optional exact `node-version`,
+`python-version` and `uv-version` inputs prepare hosted SDKs before either recipe.
+Public callers select from the documented hosted platforms; private callers use
+their `private-runner` label and retain its prepared toolchain and cache placement.
+Specialized jobs keep services, signing, packaging and acceptance in their owning
+workflow and use the recipe action for individual commands.
+
 For this repository, run `just setup` once before offline `just check`. Execution
 tests belong to `just test` and `just verify`.
 

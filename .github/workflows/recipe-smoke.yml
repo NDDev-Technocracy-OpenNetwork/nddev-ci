@@ -7,6 +7,21 @@ on:
 permissions:
   contents: read
 jobs:
+  reusable:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-26.04, macos-15, windows-2025]
+    uses: ./.github/workflows/recipe.yml
+    with:
+      runner: ${{ matrix.os }}
+      node-version: '26.12.1'
+      python-version: '3.14.9'
+      uv-version: '0.13.5'
+      prepare: environment-probe
+      recipe: script-probe
+      justfile: tests/fixtures/portable.just
+      arguments: '["path with spaces","$(must-stay-literal)","مرحبا-Ә-测试"]'
   native:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10

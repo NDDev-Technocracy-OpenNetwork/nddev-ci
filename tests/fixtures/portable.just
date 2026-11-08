@@ -1,5 +1,10 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
+environment-probe:
+    node --version
+    python --version
+    uv --version
+
 probe first second third:
     @test {{ quote(first) }} = 'path with spaces'
     @test {{ quote(second) }} = '$(must-stay-literal)'

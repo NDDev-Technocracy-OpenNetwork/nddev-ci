@@ -1,0 +1,101 @@
+name: recipe
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Hosted public runner (ubuntu-24.04, ubuntu-26.04, macos-15 or windows-2025).
+        type: string
+        default: ubuntu-24.04
+      private-runner:
+        description: Prepared private runner label.
+        type: string
+        default: nddev-linux-standart
+      recipe:
+        description: Project-owned Just recipe.
+        type: string
+        required: true
+      arguments:
+        description: JSON array of literal recipe arguments.
+        type: string
+        default: '[]'
+      prepare:
+        description: Optional explicit dependency-preparation recipe.
+        type: string
+        default: ''
+      working-directory:
+        type: string
+        default: '.'
+      justfile:
+        type: string
+        default: justfile
+      fetch-depth:
+        type: number
+        default: 1
+      node-version:
+        description: Optional exact hosted Node SDK version.
+        type: string
+        default: ''
+      python-version:
+        description: Optional exact hosted Python SDK version.
+        type: string
+        default: ''
+      uv-version:
+        description: Optional exact hosted uv frontend version.
+        type: string
+        default: ''
+      timeout-minutes:
+        type: number
+        default: 30
+
+permissions: {}
+
+jobs:
+  recipe:
+    # Public calls cannot select a private runner label. Unknown public labels refuse scheduling.
+    runs-on: ${{ github.event.repository.private && inputs.private-runner || contains(fromJSON('["ubuntu-24.04","ubuntu-26.04","macos-15","windows-2025"]'), inputs.runner) && inputs.runner || '' }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: ${{ inputs.fetch-depth }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        if: runner.environment == 'github-hosted' && inputs.node-version != ''
+        with:
+          node-version: ${{ inputs.node-version }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        id: python
+        if: runner.environment == 'github-hosted' && inputs.python-version != ''
+        with:
+          python-version: ${{ inputs.python-version }}
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        if: runner.environment == 'github-hosted' && inputs.uv-version != ''
+        with:
+          version: ${{ inputs.uv-version }}
+          enable-cache: false
+      - name: Isolate hosted Python preparation
+        if: runner.environment == 'github-hosted' && inputs.uv-version != ''
+        env:
+          SELECTED_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: >-
+          node -e "const fs=require('node:fs'),p=require('node:path'),e=process.env;
+          const vars={UV_CACHE_DIR:p.join(e.RUNNER_TEMP,'uv-cache'),UV_PROJECT_ENVIRONMENT:p.join(e.RUNNER_TEMP,'project-environment')};
+          if(e.SELECTED_PYTHON)vars.UV_PYTHON=e.SELECTED_PYTHON;
+          fs.appendFileSync(e.GITHUB_ENV,Object.entries(vars).map(([k,v])=>k+'='+v+'\n').join(''))"
+      - name: Prepare only the declared dependencies
+        if: inputs.prepare != ''
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@6906120bd7ee190750ec62d1fa9a5daf9d823ae4
+        with:
+          recipe: ${{ inputs.prepare }}
+          working-directory: ${{ inputs.working-directory }}
+          justfile: ${{ inputs.justfile }}
+      - name: Run the project command
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@6906120bd7ee190750ec62d1fa9a5daf9d823ae4
+        with:
+          recipe: ${{ inputs.recipe }}
+          arguments: ${{ inputs.arguments }}
+          working-directory: ${{ inputs.working-directory }}
+          justfile: ${{ inputs.justfile }}
