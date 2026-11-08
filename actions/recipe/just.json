@@ -1,0 +1,48 @@
+{
+  "version": "1.59.0",
+  "source": "https://github.com/casey/just/releases/tag/1.59.0",
+  "targets": {
+    "darwin-arm64": {
+      "asset": 643129724,
+      "name": "just-1.59.0-aarch64-apple-darwin.tar.gz",
+      "sha256": "6574cea774ed4cae12e24b6aa11857de33e80dab4667cf628fd5840df96a2a9d",
+      "binary_sha256": "dd760b653ab24afb6e11bb4c2de423f75085d2eea751f8e1d51058074052ecdd",
+      "size": 2174952
+    },
+    "win32-arm64": {
+      "asset": 643132438,
+      "name": "just-1.59.0-aarch64-pc-windows-msvc.zip",
+      "sha256": "a72808bc8f8028c25aaae87cf26405d2bd85d2769a779380b344c69607216971",
+      "binary_sha256": "4f54ce81fc2c99094be22bf3a0e28aff106ab7d92ff286f3979bee54e3b03f48",
+      "size": 2098112
+    },
+    "linux-arm64": {
+      "asset": 642950086,
+      "name": "just-1.59.0-aarch64-unknown-linux-musl.tar.gz",
+      "sha256": "23871b1702bfd550fb5f901778fd4290ecf2ee034a45a889fbe96d89b188086d",
+      "binary_sha256": "c6a42651abc5ea8518aa4054d7236267e4259e9543e5ae65051bbcc6aa462cff",
+      "size": 2343258
+    },
+    "darwin-x64": {
+      "asset": 643131819,
+      "name": "just-1.59.0-x86_64-apple-darwin.tar.gz",
+      "sha256": "036ead9df9bc31dbae9934ae3b4236ed124d0bafcffd33439460ae084d5c9cb7",
+      "binary_sha256": "800786f88539439a3ee3be97cfa2ef7b1a399adc6f4235f311f8e6a1afee4be4",
+      "size": 2357655
+    },
+    "win32-x64": {
+      "asset": 643131303,
+      "name": "just-1.59.0-x86_64-pc-windows-msvc.zip",
+      "sha256": "9c5463e2d0974e31bee71346aa5cbf19167de1585a4abc1bae7b3b04604ea9c0",
+      "binary_sha256": "146c26ccfe1e40fadb59183cf8bc17d46c0cdf1bd1e43e52cca686cef0c44627",
+      "size": 2292448
+    },
+    "linux-x64": {
+      "asset": 642949555,
+      "name": "just-1.59.0-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e",
+      "binary_sha256": "50cd9b4a47c26a2570a0cca1bf86a106290b1cd35b131630696f63b9fbd1400d",
+      "size": 2572537
+    }
+  }
+}
