@@ -40,8 +40,9 @@ tools:
         source="${NDDEV_CI_REGISTRIES_URL%/}/github-releases/sha256/{{ actionlint_sha256 }}/rhysd/actionlint/releases/download/v{{ actionlint_version }}/actionlint_{{ actionlint_version }}_linux_amd64.tar.gz"
         curl -fsSL --retry 3 -o "$archive" "$source"
       else
-        GH_NO_UPDATE_NOTIFIER=1 GH_NO_EXTENSION_UPDATE_NOTIFIER=1 gh release download "v{{ actionlint_version }}" --repo rhysd/actionlint \
-          --pattern "actionlint_{{ actionlint_version }}_linux_amd64.tar.gz" --output "$archive" --clobber
+        asset=$(curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/rhysd/actionlint/releases/tags/v{{ actionlint_version }}" |
+          jq -er --arg name "actionlint_{{ actionlint_version }}_linux_amd64.tar.gz" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
+        curl -fsSL -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/rhysd/actionlint/releases/assets/$asset"
       fi
       echo "{{ actionlint_sha256 }}  $archive" | sha256sum --check --quiet
       tar -xzf "$archive" -C "{{ tools }}" actionlint

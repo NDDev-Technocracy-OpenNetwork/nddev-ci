@@ -117,6 +117,6 @@ When the runner supplies the canonical gateway settings, tool setup reads its pa
 before downloading pinned GitHub release assets. Both workflow tools and `just setup` receive
 `NDDEV_CI_REGISTRIES_URL`; a project can fetch the same content-pinned release path through that
 origin. Digest checks remain required. A configured registry error fails setup without switching
-to upstream. Runners without gateway settings use the official GitHub CLI release API, with the workflow's
-contents-read token. They must provide the GitHub CLI as a bootstrap tool, as GitHub-hosted
-runners do. Update notifications are disabled.
+to upstream. Runners without gateway settings read public assets through the GitHub REST release API using
+`curl` and `jq`. These public downloads use no GitHub token or organization identity; digest
+verification still precedes execution.

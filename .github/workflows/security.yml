@@ -90,8 +90,6 @@ jobs:
           fi
 
       - name: Tools
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           bin="$RUNNER_TEMP/security/bin"
@@ -102,7 +100,9 @@ jobs:
               source="${NDDEV_CI_REGISTRIES_URL%/}/github-releases/sha256/$4/$1/releases/download/$2/$3"
               curl -fsSL --retry 3 -o "$download" "$source"
             else
-              gh release download "$2" --repo "$1" --pattern "$3" --output "$download" --clobber
+              asset=$(curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$1/releases/tags/$2" |
+                jq -er --arg name "$3" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
+              curl -fsSL -H 'Accept: application/octet-stream' -o "$download" "https://api.github.com/repos/$1/releases/assets/$asset"
             fi
             echo "$4  $download" | sha256sum --check --quiet
           }
