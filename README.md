@@ -116,5 +116,6 @@ just verify   # everything the full check runs
 Bootstrap tools are fetched through the official GitHub REST release API, resolving the tag and
 exact asset name of their source URL. Every archive must match its pinned SHA-256 before
 execution. Workflow steps use their contents-read token for API rate limits; a local check may
-read public assets without a token. Package/compiler caching belongs to the runner SDK and
+read public assets without a token. A source with restricted token access declares public
+access explicitly (Trivy); failures never switch identities. Package/compiler caching belongs to the runner SDK and
 network-cache contract. Tool bootstrap has one source and fails if it cannot fetch or verify it.
