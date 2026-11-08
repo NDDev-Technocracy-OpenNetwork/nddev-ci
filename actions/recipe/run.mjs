@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { spawnSync } from "node:child_process";
 import {
   appendFileSync,
@@ -74,14 +75,42 @@ export function invocation({
 
 async function download(asset, destination) {
   const url = `https://api.github.com/repos/casey/just/releases/assets/${asset.asset}`;
-  const response = await fetch(url, {
-    headers: { Accept: "application/octet-stream", "User-Agent": "nddev-ci" },
-    signal: AbortSignal.timeout(120000),
-  });
-  if (!response.ok)
-    throw new ActionError(
-      `Pinned task runner download failed: HTTP ${response.status}.`,
+  let response;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      response = await fetch(url, {
+        headers: {
+          Accept: "application/octet-stream",
+          "User-Agent": "nddev-ci",
+        },
+        signal: AbortSignal.timeout(30000),
+      });
+    } catch {
+      if (attempt === 3)
+        throw new ActionError("Pinned task runner transport did not complete.");
+    }
+    if (response?.ok) break;
+    const transient =
+      response === undefined ||
+      [408, 429, 500, 502, 503, 504].includes(response.status);
+    if (!transient || attempt === 3)
+      throw new ActionError(
+        `Pinned task runner download failed: HTTP ${response?.status ?? "unavailable"}.`,
+      );
+    const requested = Number(response?.headers.get("retry-after") ?? 0);
+    if (Number.isFinite(requested) && requested > 30)
+      throw new ActionError(
+        "Pinned task runner source requested a later retry.",
+      );
+    if (response?.body) await response.body.cancel();
+    console.log(
+      `Transient asset transport ${response?.status ?? "unavailable"}; retrying the same pinned source (${attempt + 1}/3).`,
     );
+    await delay(
+      Math.max(2 ** attempt, Number.isFinite(requested) ? requested : 0) * 1000,
+    );
+    response = undefined;
+  }
   if (!response.body)
     throw new ActionError("Pinned task runner response has no body.");
   const chunks = [];
