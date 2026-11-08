@@ -65,13 +65,29 @@ jobs:
           fetch-depth: 0
 
       - name: Tools
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           bin="$RUNNER_TEMP/security/bin"
           download="$RUNNER_TEMP/security/download"
           mkdir -p "$bin"
           fetch() {
-            curl -fsSL --retry 3 -o "$download" "$1"
+            source=${1#https://github.com/}
+            repository=${source%%/releases/download/*}
+            release=${source#*/releases/download/}
+            tag=${release%%/*}
+            name=${release#*/}
+            printf 'Fetching check tool %s@%s: %s\n' "$repository" "$tag" "$name"
+            auth=()
+            case "${3:-token}" in
+              token) if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi ;;
+              public) ;;
+              *) echo "::error::unknown release source access mode"; exit 1 ;;
+            esac
+            asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
+              jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
+            curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$download" "https://api.github.com/repos/$repository/releases/assets/$asset"
             echo "$2  $download" | sha256sum --check --quiet
           }
           fetch "https://github.com/trufflesecurity/trufflehog/releases/download/v$TRUFFLEHOG_VERSION/trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz" "$TRUFFLEHOG_SHA256"
@@ -84,7 +100,9 @@ jobs:
           tar -xzf "$download" -C "$bin" syft
           fetch "https://github.com/anchore/grype/releases/download/v$GRYPE_VERSION/grype_${GRYPE_VERSION}_linux_amd64.tar.gz" "$GRYPE_SHA256"
           tar -xzf "$download" -C "$bin" grype
-          fetch "https://github.com/aquasecurity/trivy/releases/download/v$TRIVY_VERSION/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" "$TRIVY_SHA256"
+          # This public upstream restricts organization-token access. Select public access before
+          # the request; an error never retries under another identity.
+          fetch "https://github.com/aquasecurity/trivy/releases/download/v$TRIVY_VERSION/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" "$TRIVY_SHA256" public
           tar -xzf "$download" -C "$bin" trivy
           rm -f "$download"
           echo "$bin" >> "$GITHUB_PATH"

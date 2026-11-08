@@ -36,7 +36,11 @@ tools:
     mkdir -p "{{ tools }}"
     if [ ! -x "{{ tools }}/actionlint" ]; then
       archive="{{ tools }}/actionlint.tar.gz"
-      curl -fsSL --retry 3 -o "$archive" "https://github.com/rhysd/actionlint/releases/download/v{{ actionlint_version }}/actionlint_{{ actionlint_version }}_linux_amd64.tar.gz"
+      auth=()
+      if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
+      asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/rhysd/actionlint/releases/tags/v{{ actionlint_version }}" |
+        jq -er --arg name "actionlint_{{ actionlint_version }}_linux_amd64.tar.gz" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
+      curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/rhysd/actionlint/releases/assets/$asset"
       echo "{{ actionlint_sha256 }}  $archive" | sha256sum --check --quiet
       tar -xzf "$archive" -C "{{ tools }}" actionlint
       rm "$archive"
