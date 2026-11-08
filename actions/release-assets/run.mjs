@@ -29,10 +29,6 @@ const within = (root, candidate) => {
 };
 
 function destinationDirectory(requested, roots) {
-  if (!roots.some((root) => within(root, requested)))
-    throw new ActionError(
-      "Asset destination is outside runner-owned directories.",
-    );
   let ancestor = requested;
   while (!existsSync(ancestor)) {
     // A dangling symlink must not become a directory through recursive mkdir.
