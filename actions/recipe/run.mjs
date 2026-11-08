@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { setTimeout as delay } from "node:timers/promises";
 import { spawnSync } from "node:child_process";
 import {
   appendFileSync,
@@ -11,12 +10,11 @@ import {
   realpathSync,
   renameSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-class ActionError extends Error {}
+import { ActionError, downloadAsset } from "../../lib/release-asset.mjs";
 const configuration = JSON.parse(
   readFileSync(new URL("./just.json", import.meta.url), "utf8"),
 );
@@ -81,86 +79,6 @@ export function invocation({
   };
 }
 
-async function download(asset, destination, token) {
-  const url = `https://api.github.com/repos/casey/just/releases/assets/${asset.asset}`;
-  let response;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    try {
-      const signal = AbortSignal.timeout(30000);
-      response = await fetch(url, {
-        headers: {
-          Accept: "application/octet-stream",
-          "User-Agent": "nddev-ci",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        redirect: "manual",
-        signal,
-      });
-      if ([301, 302, 303, 307, 308].includes(response.status)) {
-        const location = new URL(response.headers.get("location") ?? "", url);
-        if (
-          location.protocol !== "https:" ||
-          !location.hostname.endsWith(".githubusercontent.com")
-        )
-          throw new ActionError(
-            "Release asset redirect is outside its official download origin.",
-          );
-        if (response.body) await response.body.cancel();
-        response = await fetch(location, {
-          headers: {
-            Accept: "application/octet-stream",
-            "User-Agent": "nddev-ci",
-          },
-          signal,
-        });
-      }
-    } catch (error) {
-      if (error instanceof ActionError) throw error;
-      if (attempt === 3)
-        throw new ActionError("Pinned task runner transport did not complete.");
-    }
-    if (response?.ok) break;
-    const transient =
-      response === undefined ||
-      [408, 429, 500, 502, 503, 504].includes(response.status);
-    if (!transient || attempt === 3)
-      throw new ActionError(
-        `Pinned task runner download failed: HTTP ${response?.status ?? "unavailable"}.`,
-      );
-    const requested = Number(response?.headers.get("retry-after") ?? 0);
-    if (Number.isFinite(requested) && requested > 30)
-      throw new ActionError(
-        "Pinned task runner source requested a later retry.",
-      );
-    if (response?.body) await response.body.cancel();
-    console.log(
-      `Transient asset transport ${response?.status ?? "unavailable"}; retrying the same pinned source (${attempt + 1}/3).`,
-    );
-    await delay(
-      Math.max(2 ** attempt, Number.isFinite(requested) ? requested : 0) * 1000,
-    );
-    response = undefined;
-  }
-  if (!response.body)
-    throw new ActionError("Pinned task runner response has no body.");
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of response.body) {
-    size += chunk.byteLength;
-    if (size > asset.size)
-      throw new ActionError(
-        "Pinned task runner response exceeds its published size.",
-      );
-    chunks.push(chunk);
-  }
-  const content = Buffer.concat(chunks);
-  if (size !== asset.size)
-    throw new ActionError("Pinned task runner response is incomplete.");
-  if (createHash("sha256").update(content).digest("hex") !== asset.sha256)
-    throw new ActionError("Pinned task runner archive digest differs.");
-  writeFileSync(destination, content);
-}
-
 async function executable(environment) {
   if (environment.RUNNER_ENVIRONMENT === "self-hosted") {
     const result = spawnSync("just", ["--version"], {
@@ -200,7 +118,11 @@ async function executable(environment) {
     const temporary = mkdtempSync(path.join(directory, "download-"));
     try {
       const archive = path.join(temporary, asset.name);
-      await download(asset, archive, environment["INPUT_GITHUB-TOKEN"]);
+      await downloadAsset(
+        { ...asset, repository: configuration.repository },
+        archive,
+        environment["INPUT_GITHUB-TOKEN"],
+      );
       const extracted = spawnSync(
         "tar",
         ["-xf", archive, "-C", temporary, path.basename(binary)],

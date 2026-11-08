@@ -15,7 +15,7 @@ inputs:
     default: justfile
   github-token:
     description: Existing job token used only for official public asset API reads.
-    default: ${{ github.token }}
+    default: ${{ github.server_url == 'https://github.com' && github.token || '' }}
 outputs:
   just-version:
     description: The admitted task runner version.
