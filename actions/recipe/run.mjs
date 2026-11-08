@@ -69,23 +69,53 @@ export function invocation({
   }
   return {
     cwd,
-    argv: ["--justfile", file, "--", recipe, ...parseArguments(raw)],
+    argv: [
+      "--working-directory",
+      cwd,
+      "--justfile",
+      file,
+      "--",
+      recipe,
+      ...parseArguments(raw),
+    ],
   };
 }
 
-async function download(asset, destination) {
+async function download(asset, destination, token) {
   const url = `https://api.github.com/repos/casey/just/releases/assets/${asset.asset}`;
   let response;
   for (let attempt = 0; attempt < 4; attempt += 1) {
     try {
+      const signal = AbortSignal.timeout(30000);
       response = await fetch(url, {
         headers: {
           Accept: "application/octet-stream",
           "User-Agent": "nddev-ci",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        signal: AbortSignal.timeout(30000),
+        redirect: "manual",
+        signal,
       });
-    } catch {
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = new URL(response.headers.get("location") ?? "", url);
+        if (
+          location.protocol !== "https:" ||
+          !location.hostname.endsWith(".githubusercontent.com")
+        )
+          throw new ActionError(
+            "Release asset redirect is outside its official download origin.",
+          );
+        if (response.body) await response.body.cancel();
+        response = await fetch(location, {
+          headers: {
+            Accept: "application/octet-stream",
+            "User-Agent": "nddev-ci",
+          },
+          signal,
+        });
+      }
+    } catch (error) {
+      if (error instanceof ActionError) throw error;
       if (attempt === 3)
         throw new ActionError("Pinned task runner transport did not complete.");
     }
@@ -133,7 +163,10 @@ async function download(asset, destination) {
 
 async function executable(environment) {
   if (environment.RUNNER_ENVIRONMENT === "self-hosted") {
-    const result = spawnSync("just", ["--version"], { encoding: "utf8" });
+    const result = spawnSync("just", ["--version"], {
+      encoding: "utf8",
+      env: commandEnvironment(environment),
+    });
     if (
       result.status !== 0 ||
       result.stdout.trim() !== `just ${configuration.version}`
@@ -167,11 +200,11 @@ async function executable(environment) {
     const temporary = mkdtempSync(path.join(directory, "download-"));
     try {
       const archive = path.join(temporary, asset.name);
-      await download(asset, archive);
+      await download(asset, archive, environment["INPUT_GITHUB-TOKEN"]);
       const extracted = spawnSync(
         "tar",
         ["-xf", archive, "-C", temporary, path.basename(binary)],
-        { stdio: "inherit" },
+        { stdio: "inherit", env: commandEnvironment(environment) },
       );
       const source = path.join(temporary, path.basename(binary));
       if (
@@ -194,6 +227,14 @@ async function executable(environment) {
   return binary;
 }
 
+function commandEnvironment(environment) {
+  return Object.fromEntries(
+    Object.entries(environment).filter(
+      ([name]) => name.toUpperCase() !== "INPUT_GITHUB-TOKEN",
+    ),
+  );
+}
+
 export async function main(environment = process.env) {
   const request = invocation({
     workspace: environment.GITHUB_WORKSPACE,
@@ -203,7 +244,10 @@ export async function main(environment = process.env) {
     arguments: environment.INPUT_ARGUMENTS,
   });
   const just = await executable(environment);
-  const version = spawnSync(just, ["--version"], { encoding: "utf8" });
+  const version = spawnSync(just, ["--version"], {
+    encoding: "utf8",
+    env: commandEnvironment(environment),
+  });
   if (
     version.status !== 0 ||
     version.stdout.trim() !== `just ${configuration.version}`
@@ -214,7 +258,7 @@ export async function main(environment = process.env) {
       environment.GITHUB_OUTPUT,
       `just-version=${configuration.version}\n`,
     );
-  const childEnvironment = { ...environment };
+  const childEnvironment = commandEnvironment(environment);
   if (path.isAbsolute(just)) {
     const originalPath = environment.PATH ?? environment.Path ?? "";
     for (const name of Object.keys(childEnvironment))

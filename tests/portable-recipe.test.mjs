@@ -53,6 +53,8 @@ test("constructs argv for the selected justfile and refuses path escape", () => 
     const result = invocation(options);
     assert.equal(result.cwd, realpathSync(path.join(workspace, "project")));
     assert.deepEqual(result.argv, [
+      "--working-directory",
+      realpathSync(path.join(workspace, "project")),
       "--justfile",
       realpathSync(path.join(workspace, "project", "justfile")),
       "--",

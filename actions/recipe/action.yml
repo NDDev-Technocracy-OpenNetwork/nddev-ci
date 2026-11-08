@@ -13,6 +13,9 @@ inputs:
   justfile:
     description: Justfile relative to the working directory.
     default: justfile
+  github-token:
+    description: Existing job token used only for official public asset API reads.
+    default: ${{ github.token }}
 outputs:
   just-version:
     description: The admitted task runner version.
