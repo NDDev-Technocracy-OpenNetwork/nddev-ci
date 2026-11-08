@@ -10,7 +10,7 @@ repository.
 
 | Event | Runs |
 | --- | --- |
-| Pull request | `just check`, then `just test` |
+| Pull request | `just check`, then `just test` when the repository declares it |
 | Push to `dev`, or a run by hand | `just verify` |
 
 - Public repositories always run on GitHub's runners. Private ones run on our runners, the label
@@ -25,6 +25,10 @@ repository.
 - Every job builds with the machine's one Cargo home, `NDDEV_CARGO_DOWNLOAD_CACHE`: Rust cache keys
   hold the paths of the dependency sources, so dependencies compiled in one job match in every other.
 - The check step reports how many compilations came from the cache.
+- A repository may omit recipes that have no work, as the command standard allows.
+  The short check reads the parsed justfile before deciding whether to run `test`,
+  aliases included. A failed check, a failed declared test or an invalid justfile
+  remains a failure. The full check always runs `just verify`.
 - `setup: true` runs `just setup` before the checks. A project whose `just check` works without
   network access, as checks.md asks, takes its dependencies and data there first.
 - `fetch-depth` (default 1; 0 is the whole history) and `filter` (such as `blob:none`) go to the
