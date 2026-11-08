@@ -220,12 +220,19 @@ jobs:
           if [ "$SETUP" = true ]; then
             just setup
           fi
+          # recipe-dispatch:begin
           if [ "$EVENT" = pull_request ]; then
             just check
-            just test
+            recipes=$(just --dump --dump-format json)
+            if jq -e '(.recipes | has("test")) or (.aliases | has("test"))' <<< "$recipes" >/dev/null; then
+              just test
+            else
+              echo "This repository declares no test recipe."
+            fi
           else
             just verify
           fi
+          # recipe-dispatch:end
 
       - name: Artifact
         # The full check keeps what the project deploys, so a deployment takes the exact build of a

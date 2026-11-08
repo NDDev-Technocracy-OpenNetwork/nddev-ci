@@ -12,12 +12,15 @@ default:
 # Format, workflow structure and workflow security. Reads only, apart from fetching the tools once.
 check: tools
     just --fmt --check
+    rustfmt --edition 2024 --check tests/recipe-routing.rs
     {{ tools }}/actionlint .github/workflows/*.yml
     {{ tools }}/zizmor/bin/zizmor --min-severity medium .github
 
 # The documented caller workflow is valid.
 test: tools
     {{ tools }}/actionlint examples/ci.yml
+    rustc --edition 2024 --test tests/recipe-routing.rs -o {{ tools }}/recipe-routing-tests
+    {{ tools }}/recipe-routing-tests
 
 # Everything the full check on dev runs.
 verify: check test
