@@ -50,6 +50,32 @@ repository.
   unless the repository has its own `committed.toml`. It checks only the commits the change brings:
   merge commits and commits another branch already holds are left out. Any of them stops the merge.
 
+An organization that disables deploy keys can use its admitted GitHub App instead.
+The caller supplies `read-app-client-id`, `read-app-installation-id`, an explicit
+list of `read-repositories`, and the `read-app-private-key` secret:
+
+```yaml
+with:
+  setup: true
+  read-app-client-id: ${{ vars.CI_READ_APP_CLIENT_ID }}
+  read-app-installation-id: ${{ vars.CI_READ_APP_INSTALLATION_ID }}
+  read-repositories: |
+    example-org/private-module
+secrets:
+  read-app-private-key: ${{ secrets.CI_READ_APP_PRIVATE_KEY }}
+```
+
+This profile accepts repositories in the caller's organization only and cannot
+be combined with `read-keys`. The signing step requests a short-lived installation
+token with `contents: read` for exactly those repositories, then checks the granted
+permissions and repository list before exposing it to Git. The PEM key reaches
+only that step; it is never written to disk or passed to the project's commands.
+Git recipes use HTTPS module URLs. The token is masked, lives in the ephemeral job
+environment, and is revoked in an always-run cleanup step. A forcibly terminated
+runner can miss cleanup; GitHub's installation-token expiration remains the bound.
+Merge stops receive neither credential. The caller keeps the App key in its
+repository secret under its contour's key policy; this library stores no keys.
+
 ## Daily security
 
 `security.yml` is the daily run of security.md, called from a schedule in each repository with
