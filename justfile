@@ -20,7 +20,10 @@ check:
     just --fmt --check
     rustfmt --edition 2024 --check tests/recipe-routing.rs
     node --check actions/recipe/run.mjs
+    node --check actions/release-assets/run.mjs
+    node --check lib/release-asset.mjs
     node --check tests/portable-recipe.test.mjs
+    node --check tests/release-assets.test.mjs
     {{ tools }}/actionlint .github/workflows/*.yml
     {{ tools }}/zizmor/bin/zizmor --min-severity medium .github
 
@@ -29,7 +32,7 @@ test:
     {{ tools }}/actionlint examples/ci.yml
     rustc --edition 2024 --test tests/recipe-routing.rs -o {{ tools }}/recipe-routing-tests
     {{ tools }}/recipe-routing-tests
-    node --test tests/portable-recipe.test.mjs
+    node --test tests/*.test.mjs
 
 # Everything the full check on dev runs.
 verify: check test

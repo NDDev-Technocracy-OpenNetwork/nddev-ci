@@ -44,5 +44,6 @@
       "binary_sha256": "50cd9b4a47c26a2570a0cca1bf86a106290b1cd35b131630696f63b9fbd1400d",
       "size": 2572537
     }
-  }
+  },
+  "repository": "casey/just"
 }

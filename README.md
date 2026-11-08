@@ -99,6 +99,22 @@ provide the matching managed frontend; this action installs no compiler or SDK.
 For this repository, run `just setup` once before offline `just check`. Execution
 tests belong to `just test` and `just verify`.
 
+## Pinned public assets
+
+`actions/release-assets` prepares tools used by hosted native packaging jobs.
+Its manifest lives in the caller checkout and contains `schema_version: 1` and an
+`assets` array. Each entry pins `repository`, numeric release `asset` ID, exact
+`size`, `sha256`, destination `file` basename and optional `executable: true`.
+The destination stays inside the checkout or `RUNNER_TEMP`; symlink escapes and
+nonregular targets are rejected before writing. Prepared private runners keep
+their native provider instead of bootstrapping tools through this action.
+
+Downloads use the official public release API, with the existing job token only
+on that API request. Redirected content receives no credentials. A bounded retry
+handles transport failures from the same immutable source; permission refusals,
+byte mismatches and recipes are never retried. Valid warm files are checked and
+reused. New bytes replace the destination only after size and digest verification.
+
 ## Daily security
 
 `security.yml` is the daily run of security.md, called from a schedule in each repository with

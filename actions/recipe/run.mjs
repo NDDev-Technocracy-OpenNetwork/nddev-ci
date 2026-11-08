@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { setTimeout as delay } from "node:timers/promises";
 import { spawnSync } from "node:child_process";
 import {
   appendFileSync,
@@ -11,12 +10,11 @@ import {
   realpathSync,
   renameSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-class ActionError extends Error {}
+import { ActionError, downloadAsset } from "../../lib/release-asset.mjs";
 const configuration = JSON.parse(
   readFileSync(new URL("./just.json", import.meta.url), "utf8"),
 );
@@ -69,71 +67,24 @@ export function invocation({
   }
   return {
     cwd,
-    argv: ["--justfile", file, "--", recipe, ...parseArguments(raw)],
+    argv: [
+      "--working-directory",
+      cwd,
+      "--justfile",
+      file,
+      "--",
+      recipe,
+      ...parseArguments(raw),
+    ],
   };
-}
-
-async function download(asset, destination) {
-  const url = `https://api.github.com/repos/casey/just/releases/assets/${asset.asset}`;
-  let response;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    try {
-      response = await fetch(url, {
-        headers: {
-          Accept: "application/octet-stream",
-          "User-Agent": "nddev-ci",
-        },
-        signal: AbortSignal.timeout(30000),
-      });
-    } catch {
-      if (attempt === 3)
-        throw new ActionError("Pinned task runner transport did not complete.");
-    }
-    if (response?.ok) break;
-    const transient =
-      response === undefined ||
-      [408, 429, 500, 502, 503, 504].includes(response.status);
-    if (!transient || attempt === 3)
-      throw new ActionError(
-        `Pinned task runner download failed: HTTP ${response?.status ?? "unavailable"}.`,
-      );
-    const requested = Number(response?.headers.get("retry-after") ?? 0);
-    if (Number.isFinite(requested) && requested > 30)
-      throw new ActionError(
-        "Pinned task runner source requested a later retry.",
-      );
-    if (response?.body) await response.body.cancel();
-    console.log(
-      `Transient asset transport ${response?.status ?? "unavailable"}; retrying the same pinned source (${attempt + 1}/3).`,
-    );
-    await delay(
-      Math.max(2 ** attempt, Number.isFinite(requested) ? requested : 0) * 1000,
-    );
-    response = undefined;
-  }
-  if (!response.body)
-    throw new ActionError("Pinned task runner response has no body.");
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of response.body) {
-    size += chunk.byteLength;
-    if (size > asset.size)
-      throw new ActionError(
-        "Pinned task runner response exceeds its published size.",
-      );
-    chunks.push(chunk);
-  }
-  const content = Buffer.concat(chunks);
-  if (size !== asset.size)
-    throw new ActionError("Pinned task runner response is incomplete.");
-  if (createHash("sha256").update(content).digest("hex") !== asset.sha256)
-    throw new ActionError("Pinned task runner archive digest differs.");
-  writeFileSync(destination, content);
 }
 
 async function executable(environment) {
   if (environment.RUNNER_ENVIRONMENT === "self-hosted") {
-    const result = spawnSync("just", ["--version"], { encoding: "utf8" });
+    const result = spawnSync("just", ["--version"], {
+      encoding: "utf8",
+      env: commandEnvironment(environment),
+    });
     if (
       result.status !== 0 ||
       result.stdout.trim() !== `just ${configuration.version}`
@@ -167,11 +118,15 @@ async function executable(environment) {
     const temporary = mkdtempSync(path.join(directory, "download-"));
     try {
       const archive = path.join(temporary, asset.name);
-      await download(asset, archive);
+      await downloadAsset(
+        { ...asset, repository: configuration.repository },
+        archive,
+        environment["INPUT_GITHUB-TOKEN"],
+      );
       const extracted = spawnSync(
         "tar",
         ["-xf", archive, "-C", temporary, path.basename(binary)],
-        { stdio: "inherit" },
+        { stdio: "inherit", env: commandEnvironment(environment) },
       );
       const source = path.join(temporary, path.basename(binary));
       if (
@@ -194,6 +149,14 @@ async function executable(environment) {
   return binary;
 }
 
+function commandEnvironment(environment) {
+  return Object.fromEntries(
+    Object.entries(environment).filter(
+      ([name]) => name.toUpperCase() !== "INPUT_GITHUB-TOKEN",
+    ),
+  );
+}
+
 export async function main(environment = process.env) {
   const request = invocation({
     workspace: environment.GITHUB_WORKSPACE,
@@ -203,7 +166,10 @@ export async function main(environment = process.env) {
     arguments: environment.INPUT_ARGUMENTS,
   });
   const just = await executable(environment);
-  const version = spawnSync(just, ["--version"], { encoding: "utf8" });
+  const version = spawnSync(just, ["--version"], {
+    encoding: "utf8",
+    env: commandEnvironment(environment),
+  });
   if (
     version.status !== 0 ||
     version.stdout.trim() !== `just ${configuration.version}`
@@ -214,10 +180,17 @@ export async function main(environment = process.env) {
       environment.GITHUB_OUTPUT,
       `just-version=${configuration.version}\n`,
     );
+  const childEnvironment = commandEnvironment(environment);
+  if (path.isAbsolute(just)) {
+    const originalPath = environment.PATH ?? environment.Path ?? "";
+    for (const name of Object.keys(childEnvironment))
+      if (name.toLowerCase() === "path") delete childEnvironment[name];
+    childEnvironment.PATH = `${path.dirname(just)}${path.delimiter}${originalPath}`;
+  }
   const result = spawnSync(just, request.argv, {
     cwd: request.cwd,
     stdio: "inherit",
-    env: environment,
+    env: childEnvironment,
   });
   if (result.error || result.signal || result.status === null)
     throw new ActionError("Recipe process did not complete.");
