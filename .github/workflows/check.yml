@@ -66,6 +66,8 @@ permissions: {}
 # The runner supplies this canonical gateway configuration; hosted runners have no such file.
 env:
   GATEWAY_SETTINGS: /etc/contour/caches/environment.toml
+  GH_NO_UPDATE_NOTIFIER: "1"
+  GH_NO_EXTENSION_UPDATE_NOTIFIER: "1"
 
 jobs:
   check:
@@ -280,28 +282,27 @@ jobs:
           fi
 
       - name: Tools
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           bin="$RUNNER_TEMP/nddev-ci/bin"
           archive="$RUNNER_TEMP/nddev-ci/archive.tar.gz"
           mkdir -p "$bin"
           fetch() {
-            source=$1
             if [ -n "${NDDEV_CI_REGISTRIES_URL:-}" ]; then
-              case "$source" in
-                https://github.com/*/releases/download/*) ;;
-                *) echo "::error::a pinned tool must name a GitHub release asset"; exit 1 ;;
-              esac
-              source="${NDDEV_CI_REGISTRIES_URL%/}/github-releases/sha256/$2/${source#https://github.com/}"
+              source="${NDDEV_CI_REGISTRIES_URL%/}/github-releases/sha256/$4/$1/releases/download/$2/$3"
+              curl -fsSL --retry 3 -o "$archive" "$source"
+            else
+              gh release download "$2" --repo "$1" --pattern "$3" --output "$archive" --clobber
             fi
-            curl -fsSL --retry 3 -o "$archive" "$source"
-            echo "$2  $archive" | sha256sum --check --quiet
-            tar -xzf "$archive" -C "$bin" --strip-components="$3" "$4"
+            echo "$4  $archive" | sha256sum --check --quiet
+            tar -xzf "$archive" -C "$bin" --strip-components="$5" "$6"
           }
-          fetch "https://github.com/casey/just/releases/download/$JUST_VERSION/just-$JUST_VERSION-x86_64-unknown-linux-musl.tar.gz" \
+          fetch casey/just "$JUST_VERSION" "just-$JUST_VERSION-x86_64-unknown-linux-musl.tar.gz" \
             "$JUST_SHA256" 0 just
           if [ -r "$GATEWAY_SETTINGS" ]; then
-            fetch "https://github.com/mozilla/sccache/releases/download/v$SCCACHE_VERSION/sccache-v$SCCACHE_VERSION-x86_64-unknown-linux-musl.tar.gz" \
+            fetch mozilla/sccache "v$SCCACHE_VERSION" "sccache-v$SCCACHE_VERSION-x86_64-unknown-linux-musl.tar.gz" \
               "$SCCACHE_SHA256" 1 "sccache-v$SCCACHE_VERSION-x86_64-unknown-linux-musl/sccache"
           fi
           rm -f "$archive"
@@ -355,6 +356,7 @@ jobs:
 
       - name: Check
         env:
+          GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
           SETUP: ${{ inputs.setup }}
         run: |
@@ -450,31 +452,30 @@ jobs:
           fi
 
       - name: Tools
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           bin="$RUNNER_TEMP/nddev-ci/bin"
           archive="$RUNNER_TEMP/nddev-ci/archive.tar.gz"
           mkdir -p "$bin"
           fetch() {
-            source=$1
             if [ -n "${NDDEV_CI_REGISTRIES_URL:-}" ]; then
-              case "$source" in
-                https://github.com/*/releases/download/*) ;;
-                *) echo "::error::a pinned tool must name a GitHub release asset"; exit 1 ;;
-              esac
-              source="${NDDEV_CI_REGISTRIES_URL%/}/github-releases/sha256/$2/${source#https://github.com/}"
+              source="${NDDEV_CI_REGISTRIES_URL%/}/github-releases/sha256/$4/$1/releases/download/$2/$3"
+              curl -fsSL --retry 3 -o "$archive" "$source"
+            else
+              gh release download "$2" --repo "$1" --pattern "$3" --output "$archive" --clobber
             fi
-            curl -fsSL --retry 3 -o "$archive" "$source"
-            echo "$2  $archive" | sha256sum --check --quiet
-            tar -xzf "$archive" -C "$bin" "$3"
+            echo "$4  $archive" | sha256sum --check --quiet
+            tar -xzf "$archive" -C "$bin" "$5"
           }
-          fetch "https://github.com/betterleaks/betterleaks/releases/download/v$BETTERLEAKS_VERSION/betterleaks_${BETTERLEAKS_VERSION}_linux_x64.tar.gz" \
+          fetch betterleaks/betterleaks "v$BETTERLEAKS_VERSION" "betterleaks_${BETTERLEAKS_VERSION}_linux_x64.tar.gz" \
             "$BETTERLEAKS_SHA256" betterleaks
-          fetch "https://github.com/boostsecurityio/poutine/releases/download/v$POUTINE_VERSION/poutine_Linux_x86_64.tar.gz" \
+          fetch boostsecurityio/poutine "v$POUTINE_VERSION" poutine_Linux_x86_64.tar.gz \
             "$POUTINE_SHA256" poutine
-          fetch "https://github.com/crate-ci/committed/releases/download/v$COMMITTED_VERSION/committed-v${COMMITTED_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+          fetch crate-ci/committed "v$COMMITTED_VERSION" "committed-v${COMMITTED_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
             "$COMMITTED_SHA256" ./committed
-          fetch "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+          fetch rhysd/actionlint "v$ACTIONLINT_VERSION" "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
             "$ACTIONLINT_SHA256" actionlint
           rm -f "$archive"
           python3 -m venv "$RUNNER_TEMP/nddev-ci/zizmor"
