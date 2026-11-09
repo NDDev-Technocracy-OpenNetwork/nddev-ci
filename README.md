@@ -165,6 +165,20 @@ handles transport failures from the same immutable source; permission refusals,
 byte mismatches and recipes are never retried. Valid warm files are checked and
 reused. New bytes replace the destination only after size and digest verification.
 
+An archive may declare `members`, each with an exact internal `path`, portable output
+`file` basename, `size`, `sha256` and optional `executable: true`. Only those byte streams
+are copied; the archive tree is never extracted into the workspace. Each member is bounded
+at 256 MiB, the full output inventory at 128 files and the receipt at 64 KiB. Duplicate
+names, case aliases, device names and escaping paths fail before preparation. A failed
+member check preserves the previously accepted destination. Archive and warm member
+hashes are read in bounded chunks.
+
+`add-to-path: true` exposes the directory only after every declared file has passed;
+it requires at least one explicitly executable file. The `receipt` output records verified
+archive and file identities. This supports independently qualified native tools without
+putting their versions or provider choices in this library. A file's digest does not replace
+its provider, licence or consumer qualification.
+
 The diff secret scan uses Betterleaks' built-in detection rules. Repository-local scanner
 configuration is not loaded automatically. The newer scanner isolates local Git configuration;
 this workflow does not opt out of that boundary.
