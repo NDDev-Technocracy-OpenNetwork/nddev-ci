@@ -147,7 +147,9 @@ observability stack; GitHub's runners keep it in the job log.
 
 ## Hosted SDK preparation
 
-`check.yml`, `recipe.yml` and `actions/hosted-sdk` prepare only the SDKs explicitly selected by the caller:
+`check.yml`, `recipe.yml` and `actions/hosted-sdk` prepare only the SDKs explicitly selected by the caller.
+On GitHub-hosted runners both workflows also restore the dependency caches of
+`actions/hosted-cache` unless `hosted-cache: false`. The SDK inputs are:
 `node-version`, `python-version`, `uv-version`, `bun-version`, `rust-version`, `java-version`
 (Temurin), `go-version` and `flutter-version` (stable, with its Dart SDK, whose version the receipt
 also records; Flutter publishes Linux and Windows SDKs for x64 only, so an ARM64 Linux or Windows
@@ -230,14 +232,41 @@ archive, size and extracted bytes are verified. A self-hosted runner must alread
 provide the matching managed frontend; this action installs no compiler or SDK.
 
 For an entire command job, call `.github/workflows/recipe.yml` at a pinned commit.
-It accepts an explicit hosted `runner` (`ubuntu-24.04`, `ubuntu-24.04-arm`, `ubuntu-26.04`,
-`ubuntu-26.04-arm`, `macos-15`, `macos-26`, `windows-2025` or `windows-11-arm`), `recipe`, JSON `arguments`, optional
-dependency `prepare` recipe and checkout depth. Optional exact `node-version`,
-`python-version` and `uv-version` inputs prepare hosted SDKs before either recipe.
-Public callers select from the documented hosted platforms; private callers use
-their `private-runner` label and retain its prepared toolchain and cache placement.
+Like every workflow of the library, `runner` is the label of our runners for a private
+repository and `hosted-runner` the GitHub-hosted runner of a public one: `ubuntu-24.04`,
+`ubuntu-24.04-arm`, `ubuntu-26.04`, `ubuntu-26.04-arm`, `macos-15`, `macos-26`, `windows-2025` or
+`windows-11-arm`. It takes the `recipe`, JSON `arguments`, an optional dependency `prepare` recipe,
+the checkout depth and the SDK and `tools` inputs of `check.yml`; private runners keep their
+prepared toolchain and cache placement.
 Specialized jobs keep services, signing, packaging and acceptance in their owning
 workflow and use the recipe action for individual commands.
+
+A native platform matrix is a caller matrix over `recipe.yml`, with `merge-stops.yml` beside it:
+
+```yaml
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        hosted-runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-26, windows-2025, windows-11-arm]
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/recipe.yml@<commit> # v<version>
+    permissions:
+      contents: read
+    with:
+      hosted-runner: ${{ matrix.hosted-runner }}
+      recipe: test
+      artifact: target/package
+      artifact-name: package-${{ matrix.hosted-runner }}
+      diagnostics: target/reports
+  merge-stops:
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@<commit> # v<version>
+    permissions:
+      contents: read
+```
+
+`recipe.yml` keeps a named `artifact` of every run outside pull requests for `release.yml`, keeps
+named `diagnostics` of a failed run for 14 days, accepts `sparse-checkout`, and ends with a summary.
 
 For this repository, run `just setup` once before offline `just check`. Execution
 tests belong to `just test` and `just verify`. Its Linux x64 check tools use exact

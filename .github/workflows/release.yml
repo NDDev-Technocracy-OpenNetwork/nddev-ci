@@ -69,12 +69,15 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       url: ${{ steps.release.outputs.url }}
     steps:
+      - name: Start
+        run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
+
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@75cdd0701413ce71ee3817dbed30094fb174906a
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@6d97a4d51bb0c40d0c3bb75c688454bd69fe4ef5
 
       - name: Release the verified commit
         id: release
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release@75cdd0701413ce71ee3817dbed30094fb174906a
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release@6d97a4d51bb0c40d0c3bb75c688454bd69fe4ef5
         with:
           check-workflow: ${{ inputs.check-workflow }}
           artifacts: ${{ inputs.artifacts }}
@@ -83,3 +86,12 @@ jobs:
           tag-prefix: ${{ inputs.tag-prefix }}
           name: ${{ inputs.name }}
           wait-minutes: ${{ inputs.wait-minutes }}
+
+      - name: Job record
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@6d97a4d51bb0c40d0c3bb75c688454bd69fe4ef5
+        with:
+          task: release
+          task-type: deploy
+          status: ${{ job.status }}
+          started-file: ${{ runner.temp }}/nddev-ci-started

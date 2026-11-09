@@ -36,8 +36,11 @@ jobs:
     outputs:
       reference: ${{ steps.tag.outputs.reference }}
     steps:
+      - name: Start
+        run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
+
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@8e50b37577d73354cae906c6c3e07edb678592e9
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@6d97a4d51bb0c40d0c3bb75c688454bd69fe4ef5
 
       - name: BuildKit client
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -75,3 +78,12 @@ jobs:
           fi
           echo "reference=$name@$checked" >> "$GITHUB_OUTPUT"
           echo "### $name:$TAG = $checked" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Job record
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@6d97a4d51bb0c40d0c3bb75c688454bd69fe4ef5
+        with:
+          task: tag ${{ inputs.image }}
+          task-type: deploy
+          status: ${{ job.status }}
+          started-file: ${{ runner.temp }}/nddev-ci-started

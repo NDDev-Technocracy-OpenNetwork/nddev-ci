@@ -54,8 +54,11 @@ jobs:
       contents: read # read the release and its files
       id-token: write # exchange the job's identity for a short-lived registry token
     steps:
+      - name: Start
+        run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
+
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@6def09fb42f96700972c38a21141a14b8966ec70
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@6d97a4d51bb0c40d0c3bb75c688454bd69fe4ef5
 
       - name: Released files, verified
         id: files
@@ -106,7 +109,7 @@ jobs:
           ref: ${{ inputs.tag }}
       - name: Rust for packaging
         if: inputs.registry == 'crates'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@6def09fb42f96700972c38a21141a14b8966ec70
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@6d97a4d51bb0c40d0c3bb75c688454bd69fe4ef5
         with:
           rust-version: ${{ inputs.rust-version }}
       - name: Reproduce the released crate
@@ -161,7 +164,7 @@ jobs:
 
       - name: Node for npm
         if: inputs.registry == 'npm'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@6def09fb42f96700972c38a21141a14b8966ec70
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@6d97a4d51bb0c40d0c3bb75c688454bd69fe4ef5
         with:
           node-version: ${{ inputs.node-version }}
       - name: Publish to npm
@@ -182,3 +185,12 @@ jobs:
             exit 0
           fi
           npm publish "$package" --provenance --access public
+
+      - name: Job record
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@6d97a4d51bb0c40d0c3bb75c688454bd69fe4ef5
+        with:
+          task: publish to ${{ inputs.registry }}
+          task-type: deploy
+          status: ${{ job.status }}
+          started-file: ${{ runner.temp }}/nddev-ci-started

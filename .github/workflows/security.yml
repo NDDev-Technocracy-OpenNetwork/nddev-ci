@@ -53,27 +53,21 @@ jobs:
       TRUFFLEHOG_VERSION: "3.99.8"
       TRUFFLEHOG_SHA256_X64: "7c3b02f160f28929a467e29e20fba98746e0729f6e37c3c25761e4f8789abe08"
       TRUFFLEHOG_SHA256_ARM64: "a0382d83dd58c967af5dd0175cc732c62c836ab1d15dc9ae71b01a2d3f0911b2"
-      KINGFISHER_VERSION: "2.16.0"
-      KINGFISHER_SHA256_X64: "97cdbe7706a722ea085d1e83a00a98b0e9432fc58b21c9a3e36f591b5c1446d7"
-      KINGFISHER_SHA256_ARM64: "fece052a018c127f664e96f76c1ad6be39fe3d4df71db91caaa462e92a99aed1"
+      KINGFISHER_VERSION: "2.17.0"
+      KINGFISHER_SHA256_X64: "8798879183d74f9e1379af3071f296853e4027a21bfde5d13d9b064fa1bf1eb3"
+      KINGFISHER_SHA256_ARM64: "4118224ccbd4cc4b14997d3962c90bc7160a148bb1011db78e86eb2257665048"
       OSV_SCANNER_VERSION: "2.7.0"
       OSV_SCANNER_SHA256_X64: "160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b"
       OSV_SCANNER_SHA256_ARM64: "4061ef4c021ed3c47f203b818f337e351336cc5cd67c0274fc36bd1dfc728dd7"
-      SYFT_VERSION: "1.56.0"
-      SYFT_SHA256_X64: "1c2493cfcf52d3367d6cb25780d9190c111c2219c34c820574c43e8bae15c528"
-      SYFT_SHA256_ARM64: "ace61b9397ae28189c674ae332d67a8074dafd71e87724dfb8b22412d8253bb5"
-      GRYPE_VERSION: "0.121.1"
-      GRYPE_SHA256_X64: "bc3ea3f9e6fd56ac781c08c6c5e614271b79f438200757f6932085c19b0a4657"
-      GRYPE_SHA256_ARM64: "33670612aad351c48cf3c37f4a85d8b043d1b64b21e6034e675bb00b956d78c1"
+      SYFT_VERSION: "1.57.0"
+      SYFT_SHA256_X64: "9c077a7d43029b3b13e98a8db720661e700c4d58db6352153a06395ae4a2a704"
+      SYFT_SHA256_ARM64: "410cbfa0ae0f63246bc0057843760b1de2833cd23919e025e368fd7681308cdb"
+      GRYPE_VERSION: "0.121.2"
+      GRYPE_SHA256_X64: "9c8965ced9df657e5e851c14021bae838802f711edd7a48f9bc3c923a8d28f12"
+      GRYPE_SHA256_ARM64: "d7d2e160255b0f087280feabf6f213cf4c45d475690f3f1fe5dc336eb1037bf0"
       TRIVY_VERSION: "0.76.2"
       TRIVY_SHA256_X64: "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf"
       TRIVY_SHA256_ARM64: "ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3"
-      # No scanner reports to its maker or looks for its own updates.
-      DO_NOT_TRACK: "1"
-      TRIVY_DISABLE_TELEMETRY: "true"
-      TRIVY_SKIP_VERSION_CHECK: "true"
-      GRYPE_CHECK_FOR_APP_UPDATE: "false"
-      SYFT_CHECK_FOR_APP_UPDATE: "false"
       # licenses.md's list for embedded dependencies, as SPDX identifiers; a caller's policy replaces it.
       LICENSES: MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,Zlib,Unicode-3.0,CC0-1.0
     steps:
@@ -92,6 +86,7 @@ jobs:
           fi
           [ "$RUNNER_OS" = Linux ] || { echo "::error::the daily scan runs on Linux runners"; exit 1; }
           case "$(uname -m)" in x86_64 | aarch64 | arm64) ;; *) echo "::error::the daily scan supports Linux x64 and ARM64"; exit 1 ;; esac
+          date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -99,7 +94,7 @@ jobs:
           fetch-depth: 0
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@21aa38787cb6ad69319c943ea81f74d0c495c307
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@6d97a4d51bb0c40d0c3bb75c688454bd69fe4ef5
 
       - name: Tools
         env:
@@ -203,14 +198,14 @@ jobs:
           PY
 
       - name: Dependencies and licences
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-osv@005a15bdeb6099c2cd6a425483e7155ab959b557 # verified native scanner policy
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-osv@6d97a4d51bb0c40d0c3bb75c688454bd69fe4ef5 # verified native scanner policy
         with:
           scanner: ${{ runner.temp }}/security/bin/osv-scanner
           output: ${{ runner.temp }}/security/out
           licenses: ${{ steps.licences.outputs.licenses }}
 
       - name: Packages
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-sbom@005a15bdeb6099c2cd6a425483e7155ab959b557 # verified native SBOM policy
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-sbom@6d97a4d51bb0c40d0c3bb75c688454bd69fe4ef5 # verified native SBOM policy
         with:
           tools: ${{ runner.temp }}/security/bin
           output: ${{ runner.temp }}/security/out
@@ -307,3 +302,12 @@ jobs:
           else
             gh issue create -R "$REPOSITORY" --title "$title" --body-file "$RUNNER_TEMP/security/report.md"
           fi
+
+      - name: Job record
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@6d97a4d51bb0c40d0c3bb75c688454bd69fe4ef5
+        with:
+          task: daily security
+          task-type: test
+          status: ${{ job.status }}
+          started-file: ${{ runner.temp }}/nddev-ci-started
