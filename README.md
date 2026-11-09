@@ -134,6 +134,17 @@ pinned digest. A public repository may choose its GitHub-hosted Linux runner in 
 so tools and SDKs on GitHub-hosted runners send nothing to their makers and skip update checks, as
 on our runners, which carry the contour's own list.
 
+## Job records
+
+Each job of the library ends with `actions/job-record`: a summary on the run page and one JSON log
+line with OpenTelemetry's CI/CD and VCS attribute names, as observability.md asks. It carries
+`event.name` `nddev_ci.job.completed`, the workflow and run (`cicd.pipeline.*`), the task, its
+type and result (`cicd.pipeline.task.*`, with `success`, `failure` or `cancellation`), the runner
+(`cicd.worker.name`), repository, ref and commit (`vcs.*`), system and architecture, duration and
+compiler-cache counters, and never a secret or command output. When our runner names a file in
+`NDDEV_CI_TELEMETRY_FILE`, the line is appended there and the contour delivers it to its
+observability stack; GitHub's runners keep it in the job log.
+
 ## Hosted SDK preparation
 
 `check.yml`, `recipe.yml` and `actions/hosted-sdk` prepare only the SDKs explicitly selected by the caller:
