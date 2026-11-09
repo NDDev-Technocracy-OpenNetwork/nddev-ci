@@ -51,6 +51,7 @@ check: (_tools "check")
     node --check actions/daily-sbom/run.mjs
     node --check tests/daily-sbom-native.mjs
     node --check lib/security-policy.mjs
+    node --check tests/license-policy.test.mjs
     node --check tests/portable-recipe.test.mjs
     node --check tests/release-assets.test.mjs
     node --check tests/windows-archive.test.mjs

@@ -45,6 +45,14 @@ Dependency comparison reads the exact proposed merge and its own base from Git,
 runs no project installers, and scans both against the same vulnerability data.
 Existing findings remain diagnostics. Malformed inputs or unavailable scanners fail.
 Daily security findings update a report issue; scanner execution errors fail the run.
+The default licence list is declared in `security.yml`; a caller's `license-policy`
+can supply its own `[licenses].allow`. OSV accepts identifiers, so a `WITH` entry
+requires its base to be independently allowed too; exception-only policies fail. Unchanged
+MPL/EPL dependencies retain their notice and source obligations; modified files need
+review and corresponding source publication. LGPL stays outside the default: an
+explicit policy for unchanged dynamic use must preserve replaceability, licence and
+source information. Static linking or modifications need review. The scanner does
+not infer these use and distribution conditions.
 
 Checkout inputs support projects that read history or omit generated trees.
 `diagnostics` keeps only named workspace reports on failure; release artifacts are
@@ -160,3 +168,8 @@ also download pinned tools. Self-references in reusable workflows pin an existin
 implementation commit and are updated after that implementation is committed.
 
 The next release notes are prepared in [v0.6.29](.github/releases/v0.6.29.md).
+
+## Credit
+
+Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE). Please credit NDDev and link
+[this repository](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-ci).
