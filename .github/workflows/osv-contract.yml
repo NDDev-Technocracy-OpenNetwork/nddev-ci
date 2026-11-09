@@ -9,4 +9,5 @@ jobs:
     uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/recipe.yml@bececcb351a18c42bfd55f6e7dd692577772438f
     with:
       recipe: qualify-osv-contract
+      node-version: '26.13.0'
       timeout-minutes: 15

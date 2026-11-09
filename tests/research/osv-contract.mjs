@@ -24,7 +24,7 @@ function command(args) {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr.replace(/https?:\/\/\S+/g, "<url>") };
 }
 function scan(folder, download = false) {
-  const args = ["scan", "source", "--format=json", "--all-packages", "--no-call-analysis", "--no-resolve", "--data-source=native", "--no-ignore", "--config", config];
+  const args = ["scan", "source", "--format=json", "--all-packages", "--no-call-analysis", "--no-resolve", "--data-source=native", "--no-ignore", "--config", config, "--local-db-path", db];
   args.push(...(download ? ["--offline-vulnerabilities", "--download-offline-databases"] : ["--offline"]));
   args.push("-r", folder);
   return command(args);
@@ -33,7 +33,7 @@ function lock(directory, name, version) {
   fs.mkdirSync(directory, { recursive: true });
   fs.writeFileSync(path.join(directory, "package-lock.json"), JSON.stringify({
     name: "scanner-contract-data", version: "1.0.0", lockfileVersion: 3,
-    packages: { "": { name: "scanner-contract-data", version: "1.0.0", dependencies: { [name]: version } }, [`node_modules/${name}`]: { version } },
+    packages: { "": { name: "scanner-contract-data", version: "1.0.0", dependencies: { [name]: version } }, [`node_modules/${name}`]: { name, version, resolved: `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz` } },
   }));
 }
 function databases() {
@@ -64,6 +64,8 @@ try {
   lock(head, "vm2", "3.9.10");
   const preparation = scan(union, true);
   assert([0, 1].includes(preparation.status), preparation.stderr.slice(-1600));
+  const prepared = JSON.parse(preparation.stdout);
+  console.log(JSON.stringify({ preparation_status: preparation.status, preparation_diagnostics: preparation.stderr.slice(-2400), extracted: prepared.results?.map((s) => ({ source: s.source, packages: s.packages.map((p) => p.package) })), database_entries: fs.readdirSync(db) }));
   const before = databases();
   const old = scan(base);
   const current = scan(head);
