@@ -21,6 +21,7 @@ callers in [examples/](examples/): `ci.yml` for the checks, `release.yml` for re
 | `.github/workflows/image-tag.yml` | The release's version tag on the checked image digest |
 | `.github/workflows/registry.yml` | Publication to crates.io, PyPI or npm through trusted publishing |
 | `.github/workflows/provenance.yml` | Build provenance attestations of a public repository's artifacts |
+| `.github/workflows/renovate.yml` | Scoped, scheduled Renovate on an explicitly selected managed runner |
 | `.github/workflows/security.yml` | The daily security run: live secrets, dependencies, licences, SBOMs and images |
 | `actions/hosted-sdk`, `actions/hosted-cache` | Exact SDKs, tools and dependency caches on GitHub's runners |
 | `actions/qualify`, `actions/checked-artifacts` | Exact full-check qualification and separate verified artifact transfer |
@@ -572,6 +573,44 @@ holding the image) and passes its name as `sboms`; they are scanned with the res
   in `hosted-runner`, as in `check.yml`.
 - One open issue, "Security report", holds the latest run's findings. A finding never fails the
   run; a scanner that cannot run does. No scanner reports to its maker or checks for updates.
+
+## Managed Renovate
+
+A caller schedules `.github/workflows/renovate.yml` once a day and passes its exact managed
+`renovate-version`, explicit repositories and App client ID. It runs only for schedule or manual
+events, on the selected managed runner. The runner supplies Renovate and its package-manager
+prerequisites; the library verifies the version and installs no replacement SDK.
+
+```yaml
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  renovate:
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/renovate.yml@<commit>
+    with:
+      renovate-version: ${{ vars.CI_RENOVATE_VERSION }}
+      repositories: ${{ github.repository }}
+      app-client-id: ${{ vars.RENOVATE_APP_CLIENT_ID }}
+    secrets:
+      app-private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+```
+
+The App must be installed on the explicit repositories in the caller's organization. The token
+requests contents, pull-request and issue write access, plus checks and statuses read access.
+The signing key reaches only the token action. Renovate receives a short-lived installation token
+in its environment, and the token action revokes it after the job. The whole-job timeout must be
+below the token's one-hour lifetime. Repository configuration owns release age, grouping, update
+rules and the target branch; the workflow does not enable automerge.
+
+`dockerhub-username` and the optional `dockerhub-token` secret enable Docker Hub reads. Credentials
+stay in memory, outside command arguments and written global configuration. `dry-run: true`
+performs the lookups without publishing updates. Every run uses a private temporary workspace;
+cleanup removes its clones and local credential configuration on success, failure and normal
+cancellation. Forced runner termination relies on slot cleanup and token expiration. Repository
+scripts, plugins, post-upgrade commands and inherited environment overrides remain disabled.
 
 ## Developing the library
 
