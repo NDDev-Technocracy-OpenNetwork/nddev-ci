@@ -22,6 +22,8 @@ setup: tools
 check: (_tools "check")
     just --fmt --check
     rustfmt --edition 2024 --check tests/recipe-routing.rs
+    node --check actions/artifact-registry/run.mjs
+    node --check tests/artifact-registry.test.mjs
     node --check actions/recipe/run.mjs
     node --check actions/hosted-sdk/run.mjs
     node --check actions/hosted-sdk/bun.mjs
@@ -133,17 +135,17 @@ _tools mode:
         if [ "$tool" = shellcheck ]; then repository=koalaman/shellcheck; fi
         auth=()
         if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
-        if [ -n "${NDS_CACHE_BASE:-}" ]; then
-          curl -fsSL -o "$stage/archive" "${NDS_CACHE_BASE%/}/github-releases/sha256/$sha/$repository/releases/download/v$version/$name"
+        if [ -n "${NDDEV_CI_ARTIFACT_REGISTRY:-}" ]; then
+          curl -fsSL -o "$stage/archive" "${NDDEV_CI_ARTIFACT_REGISTRY%/}/github-releases/sha256/$sha/$repository/releases/download/v$version/$name"
         else
           asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/v$version" |
             jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
           curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$stage/archive" "https://api.github.com/repos/$repository/releases/assets/$asset"
         fi
       else
-        if [ -n "${NDS_CACHE_BASE:-}" ]; then
-          metadata="${NDS_CACHE_BASE%/}/pypi/simple/zizmor/"
-          origin="${NDS_CACHE_BASE%/}/pypi-files/"
+        if [ -n "${NDDEV_CI_ARTIFACT_REGISTRY:-}" ]; then
+          metadata="${NDDEV_CI_ARTIFACT_REGISTRY%/}/pypi/simple/zizmor/"
+          origin="${NDDEV_CI_ARTIFACT_REGISTRY%/}/pypi-files/"
         else
           metadata="https://pypi.org/simple/zizmor/"
           origin="https://files.pythonhosted.org/"

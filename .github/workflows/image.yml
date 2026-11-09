@@ -1,4 +1,4 @@
-# A project's container image, built once in CI as delivery.md asks. A pull request builds it to
+# A project's container image, built once in CI. A pull request builds it to
 # prove the Dockerfile and pushes nothing; dev, main and runs by hand push it to GitHub's
 # container registry under the immutable tag sha-<commit>, with BuildKit's provenance and SBOM
 # attestations. The release tags that exact digest with its version (image-tag.yml), and the

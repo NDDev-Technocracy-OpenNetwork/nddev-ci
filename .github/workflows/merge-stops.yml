@@ -1,7 +1,7 @@
-# The merge stops of security.md for a pull request: a secret in the change (Betterleaks), a
+# The merge stops for a pull request: a secret in the change (Betterleaks), a
 # dangerous workflow (a broken file, an action not pinned by commit, a high-severity zizmor finding,
 # a poutine finding of warning or error level), a new critical dependency with a known fix, and the
-# change's commit messages, as writing.md and checks.md ask (committed). check.yml calls it; a
+# change's commit messages, using committed. check.yml calls it; a
 # project whose commands run in its own native jobs calls it beside them, so one implementation
 # applies the same stops everywhere.
 name: merge stops
@@ -102,9 +102,9 @@ jobs:
             printf 'Fetching check tool %s@%s: %s\n' "$repository" "$tag" "$name"
             auth=()
             if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
-            if [ -n "${NDS_CACHE_BASE:-}" ]; then
+            if [ -n "${NDDEV_CI_ARTIFACT_REGISTRY:-}" ]; then
               printf 'Using the configured artifact registry.\n'
-              curl -fsSL -o "$archive" "${NDS_CACHE_BASE%/}/github-releases/sha256/$2/$repository/releases/download/$tag/$name"
+              curl -fsSL -o "$archive" "${NDDEV_CI_ARTIFACT_REGISTRY%/}/github-releases/sha256/$2/$repository/releases/download/$tag/$name"
             else
               asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
                 jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
@@ -126,9 +126,9 @@ jobs:
           mv "$bin/shellcheck-v$SHELLCHECK_VERSION/shellcheck" "$bin/shellcheck"
           rmdir "$bin/shellcheck-v$SHELLCHECK_VERSION"
           name="zizmor-$ZIZMOR_VERSION-py3-none-$wheel.whl"
-          if [ -n "${NDS_CACHE_BASE:-}" ]; then
-            metadata="${NDS_CACHE_BASE%/}/pypi/simple/zizmor/"
-            origin="${NDS_CACHE_BASE%/}/pypi-files/"
+          if [ -n "${NDDEV_CI_ARTIFACT_REGISTRY:-}" ]; then
+            metadata="${NDDEV_CI_ARTIFACT_REGISTRY%/}/pypi/simple/zizmor/"
+            origin="${NDDEV_CI_ARTIFACT_REGISTRY%/}/pypi-files/"
           else
             metadata="https://pypi.org/simple/zizmor/"
             origin="https://files.pythonhosted.org/"
@@ -144,7 +144,7 @@ jobs:
           echo "$bin" >> "$GITHUB_PATH"
 
       - name: Commit messages
-        # writing.md: a Conventional Commits subject in the imperative, up to 72 characters, lines up
+        # A Conventional Commits subject in the imperative, up to 72 characters, lines up
         # to 100, no fixup or WIP commit. A repository's own committed.toml takes the place of this.
         # Only the commits the change brings are checked: a merge commit is left out, and so is a
         # commit another branch already holds, such as main's commits when main is merged into dev.

@@ -20,7 +20,7 @@ jobs:
     permissions:
       contents: read
       issues: write
-    # The configured-policy path, with the same list as licenses.md.
+    # The configured-policy path, with the default allowlist.
     with:
       license-policy: tests/fixtures/license-policy/deny.toml
       hosted-runner: ${{ inputs.hosted-runner || 'ubuntu-24.04' }}

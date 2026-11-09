@@ -1,6 +1,6 @@
 # A project's release: every commit main moves forward to becomes one immutable GitHub Release,
 # qualified by the full check of that exact commit on dev and carrying that check's artifacts,
-# as delivery.md and github-workflow.md ask. Deployment stays with the contour's release controller.
+# with deployment handled by the caller.
 name: release
 
 on:

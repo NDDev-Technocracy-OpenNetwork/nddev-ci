@@ -1,4 +1,4 @@
-# The daily security run of security.md: live secrets in the whole history (TruffleHog and
+# The daily security scan: live secrets in the whole history (TruffleHog and
 # Kingfisher), every known vulnerability in the dependencies (OSV-Scanner with its offline
 # database), the dependencies whose licence is outside the licence policy (OSV-Scanner with
 # deps.dev, the one source of a lock file's licences), and the packages of the repository and of
@@ -34,7 +34,7 @@ on:
       license-policy:
         description: >-
           The caller's cargo-deny style TOML whose [licenses] allow list the licence scan uses,
-          such as deny.toml, so cargo-deny and the scan read one list. Empty uses licenses.md's list.
+          such as deny.toml, so cargo-deny and the scan read one list. Empty uses the default allowlist.
         type: string
         default: ""
 
@@ -68,7 +68,7 @@ jobs:
       TRIVY_VERSION: "0.76.2"
       TRIVY_SHA256_X64: "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf"
       TRIVY_SHA256_ARM64: "ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3"
-      # licenses.md's list for embedded dependencies, as SPDX identifiers; a caller's policy replaces it.
+      # the default allowlist for embedded dependencies, as SPDX identifiers; a caller's policy replaces it.
       LICENSES: MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,Zlib,Unicode-3.0,CC0-1.0
     steps:
       - name: Native scanner platform
@@ -122,9 +122,9 @@ jobs:
               public) ;;
               *) echo "::error::unknown release source access mode"; exit 1 ;;
             esac
-            if [ -n "${NDS_CACHE_BASE:-}" ]; then
+            if [ -n "${NDDEV_CI_ARTIFACT_REGISTRY:-}" ]; then
               printf 'Using the configured artifact registry.\n'
-              curl -fsSL -o "$download" "${NDS_CACHE_BASE%/}/github-releases/sha256/$2/$repository/releases/download/$tag/$name"
+              curl -fsSL -o "$download" "${NDDEV_CI_ARTIFACT_REGISTRY%/}/github-releases/sha256/$2/$repository/releases/download/$tag/$name"
             else
               asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
                 jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
@@ -175,7 +175,7 @@ jobs:
           set -euo pipefail
           if [ -z "$POLICY" ]; then
             echo "licenses=$LICENSES" >> "$GITHUB_OUTPUT"
-            echo "Licence policy: licenses.md's list."
+            echo "Licence policy: the default allowlist."
             exit 0
           fi
           # A configured policy must exist and name plain SPDX identifiers; it is never ignored.
@@ -222,7 +222,7 @@ jobs:
           python3 - "$RUNNER_TEMP/security/out" > "$RUNNER_TEMP/security/report.md" <<'PY'
           import json, pathlib, os, sys
           out = pathlib.Path(sys.argv[1])
-          lines = ["The daily security run of security.md: findings never fail it, the agent fixes them the same day.", ""]
+          lines = ["The daily security scan: findings are reported without hiding scanner failures.", ""]
           # The issue shows 50 rows a section; the run log prints every row.
           full = list(lines)
           def section(title, rows):
