@@ -19,6 +19,15 @@ inputs:
   rust-components:
     description: Optional comma-separated Rust components for the selected toolchain.
     default: ''
+  java-version:
+    description: Optional exact Temurin JDK version, such as 25.0.5.
+    default: ''
+  go-version:
+    description: Optional exact Go version, such as 1.27.3.
+    default: ''
+  flutter-version:
+    description: Optional exact stable Flutter version; its Dart SDK comes with it.
+    default: ''
   rust-targets:
     description: Optional comma-separated Rust targets for the selected toolchain.
     default: ''
@@ -30,6 +39,7 @@ runs:
   using: composite
   steps:
     - name: Validate exact SDK selections
+      id: validate
       shell: bash
       env:
         SDK_RUNNER_ENVIRONMENT: ${{ runner.environment }}
@@ -40,7 +50,19 @@ runs:
         SDK_RUST_VERSION: ${{ inputs.rust-version }}
         SDK_RUST_COMPONENTS: ${{ inputs.rust-components }}
         SDK_RUST_TARGETS: ${{ inputs.rust-targets }}
+        SDK_JAVA_VERSION: ${{ inputs.java-version }}
+        SDK_GO_VERSION: ${{ inputs.go-version }}
+        SDK_FLUTTER_VERSION: ${{ inputs.flutter-version }}
       run: node "$GITHUB_ACTION_PATH/run.mjs" validate
+    # SDKs that setup actions take from GitHub releases come from the job's cache when a previous
+    # job of this repository prepared the same exact versions on the same image.
+    - name: Restore exact SDKs from the tool cache
+      id: tool-cache
+      if: steps.validate.outputs.cache-key != ''
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        key: ${{ steps.validate.outputs.cache-key }}
+        path: ${{ steps.validate.outputs.cache-paths }}
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       if: inputs.node-version != ''
       with:
@@ -80,6 +102,30 @@ runs:
         toolchain: ${{ inputs.rust-version }}
         components: ${{ inputs.rust-components }}
         targets: ${{ inputs.rust-targets }}
+    - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+      if: inputs.java-version != ''
+      with:
+        distribution: temurin
+        java-version: ${{ inputs.java-version }}
+        cache-jdk: true
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      if: inputs.go-version != ''
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: false
+    - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+      if: inputs.flutter-version != ''
+      with:
+        channel: stable
+        flutter-version: ${{ inputs.flutter-version }}
+        cache: true
+    - name: Flutter and Dart analytics off
+      if: inputs.flutter-version != ''
+      shell: bash
+      run: |
+        set -euo pipefail
+        flutter config --no-analytics --no-cli-animations
+        dart --disable-analytics
     - name: Verify selected executables and isolate package preparation
       id: verify
       shell: bash
@@ -92,7 +138,16 @@ runs:
         SDK_RUST_VERSION: ${{ inputs.rust-version }}
         SDK_RUST_COMPONENTS: ${{ inputs.rust-components }}
         SDK_RUST_TARGETS: ${{ inputs.rust-targets }}
+        SDK_JAVA_VERSION: ${{ inputs.java-version }}
+        SDK_GO_VERSION: ${{ inputs.go-version }}
+        SDK_FLUTTER_VERSION: ${{ inputs.flutter-version }}
         SDK_PYTHON_PATH: ${{ steps.python.outputs.python-path }}
         BUN_DO_NOT_TRACK: '1'
         DO_NOT_TRACK: '1'
       run: node "$GITHUB_ACTION_PATH/run.mjs" verify
+    - name: Keep exact SDKs in the tool cache
+      if: steps.validate.outputs.cache-key != '' && steps.tool-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        key: ${{ steps.validate.outputs.cache-key }}
+        path: ${{ steps.validate.outputs.cache-paths }}

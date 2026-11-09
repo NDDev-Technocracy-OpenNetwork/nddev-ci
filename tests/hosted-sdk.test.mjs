@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { main, selections, verify } from "../actions/hosted-sdk/run.mjs";
+import { cachePlan, main, selections, supported, verify } from "../actions/hosted-sdk/run.mjs";
 
 const hosted = {SDK_RUNNER_ENVIRONMENT: "github-hosted"};
 
@@ -47,4 +47,49 @@ test("the action exposes measured versions and persistent opt-out without instal
     assert.doesNotMatch(variables, /UV_/);
     assert.throws(() => main("unknown", environment));
   } finally { rmSync(root, {recursive: true, force: true}); }
+});
+
+test("Java, Go and Flutter take exact versions like the other SDKs", () => {
+  assert.deepEqual(
+    selections({...hosted, SDK_JAVA_VERSION: "25.0.5", SDK_GO_VERSION: "1.27.3", SDK_FLUTTER_VERSION: "3.44.1"}),
+    {java: "25.0.5", go: "1.27.3", flutter: "3.44.1"});
+  for (const value of ["25", "stable", "1.27.x", "3.44.1-pre"])
+    assert.throws(() => selections({...hosted, SDK_GO_VERSION: value}), value);
+});
+
+test("the tool cache entry names the image, architecture and every exact cached SDK", () => {
+  const base = {...hosted, RUNNER_TOOL_CACHE: path.join("cache", "tools"), ImageOS: "ubuntu24", RUNNER_ARCH: "ARM64"};
+  assert.deepEqual(cachePlan({...base, SDK_RUST_VERSION: "1.99.1"}), {key: "", paths: []});
+  const plan = cachePlan({...base, SDK_NODE_VERSION: "26.13.0", SDK_PYTHON_VERSION: "3.15.2",
+    SDK_UV_VERSION: "0.13.7", SDK_BUN_VERSION: "1.4.4"});
+  assert.equal(plan.key, "nddev-sdk-v1-ubuntu24-ARM64-node-26.13.0-python-3.15.2-uv-0.13.7");
+  assert.deepEqual(plan.paths, [
+    path.join("cache", "tools", "node", "26.13.0"),
+    path.join("cache", "tools", "Python", "3.15.2"),
+    path.join("cache", "tools", "uv", "0.13.7"),
+  ]);
+  for (const ImageOS of [undefined, "", "Ubuntu 24", "../x"])
+    assert.throws(() => cachePlan({...base, ImageOS, SDK_NODE_VERSION: "26.13.0"}));
+  assert.throws(() => cachePlan({...base, RUNNER_TOOL_CACHE: "", SDK_NODE_VERSION: "26.13.0"}));
+});
+
+test("validation writes the cache plan as step outputs", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "hosted-sdk-plan-"));
+  try {
+    const environment = {...hosted, RUNNER_TOOL_CACHE: root, ImageOS: "macos15", RUNNER_ARCH: "ARM64",
+      SDK_PYTHON_VERSION: "3.15.2", GITHUB_OUTPUT: path.join(root, "output")};
+    main("validate", environment);
+    const output = readFileSync(environment.GITHUB_OUTPUT, "utf8");
+    assert.match(output, /^cache-key=nddev-sdk-v1-macos15-ARM64-python-3\.15\.2$/m);
+    assert.ok(output.includes(`cache-paths<<NDDEV_SDK_PATHS\n${path.join(root, "Python", "3.15.2")}\nNDDEV_SDK_PATHS\n`));
+  } finally { rmSync(root, {recursive: true, force: true}); }
+});
+
+test("Flutter is selected only where it publishes an SDK", () => {
+  supported({flutter: "3.47.9"}, "linux", "x64");
+  supported({flutter: "3.47.9"}, "win32", "x64");
+  supported({flutter: "3.47.9"}, "darwin", "arm64");
+  supported({node: "26.13.0"}, "linux", "arm64");
+  assert.throws(() => supported({flutter: "3.47.9"}, "linux", "arm64"), /x64 runner/);
+  assert.throws(() => supported({flutter: "3.47.9"}, "win32", "arm64"), /x64 runner/);
 });

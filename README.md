@@ -136,8 +136,15 @@ on our runners, which carry the contour's own list.
 ## Hosted SDK preparation
 
 `check.yml`, `recipe.yml` and `actions/hosted-sdk` prepare only the SDKs explicitly selected by the caller:
-`node-version`, `python-version`, `uv-version`, `bun-version` and `rust-version`.
-Each value is an exact stable version; an empty input leaves that SDK unchanged.
+`node-version`, `python-version`, `uv-version`, `bun-version`, `rust-version`, `java-version`
+(Temurin), `go-version` and `flutter-version` (stable, with its Dart SDK, whose version the receipt
+also records; Flutter publishes Linux and Windows SDKs for x64 only, so an ARM64 Linux or Windows
+runner refuses it). Each value is an exact stable version; an empty input leaves that SDK unchanged.
+Node, Python and uv come from GitHub releases; once a job has prepared an exact selection on a
+runner image and architecture, later jobs of the repository restore it from the Actions cache and
+download nothing. The 8–9 November 2026 HTTP 504 failures of anonymous release downloads showed
+why. The JDK and Flutter SDK use their actions' own SDK caches; Flutter and Dart analytics are
+turned off.
 The Bun setup action receives the native asset's official API redirect for the selected stable
 tag. Its published source identity is recorded, its installed version is still measured and the
 transient signed transport URL is masked. It never selects another provider or architecture
