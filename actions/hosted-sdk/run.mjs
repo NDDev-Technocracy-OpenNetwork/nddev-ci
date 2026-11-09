@@ -9,8 +9,8 @@ const names = ["node", "python", "uv", "bun", "rust", "java", "go", "flutter"];
 const key = (name) => `SDK_${name.toUpperCase()}_VERSION`;
 
 export function selections(environment) {
-  if (environment.SDK_RUNNER_ENVIRONMENT !== "github-hosted")
-    throw new ActionError("Hosted SDK preparation requires a hosted runner.");
+  if (!["github-hosted", "self-hosted"].includes(environment.SDK_RUNNER_ENVIRONMENT))
+    throw new ActionError("SDK verification requires a declared runner environment.");
   const selected = {};
   for (const name of names) {
     const version = environment[key(name)] ?? "";
@@ -70,6 +70,7 @@ export function imageKey(environment, platform = process.platform, readRelease =
 // the tool cache, so a restored copy would be broken there; it is prepared fresh instead.
 export function cachePlan(environment, platform = process.platform) {
   const selected = selections(environment);
+  if (environment.SDK_RUNNER_ENVIRONMENT === "self-hosted") return {key: "", paths: []};
   const root = environment.RUNNER_TOOL_CACHE;
   const parts = Object.keys(toolCacheNames).filter((name) => selected[name] &&
     !(name === "python" && platform === "darwin"));
@@ -117,6 +118,7 @@ function measure(name, environment) {
 
 export function verify(environment) {
   const selected = selections(environment);
+  supported(selected);
   const versions = {};
   for (const [name, expected] of Object.entries(selected)) {
     const measured = measure(name, environment);
@@ -124,7 +126,18 @@ export function verify(environment) {
       throw new ActionError(`The selected ${name} executable does not provide version ${expected}.`);
     Object.assign(versions, measured);
   }
-  return {schema_version: 1, platform: process.platform, architecture: process.arch, versions};
+  const tools = {};
+  for (const selection of (environment.SDK_TOOLS || "").split(",").filter(Boolean)) {
+    const [name, expected] = selection.split("@");
+    const result = spawnSync(name, ["--version"], {
+      env: environment, encoding: "utf8", timeout: 30000, maxBuffer: 65536, windowsHide: true,
+    });
+    const measured = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.match(/(?:^|\s)v?(\d+\.\d+\.\d+)(?:\s|$)/)?.[1];
+    if (result.error || result.status !== 0 || measured !== expected)
+      throw new ActionError(`The selected ${name} executable does not provide version ${expected}.`);
+    tools[name] = measured;
+  }
+  return {schema_version: 1, platform: process.platform, architecture: process.arch, versions, tools};
 }
 
 export function main(mode, environment = process.env) {
@@ -139,7 +152,7 @@ export function main(mode, environment = process.env) {
   if (mode !== "verify") throw new ActionError("Unknown hosted SDK command.");
   const receipt = verify(environment);
   const variables = {BUN_DO_NOT_TRACK: "1", DO_NOT_TRACK: "1"};
-  if (receipt.versions.uv) {
+  if (receipt.versions.uv && environment.SDK_RUNNER_ENVIRONMENT === "github-hosted") {
     if (!environment.RUNNER_TEMP || /[\r\n]/.test(environment.RUNNER_TEMP))
       throw new ActionError("A runner temporary directory is required.");
     variables.UV_CACHE_DIR = path.join(environment.RUNNER_TEMP, "uv-cache");

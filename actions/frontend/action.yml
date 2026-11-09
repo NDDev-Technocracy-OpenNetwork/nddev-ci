@@ -1,0 +1,12 @@
+name: Prepare the native task runner
+description: Verify the managed Just frontend or prepare its verified hosted native asset.
+inputs:
+  github-token:
+    description: Job token used only for official public asset API reads.
+    default: ${{ github.server_url == 'https://github.com' && github.token || '' }}
+outputs:
+  just-version:
+    description: The measured task runner version.
+runs:
+  using: node24
+  main: run.mjs
