@@ -42,6 +42,10 @@ test:
 # Everything the full check on dev runs.
 verify: check test
 
+# Qualify the accepted native scanner's stable JSON and offline contracts without running packages.
+qualify-osv-contract:
+    node tests/research/osv-contract.mjs
+
 # Applies formatting.
 fix:
     just --fmt

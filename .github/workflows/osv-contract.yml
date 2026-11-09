@@ -1,0 +1,12 @@
+name: OSV native contract qualification
+on:
+  push:
+    branches: [research/31-osv-contract]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/recipe.yml@bececcb351a18c42bfd55f6e7dd692577772438f
+    with:
+      recipe: qualify-osv-contract
+      timeout-minutes: 15
