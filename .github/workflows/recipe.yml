@@ -40,6 +40,22 @@ on:
         description: Optional exact hosted Python SDK version.
         type: string
         default: ''
+      bun-version:
+        description: Optional exact Bun version for hosted runners.
+        type: string
+        default: ''
+      rust-version:
+        description: Optional exact Rust version for hosted runners.
+        type: string
+        default: ''
+      rust-components:
+        description: Optional comma-separated components for the selected Rust toolchain.
+        type: string
+        default: ''
+      rust-targets:
+        description: Optional comma-separated targets for the selected Rust toolchain.
+        type: string
+        default: ''
       uv-version:
         description: Optional exact hosted uv frontend version.
         type: string
@@ -62,29 +78,18 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: ${{ inputs.fetch-depth }}
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        if: runner.environment == 'github-hosted' && inputs.node-version != ''
+      - name: Prepare declared hosted SDKs
+        if: runner.environment == 'github-hosted'
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@9fa3377d5c47f0f548aca5df13c08209bc755a4b
         with:
           node-version: ${{ inputs.node-version }}
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
-        id: python
-        if: runner.environment == 'github-hosted' && inputs.python-version != ''
-        with:
           python-version: ${{ inputs.python-version }}
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
-        if: runner.environment == 'github-hosted' && inputs.uv-version != ''
-        with:
-          version: ${{ inputs.uv-version }}
-          enable-cache: false
-      - name: Isolate hosted Python preparation
-        if: runner.environment == 'github-hosted' && inputs.uv-version != ''
-        env:
-          SELECTED_PYTHON: ${{ steps.python.outputs.python-path }}
-        run: >-
-          node -e "const fs=require('node:fs'),p=require('node:path'),e=process.env;
-          const vars={UV_CACHE_DIR:p.join(e.RUNNER_TEMP,'uv-cache'),UV_PROJECT_ENVIRONMENT:p.join(e.RUNNER_TEMP,'project-environment')};
-          if(e.SELECTED_PYTHON)vars.UV_PYTHON=e.SELECTED_PYTHON;
-          fs.appendFileSync(e.GITHUB_ENV,Object.entries(vars).map(([k,v])=>k+'='+v+'\n').join(''))"
+          uv-version: ${{ inputs.uv-version }}
+          bun-version: ${{ inputs.bun-version }}
+          rust-version: ${{ inputs.rust-version }}
+          rust-components: ${{ inputs.rust-components }}
+          rust-targets: ${{ inputs.rust-targets }}
+
       - name: Prepare only the declared dependencies
         if: inputs.prepare != ''
         uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@6906120bd7ee190750ec62d1fa9a5daf9d823ae4

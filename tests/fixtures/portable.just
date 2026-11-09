@@ -4,6 +4,10 @@ environment-probe:
     node --version
     python --version
     uv --version
+    bun --version
+    rustc --version
+    cargo clippy --version
+    cargo fmt --version
 
 probe first second third:
     @test {{ quote(first) }} = 'path with spaces'

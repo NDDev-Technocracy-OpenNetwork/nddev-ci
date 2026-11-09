@@ -38,6 +38,30 @@ on:
           data without network access.
         type: boolean
         default: false
+      node-version:
+        description: Optional exact Node version for hosted runners.
+        type: string
+        default: ''
+      python-version:
+        description: Optional exact Python version for hosted runners.
+        type: string
+        default: ''
+      bun-version:
+        description: Optional exact Bun version for hosted runners.
+        type: string
+        default: ''
+      rust-version:
+        description: Optional exact Rust version for hosted runners.
+        type: string
+        default: ''
+      rust-components:
+        description: Optional comma-separated components for the selected Rust toolchain.
+        type: string
+        default: ''
+      rust-targets:
+        description: Optional comma-separated targets for the selected Rust toolchain.
+        type: string
+        default: ''
       uv-version:
         description: Optional uv version for explicit preparation on hosted runners; prepared private runners retain their managed frontend.
         type: string
@@ -305,12 +329,17 @@ jobs:
           rm -f "$archive"
           echo "$bin" >> "$GITHUB_PATH"
 
-      - name: Prepare the requested package frontend on hosted runners
-        if: inputs.uv-version != '' && runner.environment == 'github-hosted'
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Prepare declared hosted SDKs
+        if: runner.environment == 'github-hosted'
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@9fa3377d5c47f0f548aca5df13c08209bc755a4b
         with:
-          version: ${{ inputs.uv-version }}
-          enable-cache: false
+          node-version: ${{ inputs.node-version }}
+          python-version: ${{ inputs.python-version }}
+          uv-version: ${{ inputs.uv-version }}
+          bun-version: ${{ inputs.bun-version }}
+          rust-version: ${{ inputs.rust-version }}
+          rust-components: ${{ inputs.rust-components }}
+          rust-targets: ${{ inputs.rust-targets }}
 
       - name: Network cache
         # Jobs of dev and main read and write the contour's R2 cache; every other job only reads it,
