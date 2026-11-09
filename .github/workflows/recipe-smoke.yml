@@ -15,9 +15,12 @@ jobs:
     uses: ./.github/workflows/recipe.yml
     with:
       runner: ${{ matrix.os }}
-      node-version: '26.12.1'
-      python-version: '3.14.9'
-      uv-version: '0.13.5'
+      node-version: '26.13.0'
+      python-version: '3.15.2'
+      uv-version: '0.13.7'
+      bun-version: '1.4.4'
+      rust-version: '1.99.1'
+      rust-components: clippy,rustfmt
       prepare: environment-probe
       recipe: script-probe
       justfile: tests/fixtures/portable.just
@@ -33,6 +36,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Prepare declared native SDKs
+        id: sdk
+        uses: ./actions/hosted-sdk
+        with:
+          node-version: '26.13.0'
+          python-version: '3.15.2'
+          uv-version: '0.13.7'
+          bun-version: '1.4.4'
+          rust-version: '1.99.1'
+          rust-components: clippy,rustfmt
+      - name: Require measured SDK versions
+        env:
+          SDK_RECEIPT: ${{ steps.sdk.outputs.receipt }}
+        run: >-
+          node -e "const r=JSON.parse(process.env.SDK_RECEIPT);
+          const expected={node:'26.13.0',python:'3.15.2',uv:'0.13.7',bun:'1.4.4',rust:'1.99.1'};
+          for(const [name,version] of Object.entries(expected))if(r.versions[name]!==version)throw Error('SDK receipt mismatch: '+name)"
       - name: Check argument and workspace boundaries
         run: node --test tests/*.test.mjs
       - name: Select a pinned public asset for this native runner

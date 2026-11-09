@@ -38,6 +38,30 @@ on:
           data without network access.
         type: boolean
         default: false
+      node-version:
+        description: Optional exact Node version for hosted runners.
+        type: string
+        default: ''
+      python-version:
+        description: Optional exact Python version for hosted runners.
+        type: string
+        default: ''
+      bun-version:
+        description: Optional exact Bun version for hosted runners.
+        type: string
+        default: ''
+      rust-version:
+        description: Optional exact Rust version for hosted runners.
+        type: string
+        default: ''
+      rust-components:
+        description: Optional comma-separated components for the selected Rust toolchain.
+        type: string
+        default: ''
+      rust-targets:
+        description: Optional comma-separated targets for the selected Rust toolchain.
+        type: string
+        default: ''
       uv-version:
         description: Optional uv version for explicit preparation on hosted runners; prepared private runners retain their managed frontend.
         type: string
@@ -305,12 +329,17 @@ jobs:
           rm -f "$archive"
           echo "$bin" >> "$GITHUB_PATH"
 
-      - name: Prepare the requested package frontend on hosted runners
-        if: inputs.uv-version != '' && runner.environment == 'github-hosted'
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Prepare declared hosted SDKs
+        if: runner.environment == 'github-hosted'
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@9fa3377d5c47f0f548aca5df13c08209bc755a4b
         with:
-          version: ${{ inputs.uv-version }}
-          enable-cache: false
+          node-version: ${{ inputs.node-version }}
+          python-version: ${{ inputs.python-version }}
+          uv-version: ${{ inputs.uv-version }}
+          bun-version: ${{ inputs.bun-version }}
+          rust-version: ${{ inputs.rust-version }}
+          rust-components: ${{ inputs.rust-components }}
+          rust-targets: ${{ inputs.rust-targets }}
 
       - name: Network cache
         # Jobs of dev and main read and write the contour's R2 cache; every other job only reads it,
@@ -426,8 +455,8 @@ jobs:
     permissions:
       contents: read
     env:
-      BETTERLEAKS_VERSION: "1.9.0"
-      BETTERLEAKS_SHA256: "f8b185a39ffcece2a1ca82bf3a4e7435cd81963ffd16b7a9128daf75f35f6de7"
+      BETTERLEAKS_VERSION: "1.10.0"
+      BETTERLEAKS_SHA256: "9d9ad503cd5d80d18a939352266c3fcca52f10da9b83cd5cfe646989b13940fe"
       POUTINE_VERSION: "1.1.6"
       POUTINE_SHA256: "abde716599a65608b023a69ed9316e5f083a7bca48612151c2720835883757ea"
       POUTINE_DISABLE_VERSION_CHECK: "true"
@@ -435,8 +464,8 @@ jobs:
       ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
       ZIZMOR_VERSION: "1.32.0"
       ZIZMOR_SHA256: "84a6acb975accc13408786a2bd274b572537ca19c933ebbc13e78f3988562071"
-      COMMITTED_VERSION: "1.1.11"
-      COMMITTED_SHA256: "1e5c20049eeaa4633e6798283913f92dc90a97f2b5c6dfc28e8c4b7e77a67157"
+      COMMITTED_VERSION: "1.1.12"
+      COMMITTED_SHA256: "9a860b0a557bc842df663ce923213ff36f077ae2783f8db3123738823279387f"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

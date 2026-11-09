@@ -1,0 +1,88 @@
+name: Prepare declared hosted SDKs
+description: Install and verify only exact SDK versions selected by the caller on hosted runners.
+inputs:
+  node-version:
+    description: Exact Node version, or empty to leave it unchanged.
+    default: ''
+  python-version:
+    description: Exact Python version, or empty to leave it unchanged.
+    default: ''
+  uv-version:
+    description: Exact uv version, or empty to leave it unchanged.
+    default: ''
+  bun-version:
+    description: Exact Bun version, or empty to leave it unchanged.
+    default: ''
+  rust-version:
+    description: Exact Rust version, or empty to leave it unchanged.
+    default: ''
+  rust-components:
+    description: Optional comma-separated Rust components for the selected toolchain.
+    default: ''
+  rust-targets:
+    description: Optional comma-separated Rust targets for the selected toolchain.
+    default: ''
+outputs:
+  receipt:
+    description: JSON of measured versions and the native runner target.
+    value: ${{ steps.verify.outputs.receipt }}
+runs:
+  using: composite
+  steps:
+    - name: Validate exact SDK selections
+      shell: bash
+      env:
+        SDK_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        SDK_NODE_VERSION: ${{ inputs.node-version }}
+        SDK_PYTHON_VERSION: ${{ inputs.python-version }}
+        SDK_UV_VERSION: ${{ inputs.uv-version }}
+        SDK_BUN_VERSION: ${{ inputs.bun-version }}
+        SDK_RUST_VERSION: ${{ inputs.rust-version }}
+        SDK_RUST_COMPONENTS: ${{ inputs.rust-components }}
+        SDK_RUST_TARGETS: ${{ inputs.rust-targets }}
+      run: node "$GITHUB_ACTION_PATH/run.mjs" validate
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      if: inputs.node-version != ''
+      with:
+        node-version: ${{ inputs.node-version }}
+        package-manager-cache: false
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      id: python
+      if: inputs.python-version != ''
+      with:
+        python-version: ${{ inputs.python-version }}
+    - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      if: inputs.uv-version != ''
+      with:
+        version: ${{ inputs.uv-version }}
+        enable-cache: false
+    - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      if: inputs.bun-version != ''
+      env:
+        BUN_DO_NOT_TRACK: '1'
+        DO_NOT_TRACK: '1'
+      with:
+        bun-version: ${{ inputs.bun-version }}
+        no-cache: true
+    - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+      if: inputs.rust-version != ''
+      with:
+        toolchain: ${{ inputs.rust-version }}
+        components: ${{ inputs.rust-components }}
+        targets: ${{ inputs.rust-targets }}
+    - name: Verify selected executables and isolate package preparation
+      id: verify
+      shell: bash
+      env:
+        SDK_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        SDK_NODE_VERSION: ${{ inputs.node-version }}
+        SDK_PYTHON_VERSION: ${{ inputs.python-version }}
+        SDK_UV_VERSION: ${{ inputs.uv-version }}
+        SDK_BUN_VERSION: ${{ inputs.bun-version }}
+        SDK_RUST_VERSION: ${{ inputs.rust-version }}
+        SDK_RUST_COMPONENTS: ${{ inputs.rust-components }}
+        SDK_RUST_TARGETS: ${{ inputs.rust-targets }}
+        SDK_PYTHON_PATH: ${{ steps.python.outputs.python-path }}
+        BUN_DO_NOT_TRACK: '1'
+        DO_NOT_TRACK: '1'
+      run: node "$GITHUB_ACTION_PATH/run.mjs" verify
