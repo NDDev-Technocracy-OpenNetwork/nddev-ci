@@ -30,14 +30,6 @@ on:
         description: The version of the first release when none exists.
         type: string
         default: 0.1.0
-      tag-prefix:
-        description: The tag prefix in front of the version.
-        type: string
-        default: v
-      name:
-        description: The release title in front of the version; empty uses the repository name.
-        type: string
-        default: ""
       wait-minutes:
         description: How long a still running qualifying check is awaited.
         type: number
@@ -95,8 +87,6 @@ jobs:
           artifacts: ${{ inputs.artifacts }}
           version: ${{ inputs.version }}
           initial-version: ${{ inputs.initial-version }}
-          tag-prefix: ${{ inputs.tag-prefix }}
-          name: ${{ inputs.name }}
           wait-minutes: ${{ inputs.wait-minutes }}
           api-url: ${{ inputs.api-url }}
           artifact-api-url: ${{ inputs.artifact-api-url }}

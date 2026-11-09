@@ -17,9 +17,7 @@ export function selections(environment) {
     refuse("Renovate repositories must be explicit, unique and belong to the caller's organization.");
   const timeout = Number(input(environment, "timeout-minutes") || "45");
   if (!Number.isInteger(timeout) || timeout < 1 || timeout >= 60) refuse("Renovate timeout must fit within the App token's one-hour lifetime.");
-  const dryRun = input(environment, "dry-run") || "false";
-  if (!["true", "false"].includes(dryRun)) refuse("dry-run must be true or false.");
-  return {version, repositories, timeout, dryRun: dryRun === "true"};
+  return {version, repositories, timeout};
 }
 
 export function directory(environment, value, optional = false) {
@@ -43,7 +41,6 @@ export function configuration(environment, selected, workspace) {
     allowScripts: false, allowPlugins: false, allowedCommands: [], allowedEnv: [], exposeAllEnv: false,
     force: {automerge: false}, baseDir: workspace, cacheDir: path.join(workspace, "cache"),
     executionTimeout: selected.timeout, exitCodeForErrors: true,
-    ...(selected.dryRun ? {dryRun: "full"} : {}),
     ...(username ? {hostRules: [{hostType: "docker", matchHost: "docker.io", username, password}]} : {}),
   };
 }

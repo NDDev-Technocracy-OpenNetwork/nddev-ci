@@ -22,10 +22,6 @@ on:
         description: Optional Docker Hub read user.
         type: string
         default: ''
-      dry-run:
-        description: Complete lookups without publishing changes.
-        type: boolean
-        default: false
       timeout-minutes:
         description: Job bound below the installation token's one-hour lifetime.
         type: number
@@ -61,7 +57,6 @@ jobs:
           version: ${{ inputs.renovate-version }}
           repositories: ${{ inputs.repositories }}
           timeout-minutes: ${{ inputs.timeout-minutes }}
-          dry-run: ${{ inputs.dry-run }}
       - name: Scoped Renovate installation token
         id: app
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -86,7 +81,6 @@ jobs:
           github-token: ${{ steps.app.outputs.token }}
           dockerhub-username: ${{ inputs.dockerhub-username }}
           dockerhub-token: ${{ secrets.dockerhub-token }}
-          dry-run: ${{ inputs.dry-run }}
       - name: Remove Renovate workspace and local credentials
         if: always() && steps.prepare.outputs.directory != ''
         uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/renovate@7e961aa1105359a063527b0d1111bd6f7554ec8e

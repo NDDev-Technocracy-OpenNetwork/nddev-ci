@@ -25,9 +25,6 @@ inputs:
   dockerhub-token:
     description: Optional Docker Hub read credential, passed only to run.
     default: ''
-  dry-run:
-    description: Extract and look up updates without publishing them.
-    default: 'false'
 outputs:
   repository-names:
     description: Validated names for the installation-token request.

@@ -6,6 +6,7 @@ import {
   appendFileSync,
   createReadStream,
   mkdirSync,
+  lstatSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -17,7 +18,6 @@ import {
   checksums,
   nextVersion,
   parseVersion,
-  validPrefix,
 } from "../../lib/release.mjs";
 import { client, qualify, recheck, transferArtifacts } from "../../lib/qualification.mjs";
 
@@ -39,21 +39,18 @@ async function main() {
   const sha = environment("GITHUB_SHA");
   const ref = environment("GITHUB_REF");
   const temp = environment("RUNNER_TEMP");
-  const releaseBranch = input("release-branch") || "main";
-  const checkBranch = input("check-branch") || "dev";
   const workflow = input("check-workflow") || "ci.yml";
-  const prefix = validPrefix(input("tag-prefix") || "v");
   const waitMinutes = Number(input("wait-minutes") || "30");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/.test(workflow))
     refuse("check-workflow must be a workflow file name in .github/workflows.");
   if (!Number.isInteger(waitMinutes) || waitMinutes < 0 || waitMinutes > 120)
     refuse("wait-minutes must be a whole number from 0 to 120.");
-  if (ref !== `refs/heads/${releaseBranch}`)
-    refuse(`A release publishes only commits of ${releaseBranch}; this run is on ${ref}.`);
+  if (ref !== "refs/heads/main")
+    refuse("A release publishes only commits of main.");
   const github = client(input("github-token") || refuse("A token is required."), input("api-url") || environment("GITHUB_API_URL"));
 
   // 1. The newest full check of this exact commit on the integration branch.
-  const qualified = await qualify(github, {sha, repository, workflowPath: `.github/workflows/${workflow}`, branch: checkBranch}, {waitMinutes});
+  const qualified = await qualify(github, {sha, repository, workflowPath: `.github/workflows/${workflow}`, branch: "dev"}, {waitMinutes});
   const run = {id: qualified.run_id, run_attempt: qualified.run_attempt,
     html_url: `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${repository}/actions/runs/${qualified.run_id}`};
   console.log(`Qualified by ${run.html_url} (attempt ${run.run_attempt}).`);
@@ -79,7 +76,7 @@ async function main() {
 
   // 3. The version: the one this commit already carries, otherwise the next one.
   const refs =
-    (await github.json("GET", `/repos/${repository}/git/matching-refs/tags/${encodeURIComponent(prefix)}`)) ?? [];
+    (await github.json("GET", `/repos/${repository}/git/matching-refs/tags/v`)) ?? [];
   if (refs.length > 1000) refuse("Too many release tags to compare.");
   async function target(object) {
     for (let depth = 0; object.type === "tag" && depth < 4; depth += 1)
@@ -90,18 +87,17 @@ async function main() {
   let version = null;
   for (const item of refs) {
     const tag = item.ref.slice("refs/tags/".length);
-    if (parseVersion(tag.slice(prefix.length)) && (await target(item.object)) === sha) {
+    if (parseVersion(tag.slice(1)) && (await target(item.object)) === sha) {
       if (version) refuse(`Commit ${sha} already carries two release versions.`);
-      version = tag.slice(prefix.length);
+      version = tag.slice(1);
     }
   }
   version ??= nextVersion({
     tags,
-    prefix,
     explicit: input("version"),
     initial: input("initial-version") || "0.1.0",
   });
-  const tag = `${prefix}${version}`;
+  const tag = `v${version}`;
 
   // 4. The tag never moves: it is created at this commit or must already point here.
   const existingTag = await github.json("GET", `/repos/${repository}/git/ref/tags/${encodeURIComponent(tag)}`, {
@@ -126,13 +122,12 @@ async function main() {
     const notes = await github.json("POST", `/repos/${repository}/releases/generate-notes`, {
       body: { tag_name: tag, target_commitish: sha },
     });
-    const title = input("name") || repository.split("/")[1];
     release = await github.json("POST", `/repos/${repository}/releases`, {
       body: {
         tag_name: tag,
         target_commitish: sha,
         draft: true,
-        name: `${title} ${version}`,
+        name: `${repository.split("/")[1]} ${version}`,
         body: `${notes.body}\n\nVerified by ${run.html_url}.\n`,
       },
     });
@@ -168,7 +163,7 @@ async function main() {
   const output = environment("GITHUB_OUTPUT");
   appendFileSync(
     output,
-    `version=${version}\ntag=${tag}\nurl=${release.html_url}\nrun-id=${run.id}\n`,
+    `version=${version}\ntag=${tag}\nurl=${release.html_url}\n`,
   );
   appendFileSync(
     environment("GITHUB_STEP_SUMMARY"),

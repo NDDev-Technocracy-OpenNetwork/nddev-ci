@@ -1,29 +1,13 @@
-# A project's release: every commit main moves forward to becomes an immutable GitHub Release,
-# qualified by its full check on dev and carrying that check's artifacts, without a rebuild.
 name: release
-
 on:
   push:
     branches: [main]
-
 permissions: {}
-
 jobs:
   release:
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/release.yml@0000000000000000000000000000000000000000 # v0.0.0
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/release.yml@52d8302d2272967a21fd8e3ae594205588648777 # v0.6.28
     permissions:
       actions: read
       contents: write
     # with:
-    #   artifacts: |                 # artifacts of the dev check that become release files
-    #     build
-
-  # The image the dev check pushed for this commit gets the release's version tag.
-  # image:
-  #   needs: release
-  #   uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/image-tag.yml@0000000000000000000000000000000000000000 # v0.0.0
-  #   permissions:
-  #     packages: write
-  #   with:
-  #     image: example-service
-  #     tag: ${{ needs.release.outputs.tag }}
+    #   artifacts: build # top-level release files kept by the successful dev check

@@ -7,9 +7,6 @@ inputs:
   github-token:
     description: Job token used only for official public asset API reads.
     default: ${{ github.server_url == 'https://github.com' && github.token || '' }}
-outputs:
-  just-version:
-    description: The measured task runner version.
 runs:
   using: node24
   main: run.mjs

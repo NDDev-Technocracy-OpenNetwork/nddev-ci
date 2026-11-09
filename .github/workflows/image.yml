@@ -52,7 +52,7 @@ permissions: {}
 jobs:
   image:
     name: image ${{ inputs.image }}
-    if: github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:')
+    if: github.event.action != 'labeled'
     # Public repositories build on GitHub's runners; an unknown hosted label fails below.
     runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || inputs.runner) }}
     concurrency:

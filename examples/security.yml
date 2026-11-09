@@ -1,20 +1,14 @@
-# The daily security scan: live secrets, dependencies, licences and images.
 name: security
-
 on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
-
 permissions: {}
-
 jobs:
   security:
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/security.yml@0000000000000000000000000000000000000000 # v0.0.0
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/security.yml@52d8302d2272967a21fd8e3ae594205588648777 # v0.6.28
     permissions:
       contents: read
       issues: write
     # with:
-    #   license-policy: deny.toml      # the cargo-deny file whose [licenses] allow list applies
-    #   images: |                      # released images, scanned on their SBOM
-    #     ghcr.io/example-org/example-service:v1.2.3
+    #   license-policy: deny.toml

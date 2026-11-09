@@ -30,7 +30,7 @@ jobs:
   merge-stops:
     name: merge stops
     # A new label reruns the stops only when it chooses the runner.
-    if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:'))
+    if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || contains(fromJSON('["runner:blacksmith","runner:github"]'), github.event.label.name))
     # Public repositories always run on GitHub's runners; an unknown hosted label fails below.
     runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || contains(github.event.pull_request.labels.*.name, 'runner:github') && 'ubuntu-24.04' || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || inputs.runner) }}
     # A new push to the pull request cancels its older stops of the same workflow and runner.
