@@ -118,7 +118,9 @@ runs:
       with:
         channel: stable
         flutter-version: ${{ inputs.flutter-version }}
-        cache: true
+        # Its built-in cache calls actions/cache by tag, which our commit pinning refuses; the SDK
+        # comes from Google's storage, not from GitHub releases.
+        cache: false
     - name: Flutter and Dart analytics off
       if: inputs.flutter-version != ''
       shell: bash
