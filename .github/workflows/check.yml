@@ -1,7 +1,7 @@
 # The check of an NDDev project. A pull request gets the short check, `just check` and `just test`;
 # a push to `dev` or a run by hand gets the full check, `just verify`. Public
 # repositories run on GitHub's runners and private ones on ours, unless the pull request carries
-# the explicit label `runner:blacksmith` or `runner:github`.
+# the explicit label `runner:blacksmith` or `runner:github`. A manual full check may select GitHub.
 name: check
 
 on:
@@ -140,14 +140,14 @@ jobs:
     # A new label reruns the check only when it chooses the runner.
     if: github.event.action != 'labeled' || contains(fromJSON('["runner:blacksmith","runner:github"]'), github.event.label.name)
     # Public repositories always run on GitHub's runners; an unknown hosted label fails below.
-    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || contains(github.event.pull_request.labels.*.name, 'runner:github') && 'ubuntu-24.04' || inputs.runner }}
+    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github')) && 'ubuntu-24.04' || inputs.runner }}
     # A new push to a pull request cancels its older check; dev and main check every commit.
     concurrency:
       group: nddev-ci-check-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}-${{ inputs.hosted-runner }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     env:
-      SDK_MANAGED: ${{ github.event.repository.private && !contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') && !contains(github.event.pull_request.labels.*.name, 'runner:github') }}
+      SDK_MANAGED: ${{ github.event.repository.private && !contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') && !contains(github.event.pull_request.labels.*.name, 'runner:github') && !(github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github') }}
     permissions:
       contents: read
     steps:

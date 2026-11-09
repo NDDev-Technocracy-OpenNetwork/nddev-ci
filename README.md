@@ -70,6 +70,8 @@ Public projects use the selected GitHub-hosted runner. Private projects use `run
 
 Only the explicit PR labels `runner:blacksmith` and `runner:github` move a private
 check and its merge stops to an external provider. Other labels do not rerun them.
+A caller may also select `runner: github` explicitly for a manual full check; its
+`workflow_dispatch` choice list uses `ours` and `github`. Blacksmith uses its PR label.
 A waiting job stays on its selected provider. Native public macOS and Windows
 matrices use `recipe.yml`; supported hosted labels are in its declaration.
 
