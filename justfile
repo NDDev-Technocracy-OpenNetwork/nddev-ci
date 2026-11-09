@@ -26,7 +26,9 @@ check: (_tools "check")
     node --check lib/release-asset.mjs
     node --check lib/native-member.mjs
     node --check lib/dependency-report.mjs
+    node --check lib/dependency-source.mjs
     node --check tests/dependency-report.test.mjs
+    node --check tests/dependency-source.test.mjs
     node --check tests/portable-recipe.test.mjs
     node --check tests/release-assets.test.mjs
     node --check tests/bootstrap-tools.mjs
