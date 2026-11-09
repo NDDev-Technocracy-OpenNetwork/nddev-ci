@@ -46,7 +46,8 @@ runs no project installers, and scans both against the same vulnerability data.
 Existing findings remain diagnostics. Malformed inputs or unavailable scanners fail.
 Daily security findings update a report issue; scanner execution errors fail the run.
 The default licence list is declared in `security.yml`; a caller's `license-policy`
-can supply its own `[licenses].allow`, including SPDX `WITH` exceptions. Unchanged
+can supply its own `[licenses].allow`. OSV accepts identifiers, so a `WITH` entry
+requires its base to be independently allowed too; exception-only policies fail. Unchanged
 MPL/EPL dependencies retain their notice and source obligations; modified files need
 review and corresponding source publication. LGPL stays outside the default: an
 explicit policy for unchanged dynamic use must preserve replaceability, licence and

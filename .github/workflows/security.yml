@@ -182,28 +182,31 @@ jobs:
           POLICY: ${{ inputs.license-policy }}
         run: |
           set -euo pipefail
-          if [ -z "$POLICY" ]; then
-            echo "licenses=$LICENSES" >> "$GITHUB_OUTPUT"
-            echo "Licence policy: the default allowlist."
-            exit 0
-          fi
           # A configured policy must exist and name SPDX identifiers or WITH exceptions.
           python3 -I - "$POLICY" >> "$GITHUB_OUTPUT" <<'PY'
           import os, re, sys, tomllib
           path = sys.argv[1]
-          if os.path.isabs(path) or ".." in path.split("/") or not os.path.isfile(path) or os.path.islink(path):
-              sys.exit(f"::error::licence policy {path!r} is not a regular file in the repository")
-          try:
-              policy = tomllib.load(open(path, "rb"))
-          except (OSError, tomllib.TOMLDecodeError) as error:
-              sys.exit(f"::error::licence policy {path!r} is not valid TOML: {error}")
-          allow = (policy.get("licenses") or {}).get("allow")
+          allow = os.environ["LICENSES"].split(",")
+          if path:
+              if os.path.isabs(path) or ".." in path.split("/") or not os.path.isfile(path) or os.path.islink(path):
+                  sys.exit(f"::error::licence policy {path!r} is not a regular file in the repository")
+              try:
+                  policy = tomllib.load(open(path, "rb"))
+              except (OSError, tomllib.TOMLDecodeError) as error:
+                  sys.exit(f"::error::licence policy {path!r} is not valid TOML: {error}")
+              allow = (policy.get("licenses") or {}).get("allow")
           if not isinstance(allow, list) or not allow or not all(
               isinstance(item, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+-]*(?: WITH [A-Za-z0-9][A-Za-z0-9.+-]*)?", item) for item in allow
           ) or len(set(allow)) != len(allow):
               sys.exit(f"::error::licence policy {path!r} needs a [licenses] allow list of unique SPDX identifiers or WITH exceptions")
-          print("licenses=" + ",".join(allow))
-          print(f"Licence policy: {path}, {len(allow)} identifiers.", file=sys.stderr)
+          # OSV accepts identifiers, not WITH expressions. Drop a redundant exception only
+          # when the policy independently permits its base; never broaden an exception-only rule.
+          for item in allow:
+              if " WITH " in item and item.split(" WITH ")[0] not in allow:
+                  sys.exit("::error::OSV cannot enforce an exception-only licence policy; its base must be independently allowed")
+          identifiers = [item for item in allow if " WITH " not in item]
+          print("licenses=" + ",".join(identifiers))
+          print(f"Licence policy: {path or 'default'}, {len(identifiers)} scanner identifiers.", file=sys.stderr)
           PY
 
       - name: Dependencies and licences

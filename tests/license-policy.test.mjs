@@ -25,21 +25,23 @@ function run(content) {
 test("the actual workflow passes the complete default list without admitting LGPL or GPL", () => {
   const result = run();
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.output, `licenses=${defaults}\n`);
+  assert.ok(!result.output.includes(" WITH "));
   const list = defaults.split(",");
   for (const license of ["MIT-0", "0BSD", "Apache-2.0 WITH LLVM-exception", "CDLA-Permissive-2.0", "MPL-2.0", "EPL-2.0", "Unlicense"])
     assert.ok(list.includes(license));
   assert.ok(!list.some((license) => /^(?:A?GPL|LGPL)-/.test(license)));
+  for (const license of list.filter((item) => !item.includes(" WITH ")))
+    assert.ok(result.output.trim().slice("licenses=".length).split(",").includes(license));
 });
 
-test("a caller policy keeps an SPDX WITH exception as one exact license entry", () => {
-  const result = run('[licenses]\nallow = ["MIT", "Apache-2.0 WITH LLVM-exception"]\n');
+test("a redundant SPDX exception preserves the independently allowed base license", () => {
+  const result = run('[licenses]\nallow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception"]\n');
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.output, "licenses=MIT,Apache-2.0 WITH LLVM-exception\n");
+  assert.equal(result.output, "licenses=MIT,Apache-2.0\n");
 });
 
 test("invalid, duplicate and newline-bearing policies fail instead of selecting defaults", () => {
-  for (const allow of ['[]', '["MIT", "MIT"]', '["MIT\\nISC"]', '["MIT WITH"]', '["MIT OR Apache-2.0"]']) {
+  for (const allow of ['[]', '["MIT", "MIT"]', '["MIT\\nISC"]', '["MIT WITH"]', '["MIT OR Apache-2.0"]', '["Apache-2.0 WITH LLVM-exception"]']) {
     const result = run(`[licenses]\nallow = ${allow}\n`);
     assert.notEqual(result.status, 0, allow);
     assert.equal(result.output, "");
