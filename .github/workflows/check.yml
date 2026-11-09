@@ -463,7 +463,8 @@ jobs:
   merge-stops:
     # The merge stops of security.md: a secret in the change (Betterleaks), and a dangerous workflow
     # (a broken file, an action not pinned by commit, a high-severity zizmor finding, a poutine
-    # finding of warning or error level). The change's commit messages are checked here too, as
+    # finding of warning or error level), and a new critical dependency with a known fix.
+    # The change's commit messages are checked here too, as
     # writing.md and checks.md ask (committed).
     name: merge stops
     if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:'))
@@ -582,6 +583,13 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: betterleaks git --no-banner --redact --log-opts="$BASE..$HEAD" .
+
+      - name: No new fixed critical dependency
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/dependency-guard@81114ffa4101d7496d5843807fdd17e848b7e7dd
+        with:
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+          merge: ${{ github.sha }}
 
       - name: No dangerous workflow
         run: |

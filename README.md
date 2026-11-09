@@ -53,6 +53,22 @@ repository.
   unless the repository has its own `committed.toml`. It checks only the commits the change brings:
   merge commits and commits another branch already holds are left out. Any of them stops the merge.
 
+The same PR job compares tracked source lockfiles with OSV-Scanner. It binds the exact base,
+head and proposed merge commits, reads Git blobs rather than the working tree and runs no package
+installers, build scripts, dependency resolution or call analysis. A change to a supported lockfile
+or dependency declaration selects all supported tracked lockfiles in both the base and merge.
+Unchanged dependency inputs and repositories without supported tracked lockfiles are explicitly
+reported as skipped. Images, submodules and installed packages remain outside this source check.
+
+One preparation downloads the union of the required vulnerability databases. Both scans then run
+offline against those same verified database bytes, with an empty configuration outside the input
+tree. A PR cannot hide findings with scanner ignore files. Only a newly introduced finding with
+the scanner's computed score of at least 9.0 and a matching advisory's fixed-version event stops
+the comparison. Existing findings, unknown or lower severity and critical findings without a fix
+remain diagnostics. Advisory aliases and Git lockfile renames preserve existing findings.
+Source revisions, blob digests, scanner pin and database digests are recorded in the job.
+Unavailable tools, malformed extraction and database errors fail the check explicitly.
+
 An organization that disables deploy keys can use its admitted GitHub App instead.
 The caller supplies `read-app-client-id`, `read-app-installation-id`, an explicit
 list of `read-repositories`, and the `read-app-private-key` secret:
