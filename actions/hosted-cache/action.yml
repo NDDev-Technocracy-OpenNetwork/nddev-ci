@@ -1,6 +1,6 @@
 name: Hosted dependency caches
 description: >-
-  Restores the dependency caches of a job on a GitHub-hosted runner, keyed by the project's lock
+  Restores the dependency caches of a job on an external bootstrap runner, keyed by the project's lock
   files: Cargo through rust-cache, and the Bun, npm, pnpm and uv package stores. As with the
   contour's network cache, only dev and main write; every other job only reads, so a pull request
   never writes what a release build reads. Our runners keep their own network cache instead.

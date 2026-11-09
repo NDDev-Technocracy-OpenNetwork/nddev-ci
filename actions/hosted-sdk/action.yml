@@ -1,5 +1,5 @@
 name: Prepare declared hosted SDKs
-description: Prepare exact hosted SDKs or verify the existing managed SDKs selected by the caller.
+description: Prepare exact SDKs on external profiles or verify the managed SDKs selected by the caller.
 inputs:
   managed:
     description: Optional explicit SDK ownership; empty follows runner.environment.

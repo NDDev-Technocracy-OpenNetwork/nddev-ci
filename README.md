@@ -193,7 +193,7 @@ time stays unknown; it is never reported as zero.
 ## Hosted SDK preparation
 
 `check.yml`, `recipe.yml` and `actions/hosted-sdk` prepare only the SDKs explicitly selected by the caller.
-On GitHub-hosted runners both workflows also restore the dependency caches of
+On external bootstrap profiles both workflows also restore the dependency caches of
 `actions/hosted-cache` unless `hosted-cache: false`. The SDK inputs are:
 `node-version`, `python-version`, `uv-version`, `bun-version`, `rust-version`, `java-version`
 (Temurin), `go-version` and `flutter-version` (stable, with its Dart SDK, whose version the receipt
@@ -219,7 +219,7 @@ when the native asset cannot be resolved.
 `rust-components` and `rust-targets` accept comma-separated names alongside a Rust selection.
 The workflows use the same action and pinned upstream setup actions, then measure the actual executables before `just setup` or the selected preparation recipe.
 A missing or different version fails before project preparation. Its `receipt` output
-records the measured versions and native OS/architecture. It installs only on GitHub-hosted
+records the measured versions and native OS/architecture. It installs only on external bootstrap
 runners; managed private environments retain their SDK provider and verify the selected executables.
 
 ```yaml

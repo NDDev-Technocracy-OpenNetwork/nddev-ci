@@ -400,7 +400,7 @@ jobs:
       - name: Require the managed private native tool profile
         if: inputs.tool-assets != '' && steps.profile.outputs.managed == 'true'
         run: |
-          echo "::error::Native asset bootstrap is hosted-only; private tools belong to the managed SDK."
+          echo "::error::Native asset bootstrap serves external profiles; managed runners keep their SDK."
           exit 1
       - name: Prepare declared native tool assets
         if: inputs.tool-assets != '' && steps.profile.outputs.bootstrap == 'true'
