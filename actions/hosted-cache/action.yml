@@ -44,7 +44,8 @@ runs:
           echo "write=$write"
           echo "rust=$([ -f Cargo.lock ] && echo true || echo false)"
           echo "stores<<NDDEV_STORES"
-          printf '%s\n' "${stores[@]}"
+          # macOS bash 3.2 treats an empty array as unset under set -u.
+          for store in ${stores[@]+"${stores[@]}"}; do echo "$store"; done
           echo "NDDEV_STORES"
         } >> "$GITHUB_OUTPUT"
         echo "Hosted caches: Rust $([ -f Cargo.lock ] && echo yes || echo no), ${#stores[@]} package stores, write $write."
