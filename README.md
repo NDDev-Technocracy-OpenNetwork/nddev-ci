@@ -95,6 +95,31 @@ runner can miss cleanup; GitHub's installation-token expiration remains the boun
 Merge stops receive neither credential. The caller keeps the App key in its
 repository secret under its contour's key policy; this library stores no keys.
 
+## Merge stops beside a project's own jobs
+
+A project whose commands run in its own native, database or browser jobs keeps those jobs and
+calls `.github/workflows/merge-stops.yml` beside them, pinned to the same commit, instead of
+copying the stops or running `check.yml` a second time:
+
+```yaml
+jobs:
+  merge-stops:
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@<commit>
+    permissions:
+      contents: read
+```
+
+It runs only for pull requests, on the runner rules above, and applies the same tools, pins and
+conditions as `check.yml`. The stops run natively on Linux x64 or ARM64, each archive with its own
+pinned digest. A public repository may choose its GitHub-hosted Linux runner in `hosted-runner`:
+`ubuntu-24.04` (the default), `ubuntu-24.04-arm`, `ubuntu-26.04` or `ubuntu-26.04-arm`.
+
+## Outside telemetry
+
+`actions/telemetry` sets the switches of `actions/telemetry/switches.env` for the rest of its job,
+so tools and SDKs on GitHub-hosted runners send nothing to their makers and skip update checks, as
+on our runners, which carry the contour's own list.
+
 ## Hosted SDK preparation
 
 `check.yml`, `recipe.yml` and `actions/hosted-sdk` prepare only the SDKs explicitly selected by the caller:
