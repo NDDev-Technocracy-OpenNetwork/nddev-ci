@@ -133,6 +133,7 @@ test("valid warm assets need no download and unsafe destinations create nothing"
     await assert.rejects(
       main({ ...environment, RUNNER_ENVIRONMENT: "self-hosted" }),
     );
+    await main({...environment, RUNNER_ENVIRONMENT: "self-hosted", INPUT_MANAGED: "false"});
     symlinkSync(
       outside,
       path.join(workspace, "escape"),

@@ -1,6 +1,9 @@
 name: Run a project recipe
 description: Run a declared just recipe with structured arguments on a prepared native runner.
 inputs:
+  managed:
+    description: Optional explicit SDK ownership; empty follows runner.environment.
+    default: ''
   recipe:
     description: The declared recipe name.
     required: true

@@ -1,6 +1,9 @@
 name: Prepare declared hosted SDKs
-description: Prepare exact hosted SDKs or verify the existing managed SDKs selected by the caller.
+description: Prepare exact SDKs on external profiles or verify the managed SDKs selected by the caller.
 inputs:
+  managed:
+    description: Optional explicit SDK ownership; empty follows runner.environment.
+    default: ''
   node-version:
     description: Exact Node version, or empty to leave it unchanged.
     default: ''
@@ -48,6 +51,7 @@ runs:
       shell: bash
       env:
         SDK_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        SDK_MANAGED: ${{ inputs.managed }}
         SDK_NODE_VERSION: ${{ inputs.node-version }}
         SDK_PYTHON_VERSION: ${{ inputs.python-version }}
         SDK_UV_VERSION: ${{ inputs.uv-version }}
@@ -70,31 +74,32 @@ runs:
         key: ${{ steps.validate.outputs.cache-key }}
         path: ${{ steps.validate.outputs.cache-paths }}
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-      if: runner.environment == 'github-hosted' && inputs.node-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && inputs.node-version != ''
       with:
         node-version: ${{ inputs.node-version }}
         package-manager-cache: false
     - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       id: python
-      if: runner.environment == 'github-hosted' && inputs.python-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && inputs.python-version != ''
       with:
         python-version: ${{ inputs.python-version }}
     - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-      if: runner.environment == 'github-hosted' && inputs.uv-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && inputs.uv-version != ''
       with:
         version: ${{ inputs.uv-version }}
         enable-cache: false
     - name: Resolve the exact native Bun asset
       id: bun-source
-      if: runner.environment == 'github-hosted' && inputs.bun-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && inputs.bun-version != ''
       shell: bash
       env:
         SDK_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        SDK_MANAGED: ${{ inputs.managed }}
         SDK_BUN_VERSION: ${{ inputs.bun-version }}
         SDK_GITHUB_TOKEN: ${{ github.server_url == 'https://github.com' && github.token || '' }}
       run: node "$GITHUB_ACTION_PATH/bun.mjs"
     - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      if: runner.environment == 'github-hosted' && inputs.bun-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && inputs.bun-version != ''
       env:
         BUN_DO_NOT_TRACK: '1'
         DO_NOT_TRACK: '1'
@@ -103,32 +108,32 @@ runs:
         bun-download-url: ${{ steps.bun-source.outputs.url }}
         no-cache: true
     - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
-      if: runner.environment == 'github-hosted' && inputs.rust-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && inputs.rust-version != ''
       with:
         toolchain: ${{ inputs.rust-version }}
         components: ${{ inputs.rust-components }}
         targets: ${{ inputs.rust-targets }}
     - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
-      if: runner.environment == 'github-hosted' && inputs.java-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && inputs.java-version != ''
       with:
         distribution: temurin
         java-version: ${{ inputs.java-version }}
         cache-jdk: true
     - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-      if: runner.environment == 'github-hosted' && inputs.go-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && inputs.go-version != ''
       with:
         go-version: ${{ inputs.go-version }}
         cache: false
     # flutter-action calls actions/cache by tag, which commit pinning refuses even when its cache is
     # off; the official archive is taken directly and verified by the manifest's SHA-256.
     - name: Prepare the exact Flutter SDK
-      if: runner.environment == 'github-hosted' && inputs.flutter-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && inputs.flutter-version != ''
       shell: bash
       env:
         SDK_FLUTTER_VERSION: ${{ inputs.flutter-version }}
       run: node "$GITHUB_ACTION_PATH/flutter.mjs"
     - name: Flutter and Dart analytics off
-      if: runner.environment == 'github-hosted' && inputs.flutter-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && inputs.flutter-version != ''
       shell: bash
       run: |
         set -euo pipefail
@@ -137,7 +142,7 @@ runs:
     # install-action verifies each archive against its checksum manifest; nothing is compiled
     # and no other source is tried.
     - name: Prepare the declared tools
-      if: runner.environment == 'github-hosted' && inputs.tools != ''
+      if: steps.validate.outputs.bootstrap == 'true' && inputs.tools != ''
       uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
       with:
         tool: ${{ inputs.tools }}
@@ -148,6 +153,7 @@ runs:
       shell: bash
       env:
         SDK_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        SDK_MANAGED: ${{ inputs.managed }}
         SDK_NODE_VERSION: ${{ inputs.node-version }}
         SDK_PYTHON_VERSION: ${{ inputs.python-version }}
         SDK_UV_VERSION: ${{ inputs.uv-version }}

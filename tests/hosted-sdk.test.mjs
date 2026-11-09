@@ -27,6 +27,16 @@ test("managed private environments verify SDKs without a hosted download cache",
     assert.throws(() => selections({SDK_RUNNER_ENVIRONMENT: kind, SDK_NODE_VERSION: "26.13.0"}));
 });
 
+test("an explicitly selected external provider can prepare SDKs despite self-hosted classification", () => {
+  const environment = {SDK_RUNNER_ENVIRONMENT: "self-hosted", SDK_MANAGED: "false", SDK_NODE_VERSION: "26.13.0",
+    RUNNER_TOOL_CACHE: path.join("cache", "tools"), ImageOS: "ubuntu24", RUNNER_ARCH: "X64"};
+  const plan = cachePlan(environment);
+  assert.equal(plan.key, "nddev-sdk-v1-ubuntu24-X64-node-26.13.0");
+  assert.deepEqual(plan.paths, [path.join("cache", "tools", "node", "26.13.0")]);
+  assert.deepEqual(cachePlan({...environment, SDK_MANAGED: "true"}), {key: "", paths: []});
+  assert.throws(() => selections({...environment, SDK_MANAGED: "yes"}));
+});
+
 test("declared tools are measured before the project runs", () => {
   const environment = {...process.env, ...hosted, SDK_TOOLS: `node@${process.versions.node}`};
   assert.deepEqual(verify(environment).tools, {node: process.versions.node});
