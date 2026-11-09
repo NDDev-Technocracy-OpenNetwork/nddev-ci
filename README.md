@@ -37,6 +37,19 @@ repository.
 - `fetch-depth` (default 1; 0 is the whole history) and `filter` (such as `blob:none`) go to the
   checkout, for checks that read history, such as a version rule that compares a pull request with
   its base.
+- `sparse-checkout` leaves part of the tree out of the checkout, such as generated store images a
+  check never reads: patterns one per line, read as cone directories unless
+  `sparse-checkout-cone-mode: false` makes them gitignore-style patterns. Empty keeps the whole tree.
+- A new push to a pull request cancels its older check and merge stops. Every commit of `dev` and
+  `main` keeps its own full check.
+- The check runs natively on Linux x64 or ARM64. A public repository may choose its GitHub-hosted
+  runner in `hosted-runner`: `ubuntu-24.04` (the default), `ubuntu-24.04-arm`, `ubuntu-26.04` or
+  `ubuntu-26.04-arm`. Each job turns outside telemetry off (`actions/telemetry`) and ends with a
+  summary of its runner, architecture, duration and compiler-cache use.
+- `diagnostics` names workspace-relative reports, one per line, such as test reports. When the check
+  fails they are kept for 14 days as the artifact `diagnostics-check-<attempt>`, so a failure can be
+  read without host access. Only the named files are kept; absolute, parent and hidden paths are
+  refused, and a failed check never leaves its release artifact.
 - The optional secret `read-keys` lets the check read other private repositories, such as a
   superproject's modules: for each repository a line `owner/repository`, then its read-only deploy
   key. GitHub accepts a deploy key for its one repository only, so each repository gets an ssh host
@@ -177,7 +190,8 @@ archive, size and extracted bytes are verified. A self-hosted runner must alread
 provide the matching managed frontend; this action installs no compiler or SDK.
 
 For an entire command job, call `.github/workflows/recipe.yml` at a pinned commit.
-It accepts an explicit hosted `runner`, `recipe`, JSON `arguments`, optional
+It accepts an explicit hosted `runner` (`ubuntu-24.04`, `ubuntu-24.04-arm`, `ubuntu-26.04`,
+`ubuntu-26.04-arm`, `macos-15`, `macos-26`, `windows-2025` or `windows-11-arm`), `recipe`, JSON `arguments`, optional
 dependency `prepare` recipe and checkout depth. Optional exact `node-version`,
 `python-version` and `uv-version` inputs prepare hosted SDKs before either recipe.
 Public callers select from the documented hosted platforms; private callers use

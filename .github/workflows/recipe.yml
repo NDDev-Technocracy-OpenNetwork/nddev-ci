@@ -4,7 +4,9 @@ on:
   workflow_call:
     inputs:
       runner:
-        description: Hosted public runner (ubuntu-24.04, ubuntu-26.04, macos-15 or windows-2025).
+        description: >-
+          Hosted public runner: ubuntu-24.04, ubuntu-24.04-arm, ubuntu-26.04, ubuntu-26.04-arm,
+          macos-15, macos-26, windows-2025 or windows-11-arm.
         type: string
         default: ubuntu-24.04
       private-runner:
@@ -73,15 +75,17 @@ permissions: {}
 jobs:
   recipe:
     # Public calls cannot select a private runner label. Unknown public labels refuse scheduling.
-    runs-on: ${{ github.event.repository.private && inputs.private-runner || contains(fromJSON('["ubuntu-24.04","ubuntu-26.04","macos-15","windows-2025"]'), inputs.runner) && inputs.runner || '' }}
+    runs-on: ${{ github.event.repository.private && inputs.private-runner || contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm","macos-15","macos-26","windows-2025","windows-11-arm"]'), inputs.runner) && inputs.runner || '' }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: ${{ inputs.fetch-depth }}
+      - name: Outside telemetry off
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@21aa38787cb6ad69319c943ea81f74d0c495c307
       - name: Prepare declared hosted SDKs
         if: runner.environment == 'github-hosted'
         uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@9b2857fcb8d69e24a8f0d60d05e3fa682495644d
