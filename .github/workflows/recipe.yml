@@ -101,7 +101,7 @@ jobs:
           exit 1
       - name: Prepare declared native tool assets
         if: inputs.tool-assets != '' && runner.environment == 'github-hosted'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@0c513d80a5ddb9ea6b3b6da0068547c2003e637c
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@5fb909ecee8899d33137c455c77371340880281a
         with:
           manifest: ${{ inputs.tool-assets }}
           directory: ${{ runner.temp }}/nddev-ci/native-tools
@@ -109,13 +109,13 @@ jobs:
 
       - name: Prepare only the declared dependencies
         if: inputs.prepare != ''
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@6906120bd7ee190750ec62d1fa9a5daf9d823ae4
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@5fb909ecee8899d33137c455c77371340880281a
         with:
           recipe: ${{ inputs.prepare }}
           working-directory: ${{ inputs.working-directory }}
           justfile: ${{ inputs.justfile }}
       - name: Run the project command
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@6906120bd7ee190750ec62d1fa9a5daf9d823ae4
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@5fb909ecee8899d33137c455c77371340880281a
         with:
           recipe: ${{ inputs.recipe }}
           arguments: ${{ inputs.arguments }}

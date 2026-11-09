@@ -352,7 +352,7 @@ jobs:
           exit 1
       - name: Prepare declared native tool assets
         if: inputs.tool-assets != '' && runner.environment == 'github-hosted'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@0c513d80a5ddb9ea6b3b6da0068547c2003e637c
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@5fb909ecee8899d33137c455c77371340880281a
         with:
           manifest: ${{ inputs.tool-assets }}
           directory: ${{ runner.temp }}/nddev-ci/native-tools

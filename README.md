@@ -193,6 +193,10 @@ names, case aliases, device names and escaping paths fail before preparation. A 
 member check preserves the previously accepted destination. Archive and warm member
 hashes are read in bounded chunks.
 
+Windows uses its system archive program, so a recipe's shell cannot replace it with
+Git's GNU tar, which interprets drive-letter paths as remote archives. Cold Just preparation
+uses the same bounded, verified member extraction as native tool assets.
+
 The reusable `check.yml` and `recipe.yml` accept `tool-assets`, the path of this
 caller-owned manifest. On hosted runners the verified executables reach PATH before
 project setup or the selected preparation recipe. A private runner refuses that input
