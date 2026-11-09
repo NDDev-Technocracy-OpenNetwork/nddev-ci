@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { main as assets } from "../../actions/release-assets/run.mjs";
+import { archiveProgram } from "../../lib/native-member.mjs";
 
 assert.equal(process.env.RUNNER_ENVIRONMENT, "github-hosted");
 const root = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP, "native-provider-"));
@@ -52,8 +53,8 @@ function localProvider(file) {
 const tools = {};
 const checks = {};
 try {
-  for (const [name, args] of [["git", ["--version"]], ["curl", ["--version"]], ["tar", ["--version"]], ["zip", ["-v"]], ["unzip", ["-v"]], ["gzip", ["--version"]], ["xz", ["--version"]]]) {
-    const selected = command(name);
+  for (const [name, args] of [["git", ["--version"]], ["curl", ["--version"]], ["tar", ["--version"]], ["zip", ["-v"]], ["unzip", ["-v"]], ["gzip", ["--version"]], ["xz", ["--version"]], ...(process.platform === "win32" ? [["path-tar", ["--version"]]] : [])]) {
+    const selected = name === "tar" && process.platform === "win32" ? archiveProgram() : command(name === "path-tar" ? "tar" : name);
     if (!selected) { tools[name] = { available: false }; continue; }
     const file = fs.realpathSync(selected);
     const version = run(selected, args);
@@ -116,6 +117,9 @@ try {
   for (const value of Object.values(tools)) if (value.available) assert.equal(await sha(value.canonical), value.sha256);
   const operatingSystem = process.platform === "darwin" ? { version: run("sw_vers",["-productVersion"]).stdout.trim(), build: run("sw_vers",["-buildVersion"]).stdout.trim() } : process.platform === "linux" ? { os_release: fs.readFileSync("/etc/os-release","utf8") } : { version: run("cmd",["/c","ver"]).stdout.trim() };
   console.log(JSON.stringify({ research_only: true, platform: process.platform, architecture: process.arch, node: process.versions.node, image_os: process.env.ImageOS, image_version: process.env.ImageVersion, operatingSystem, tools, checks, provider_bytes_unchanged: true }));
+} catch (error) {
+  console.log(JSON.stringify({ research_only: true, platform: process.platform, architecture: process.arch, image_os: process.env.ImageOS, image_version: process.env.ImageVersion, tools, checks, incomplete: true, error: error.message.slice(0, 1000) }));
+  throw error;
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(manifest, { force: true });

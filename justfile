@@ -36,6 +36,7 @@ check: (_tools "check")
     node --check tests/dependency-native.mjs
     node --check tests/portable-recipe.test.mjs
     node --check tests/release-assets.test.mjs
+    node --check tests/windows-archive.test.mjs
     node --check tests/bootstrap-tools.mjs
     "{{ actionlint }}" .github/workflows/*.yml
     "{{ zizmor }}" --min-severity medium .github actions

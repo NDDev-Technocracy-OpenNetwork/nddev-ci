@@ -15,6 +15,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { ActionError, downloadAsset } from "../../lib/release-asset.mjs";
+import { extract } from "../../lib/native-member.mjs";
 const configuration = JSON.parse(
   readFileSync(new URL("./just.json", import.meta.url), "utf8"),
 );
@@ -123,20 +124,17 @@ async function executable(environment) {
         archive,
         environment["INPUT_GITHUB-TOKEN"],
       );
-      const extracted = spawnSync(
-        "tar",
-        ["-xf", archive, "-C", temporary, path.basename(binary)],
-        { stdio: "inherit", env: commandEnvironment(environment) },
-      );
       const source = path.join(temporary, path.basename(binary));
-      if (
-        extracted.status !== 0 ||
-        !existsSync(source) ||
-        digest(source) !== asset.binary_sha256
-      )
-        throw new ActionError(
-          "Extracted task runner differs from the admitted executable.",
-        );
+      await extract(
+        archive,
+        {
+          path: path.basename(binary),
+          size: asset.binary_size,
+          sha256: asset.binary_sha256,
+        },
+        source,
+        commandEnvironment(environment),
+      );
       chmodSync(source, 0o755);
       if (existsSync(binary)) rmSync(binary);
       renameSync(source, binary);
