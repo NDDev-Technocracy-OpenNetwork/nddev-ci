@@ -1,0 +1,42 @@
+# Build provenance for a public repository: attests the files of an artifact that an earlier job
+# of the same run built, such as recipe.yml's native package, so anyone can verify which source
+# commit and workflow run produced them with gh attestation verify. GitHub records attestations of
+# private repositories only on Enterprise Cloud, so private repositories rely on the immutable
+# release's own attestation instead. Call it after the build job on dev.
+name: provenance
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: The artifact of this run whose files are attested.
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  attest:
+    name: provenance
+    if: ${{ !github.event.repository.private && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read # read the artifact of this run
+      attestations: write # record the attestation
+      artifact-metadata: write # record the attested artifact
+      id-token: write # sign through GitHub's Sigstore identity
+    steps:
+      - name: Outside telemetry off
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@2c4796ba2ec0ed8aebc687dbb7523b842ecb1ce5
+
+      - name: Built files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ runner.temp }}/provenance
+
+      - name: Attest the build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/provenance/**
