@@ -57,10 +57,10 @@ export function record(environment, now = new Date()) {
     "host.arch": { X64: "amd64", ARM64: "arm64" }[environment.RUNNER_ARCH] ?? os.arch(),
   };
   const started = input("started-file");
-  const queued = input("queue-seconds") || environment.NDDEV_CI_QUEUE_SECONDS || "";
+  const queued = environment.NDDEV_CI_QUEUE_SECONDS || "";
   if (queued !== "") {
     if (!/^\d+(?:\.\d+)?$/.test(queued) || !Number.isFinite(Number(queued)))
-      throw new Error("queue-seconds must be a measured nonnegative number");
+      throw new Error("NDDEV_CI_QUEUE_SECONDS must be a measured nonnegative number");
     document["nddev_ci.queue_seconds"] = Number(queued);
   }
   if (started && existsSync(started)) {

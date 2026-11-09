@@ -62,9 +62,9 @@ test("native ARM64 records identify the actual OS and measured queue time", () =
     assert.equal(document["nddev_ci.queue_seconds"], 1.25);
   }
   assert.equal(record(base)["nddev_ci.queue_seconds"], undefined);
-  assert.equal(record({...base, "INPUT_QUEUE-SECONDS": "0", NDDEV_CI_QUEUE_SECONDS: "12"})["nddev_ci.queue_seconds"], 0);
+  assert.equal(record({...base, NDDEV_CI_QUEUE_SECONDS: "0"})["nddev_ci.queue_seconds"], 0);
   for (const value of ["-1", "NaN", "Infinity", "1\nOTHER=value"])
-    assert.throws(() => record({...base, NDDEV_CI_QUEUE_SECONDS: value}), /queue-seconds/);
+    assert.throws(() => record({...base, NDDEV_CI_QUEUE_SECONDS: value}), /NDDEV_CI_QUEUE_SECONDS/);
 });
 
 test("the record reaches the runner's telemetry file only by an absolute regular path", () => {
