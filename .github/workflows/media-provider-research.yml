@@ -1,0 +1,31 @@
+name: native media provider research
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  available:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    steps:
+      - name: Read public distribution candidates without installing media tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update > "$RUNNER_TEMP/package-index-update.log" 2>&1
+          printf 'ImageOS=%s ImageVersion=%s\n' "$ImageOS" "$ImageVersion"
+          apt-cache policy ffmpeg
+          apt-cache madison ffmpeg
+          apt-cache show ffmpeg | sed -n '/^Package:/p;/^Version:/p;/^Architecture:/p;/^Depends:/p;/^Filename:/p;/^Size:/p;/^SHA256:/p'
+          for command in ffmpeg ffprobe; do
+            if command -v "$command" >/dev/null; then
+              printf '%s is present\n' "$command"
+              dpkg-query -W -f='${binary:Package} ${Version}\n' ffmpeg
+            else
+              printf '%s is absent\n' "$command"
+            fi
+          done
