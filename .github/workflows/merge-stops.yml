@@ -43,7 +43,6 @@ jobs:
       POUTINE_VERSION: "1.1.6"
       POUTINE_SHA256_X64: "abde716599a65608b023a69ed9316e5f083a7bca48612151c2720835883757ea"
       POUTINE_SHA256_ARM64: "460c90300c6329106b551c150682d12e457365f6436a6cbbd08fe79eb9a98131"
-      POUTINE_DISABLE_VERSION_CHECK: "true"
       ACTIONLINT_VERSION: "1.7.12"
       ACTIONLINT_SHA256_X64: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
       ACTIONLINT_SHA256_ARM64: "325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6"
@@ -58,7 +57,6 @@ jobs:
       SHELLCHECK_VERSION: "0.11.0"
       SHELLCHECK_SHA256_X64: "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6"
       SHELLCHECK_SHA256_ARM64: "68a8133197a50beb8803f8d42f9908d1af1c5540d4bb05fdfca8c1fa47decefc"
-      DO_NOT_TRACK: "1"
     steps:
       - name: Hosted runner
         if: ${{ !github.event.repository.private }}
@@ -69,6 +67,7 @@ jobs:
             ubuntu-24.04 | ubuntu-24.04-arm | ubuntu-26.04 | ubuntu-26.04-arm) ;;
             *) echo "::error::hosted-runner must be a GitHub-hosted Linux label of this workflow"; exit 1 ;;
           esac
+          date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -76,7 +75,7 @@ jobs:
           fetch-depth: 0
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@21aa38787cb6ad69319c943ea81f74d0c495c307
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@09efa339d54c9ff6708c7b1939b3579337095936
 
       - name: Tools
         env:
@@ -184,7 +183,7 @@ jobs:
         run: betterleaks git --no-banner --redact --log-opts="$BASE..$HEAD" .
 
       - name: No new fixed critical dependency
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/dependency-guard@21aa38787cb6ad69319c943ea81f74d0c495c307
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/dependency-guard@09efa339d54c9ff6708c7b1939b3579337095936
         with:
           base: ${{ github.event.pull_request.base.sha }}
           head: ${{ github.event.pull_request.head.sha }}
@@ -217,3 +216,12 @@ jobs:
               stops += level in ("warning", "error")
           sys.exit(1 if stops else 0)
           PY
+
+      - name: Job record
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@09efa339d54c9ff6708c7b1939b3579337095936
+        with:
+          task: merge stops
+          task-type: test
+          status: ${{ job.status }}
+          started-file: ${{ runner.temp }}/nddev-ci-started

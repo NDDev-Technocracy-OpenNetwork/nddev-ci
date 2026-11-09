@@ -3,14 +3,14 @@ name: recipe
 on:
   workflow_call:
     inputs:
-      runner:
+      hosted-runner:
         description: >-
-          Hosted public runner: ubuntu-24.04, ubuntu-24.04-arm, ubuntu-26.04, ubuntu-26.04-arm,
+          The GitHub-hosted runner of a public repository: ubuntu-24.04, ubuntu-24.04-arm, ubuntu-26.04, ubuntu-26.04-arm,
           macos-15, macos-26, windows-2025 or windows-11-arm.
         type: string
         default: ubuntu-24.04
-      private-runner:
-        description: Prepared private runner label.
+      runner:
+        description: The label of our runners, used by private repositories.
         type: string
         default: nddev-linux-standart
       recipe:
@@ -66,6 +66,48 @@ on:
         description: Optional exact hosted uv frontend version.
         type: string
         default: ''
+      java-version:
+        description: Optional exact Temurin JDK version for hosted runners.
+        type: string
+        default: ''
+      go-version:
+        description: Optional exact Go version for hosted runners.
+        type: string
+        default: ''
+      flutter-version:
+        description: Optional exact stable Flutter version for hosted runners, with its Dart SDK.
+        type: string
+        default: ''
+      tools:
+        description: Optional comma-separated name@exact-version command-line tools for hosted runners, such as cargo-nextest@0.9.151.
+        type: string
+        default: ''
+      hosted-cache:
+        description: Restores dependency caches keyed by the lock files on GitHub-hosted runners.
+        type: boolean
+        default: true
+      artifact:
+        description: A file or folder a non-pull-request run keeps, such as a native package for the release.
+        type: string
+        default: ''
+      artifact-name:
+        description: The name the artifact is kept under; a matrix gives each platform its own.
+        type: string
+        default: build
+      diagnostics:
+        description: >-
+          Workspace-relative report files or folders, one per line, kept for 14 days when the
+          recipe fails. Only what is named here is kept.
+        type: string
+        default: ''
+      sparse-checkout:
+        description: Patterns the checkout keeps, one per line; empty keeps the whole tree.
+        type: string
+        default: ''
+      sparse-checkout-cone-mode:
+        description: Reads sparse-checkout as cone directories; false reads gitignore-style patterns.
+        type: boolean
+        default: true
       timeout-minutes:
         type: number
         default: 30
@@ -75,20 +117,36 @@ permissions: {}
 jobs:
   recipe:
     # Public calls cannot select a private runner label. Unknown public labels refuse scheduling.
-    runs-on: ${{ github.event.repository.private && inputs.private-runner || contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm","macos-15","macos-26","windows-2025","windows-11-arm"]'), inputs.runner) && inputs.runner || '' }}
+    runs-on: ${{ github.event.repository.private && inputs.runner || contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm","macos-15","macos-26","windows-2025","windows-11-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || '' }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
     steps:
+      - name: Diagnostics stay inside the workspace
+        env:
+          DIAGNOSTICS: ${{ inputs.diagnostics }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # No absolute path, home, parent or hidden name.
+          while IFS= read -r line || [ -n "$line" ]; do
+            [ -n "$line" ] || continue
+            case "/$line/" in
+              //* | /~* | */../* | */./* | */.[!.]* | *\\*) echo "::error::diagnostics names a path outside the workspace or a hidden name: $line"; exit 1 ;;
+            esac
+          done <<< "$DIAGNOSTICS"
+          date +%s > "$RUNNER_TEMP/nddev-ci-started"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: ${{ inputs.fetch-depth }}
+          sparse-checkout: ${{ inputs.sparse-checkout }}
+          sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@21aa38787cb6ad69319c943ea81f74d0c495c307
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@09efa339d54c9ff6708c7b1939b3579337095936
       - name: Prepare declared hosted SDKs
         if: runner.environment == 'github-hosted'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@9b2857fcb8d69e24a8f0d60d05e3fa682495644d
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@09efa339d54c9ff6708c7b1939b3579337095936
         with:
           node-version: ${{ inputs.node-version }}
           python-version: ${{ inputs.python-version }}
@@ -97,6 +155,10 @@ jobs:
           rust-version: ${{ inputs.rust-version }}
           rust-components: ${{ inputs.rust-components }}
           rust-targets: ${{ inputs.rust-targets }}
+          java-version: ${{ inputs.java-version }}
+          go-version: ${{ inputs.go-version }}
+          flutter-version: ${{ inputs.flutter-version }}
+          tools: ${{ inputs.tools }}
 
       - name: Require the managed private native tool profile
         if: inputs.tool-assets != '' && runner.environment != 'github-hosted'
@@ -105,23 +167,58 @@ jobs:
           exit 1
       - name: Prepare declared native tool assets
         if: inputs.tool-assets != '' && runner.environment == 'github-hosted'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@5fb909ecee8899d33137c455c77371340880281a
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@09efa339d54c9ff6708c7b1939b3579337095936
         with:
           manifest: ${{ inputs.tool-assets }}
           directory: ${{ runner.temp }}/nddev-ci/native-tools
           add-to-path: true
 
+      - name: Hosted dependency caches
+        if: runner.environment == 'github-hosted' && inputs.hosted-cache
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@09efa339d54c9ff6708c7b1939b3579337095936
+        with:
+          working-directory: ${{ inputs.working-directory }}
+
       - name: Prepare only the declared dependencies
         if: inputs.prepare != ''
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@5fb909ecee8899d33137c455c77371340880281a
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@09efa339d54c9ff6708c7b1939b3579337095936
         with:
           recipe: ${{ inputs.prepare }}
           working-directory: ${{ inputs.working-directory }}
           justfile: ${{ inputs.justfile }}
       - name: Run the project command
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@5fb909ecee8899d33137c455c77371340880281a
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@09efa339d54c9ff6708c7b1939b3579337095936
         with:
           recipe: ${{ inputs.recipe }}
           arguments: ${{ inputs.arguments }}
           working-directory: ${{ inputs.working-directory }}
           justfile: ${{ inputs.justfile }}
+
+      - name: Artifact
+        # A non-pull-request run keeps what the release takes, so it publishes the tested build.
+        if: github.event_name != 'pull_request' && inputs.artifact != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.artifact }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Diagnostics of the failed recipe
+        if: failure() && inputs.diagnostics != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: diagnostics-${{ inputs.recipe }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_attempt }}
+          path: ${{ inputs.diagnostics }}
+          if-no-files-found: warn
+          include-hidden-files: false
+          retention-days: 14
+
+      - name: Job record
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@09efa339d54c9ff6708c7b1939b3579337095936
+        with:
+          task: just ${{ inputs.recipe }}
+          task-type: ${{ inputs.artifact != '' && 'build' || 'test' }}
+          status: ${{ job.status }}
+          started-file: ${{ runner.temp }}/nddev-ci-started
