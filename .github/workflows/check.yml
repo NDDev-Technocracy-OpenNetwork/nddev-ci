@@ -185,16 +185,16 @@ jobs:
           sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@631fc9dbfd3e99296538a6c32a2828906218d7c2
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@7e961aa1105359a063527b0d1111bd6f7554ec8e
 
       - name: Artifact registry
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@631fc9dbfd3e99296538a6c32a2828906218d7c2
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@7e961aa1105359a063527b0d1111bd6f7554ec8e
         with:
           url: ${{ inputs.artifact-registry }}
 
       - name: Runner SDK profile
         id: profile
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/runner-profile@631fc9dbfd3e99296538a6c32a2828906218d7c2
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/runner-profile@7e961aa1105359a063527b0d1111bd6f7554ec8e
         with:
           external: ${{ github.event.repository.private && (contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') || github.event.inputs.runner == 'blacksmith') }}
 
@@ -377,12 +377,12 @@ jobs:
           GIT
 
       - name: Native task runner
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/frontend@631fc9dbfd3e99296538a6c32a2828906218d7c2
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/frontend@7e961aa1105359a063527b0d1111bd6f7554ec8e
         with:
           managed: ${{ steps.profile.outputs.managed }}
 
       - name: Prepare or verify declared SDKs
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@631fc9dbfd3e99296538a6c32a2828906218d7c2
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@7e961aa1105359a063527b0d1111bd6f7554ec8e
         with:
           managed: ${{ steps.profile.outputs.managed }}
           node-version: ${{ inputs.node-version }}
@@ -404,7 +404,7 @@ jobs:
           exit 1
       - name: Prepare declared native tool assets
         if: inputs.tool-assets != '' && steps.profile.outputs.bootstrap == 'true'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@631fc9dbfd3e99296538a6c32a2828906218d7c2
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@7e961aa1105359a063527b0d1111bd6f7554ec8e
         with:
           managed: ${{ steps.profile.outputs.managed }}
           manifest: ${{ inputs.tool-assets }}
@@ -413,8 +413,7 @@ jobs:
 
       - name: Hosted dependency caches
         if: steps.profile.outputs.bootstrap == 'true' && inputs.hosted-cache
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@631fc9dbfd3e99296538a6c32a2828906218d7c2
-
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@7e961aa1105359a063527b0d1111bd6f7554ec8e
         with:
           managed: ${{ steps.profile.outputs.managed }}
 
@@ -466,7 +465,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@631fc9dbfd3e99296538a6c32a2828906218d7c2
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@7e961aa1105359a063527b0d1111bd6f7554ec8e
         with:
           task: ${{ github.event_name == 'pull_request' && 'short check' || 'full check' }}
           task-type: test
@@ -490,7 +489,7 @@ jobs:
   merge-stops:
     # The merge stops, the same workflow a project with its own command jobs calls.
     if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:'))
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@631fc9dbfd3e99296538a6c32a2828906218d7c2
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@7e961aa1105359a063527b0d1111bd6f7554ec8e
     with:
       runner: ${{ inputs.runner }}
       artifact-registry: ${{ inputs.artifact-registry }}
