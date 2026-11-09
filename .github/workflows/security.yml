@@ -1,6 +1,6 @@
 # The daily security run of security.md: live secrets in the whole history (TruffleHog and
 # Kingfisher), every known vulnerability in the dependencies (OSV-Scanner with its offline
-# database), the dependencies whose licence is outside licenses.md's list (OSV-Scanner with
+# database), the dependencies whose licence is outside the licence policy (OSV-Scanner with
 # deps.dev, the one source of a lock file's licences), and the packages of the repository and of
 # its images on an SBOM made by Syft (Trivy and Grype). A finding never fails the run; the run
 # keeps one report issue per repository. A scanner that cannot run fails it.
@@ -23,6 +23,12 @@ on:
         default: 60
       sboms:
         description: An artifact of this run with SBOMs the caller made, such as of private images (`<name>.json`, CycloneDX, and `<name>.name` with the image).
+        type: string
+        default: ""
+      license-policy:
+        description: >-
+          The caller's cargo-deny style TOML whose [licenses] allow list the licence scan uses,
+          such as deny.toml, so cargo-deny and the scan read one list. Empty uses licenses.md's list.
         type: string
         default: ""
 
@@ -55,8 +61,8 @@ jobs:
       TRIVY_SKIP_VERSION_CHECK: "true"
       GRYPE_CHECK_FOR_APP_UPDATE: "false"
       SYFT_CHECK_FOR_APP_UPDATE: "false"
-      # licenses.md's list, as SPDX identifiers.
-      LICENSES: MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,0BSD,ISC,Zlib,Unicode-3.0,Unicode-DFS-2016,CC0-1.0,MPL-2.0
+      # licenses.md's list for embedded dependencies, as SPDX identifiers; a caller's policy replaces it.
+      LICENSES: MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,Zlib,Unicode-3.0,CC0-1.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -132,12 +138,42 @@ jobs:
           kingfisher scan . --only-valid --no-update-check --format json > "$out/kingfisher.json" || status=$?
           [ "$status" -eq 0 ] || [ "$status" -eq 200 ] || { echo "::error::Kingfisher ended with $status"; exit 1; }
 
+      - name: Licence policy
+        id: licences
+        env:
+          POLICY: ${{ inputs.license-policy }}
+        run: |
+          set -euo pipefail
+          if [ -z "$POLICY" ]; then
+            echo "licenses=$LICENSES" >> "$GITHUB_OUTPUT"
+            echo "Licence policy: licenses.md's list."
+            exit 0
+          fi
+          # A configured policy must exist and name plain SPDX identifiers; it is never ignored.
+          python3 -I - "$POLICY" >> "$GITHUB_OUTPUT" <<'PY'
+          import os, re, sys, tomllib
+          path = sys.argv[1]
+          if os.path.isabs(path) or ".." in path.split("/") or not os.path.isfile(path) or os.path.islink(path):
+              sys.exit(f"::error::licence policy {path!r} is not a regular file in the repository")
+          try:
+              policy = tomllib.load(open(path, "rb"))
+          except (OSError, tomllib.TOMLDecodeError) as error:
+              sys.exit(f"::error::licence policy {path!r} is not valid TOML: {error}")
+          allow = (policy.get("licenses") or {}).get("allow")
+          if not isinstance(allow, list) or not allow or not all(
+              isinstance(item, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+-]*", item) for item in allow
+          ) or len(set(allow)) != len(allow):
+              sys.exit(f"::error::licence policy {path!r} needs a [licenses] allow list of unique SPDX identifiers")
+          print("licenses=" + ",".join(allow))
+          print(f"Licence policy: {path}, {len(allow)} identifiers.", file=sys.stderr)
+          PY
+
       - name: Dependencies and licences
         uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-osv@005a15bdeb6099c2cd6a425483e7155ab959b557 # verified native scanner policy
         with:
           scanner: ${{ runner.temp }}/security/bin/osv-scanner
           output: ${{ runner.temp }}/security/out
-          licenses: ${{ env.LICENSES }}
+          licenses: ${{ steps.licences.outputs.licenses }}
 
       - name: Packages
         uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-sbom@005a15bdeb6099c2cd6a425483e7155ab959b557 # verified native SBOM policy
@@ -202,7 +238,7 @@ jobs:
                       unknown.add(name)
                       continue
                   outside.add(f"{name}: {', '.join(package.get('licenses') or violations)} ({os.path.relpath(result.get('source', {}).get('path', '.'))})")
-          section("Licences outside licenses.md's list (OSV-Scanner with deps.dev)", sorted(outside))
+          section("Licences outside the licence policy (OSV-Scanner with deps.dev)", sorted(outside))
           if unknown:
               for text in (lines, full):
                   text.insert(-1, f"{len(unknown)} packages have no licence in deps.dev, such as the project's own and pub.dev's; check them by hand.")
