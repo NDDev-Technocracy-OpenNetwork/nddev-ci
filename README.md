@@ -169,6 +169,16 @@ The action disables Bun's outside telemetry and isolates uv's cache and project 
 in the job's temporary directory. A selected Python is also passed to uv. Package caches
 are not implicitly enabled by upstream setup actions.
 
+## Hosted dependency caches
+
+`actions/hosted-cache` restores a hosted job's dependency caches, keyed by the lock files in its
+`working-directory`: Cargo through rust-cache when `Cargo.lock` exists, and the Bun, npm, pnpm and
+uv package stores for `bun.lock`, `package-lock.json`, `pnpm-lock.yaml` and `uv.lock`. As with
+the contour's network cache, jobs of `dev` and `main` save at the end of a successful job and
+every other job only reads, so a pull request never writes what a release build reads. It serves
+GitHub-hosted runners only; our runners use the network cache. Package managers still verify
+every package against the lock files.
+
 ## Native recipe steps
 
 Projects with separate native, database, browser or packaging jobs can invoke their
