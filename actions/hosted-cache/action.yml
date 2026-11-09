@@ -48,6 +48,9 @@ runs:
         workspaces: ${{ inputs.working-directory }}
         save-if: ${{ steps.select.outputs.write }}
         cache-on-failure: false
+        # Only dependency artifacts are cached. Cargo judges workspace packages by source mtimes,
+        # so a restored workspace artifact could outlive changed sources with older mtimes.
+        cache-workspace-crates: false
     # dev and main restore and, at the end of a successful job, save; other jobs only restore.
     - name: Package stores, saved by this job
       if: steps.select.outputs.stores != '' && steps.select.outputs.write == 'true'
