@@ -30,7 +30,7 @@ export function selections(environment) {
 
 // GitHub's tool cache keeps the SDKs that setup actions download from GitHub releases. One cache
 // entry per exact selection, runner image and architecture lets later jobs skip those downloads.
-export const toolCacheNames = Object.freeze({node: "node", python: "Python", uv: "uv"});
+export const toolCacheNames = Object.freeze({node: "node", python: "Python", uv: "uv", flutter: "flutter"});
 
 // Flutter publishes its SDK for Linux and Windows on x64 only, and for macOS on x64 and ARM64.
 export function supported(selected, platform = process.platform, arch = process.arch) {
@@ -49,7 +49,8 @@ export function cachePlan(environment) {
   return {
     key: ["nddev-sdk-v1", image, environment.RUNNER_ARCH ?? process.arch,
       ...parts.map((name) => `${name}-${selected[name]}`)].join("-"),
-    paths: parts.map((name) => path.join(root, toolCacheNames[name], selected[name])),
+    paths: parts.map((name) => path.join(root, toolCacheNames[name],
+      name === "flutter" ? `${selected[name]}-${process.arch}` : selected[name])),
   };
 }
 

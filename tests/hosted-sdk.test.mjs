@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { cachePlan, main, selections, supported, verify } from "../actions/hosted-sdk/run.mjs";
+import { selectRelease } from "../actions/hosted-sdk/flutter.mjs";
 
 const hosted = {SDK_RUNNER_ENVIRONMENT: "github-hosted"};
 
@@ -92,4 +93,22 @@ test("Flutter is selected only where it publishes an SDK", () => {
   supported({node: "26.13.0"}, "linux", "arm64");
   assert.throws(() => supported({flutter: "3.47.9"}, "linux", "arm64"), /x64 runner/);
   assert.throws(() => supported({flutter: "3.47.9"}, "win32", "arm64"), /x64 runner/);
+});
+
+test("Flutter comes from one stable entry of the official manifest with its digest", () => {
+  const origin = "https://storage.googleapis.com/flutter_infra_release/releases";
+  const entry = (fields) => ({channel: "stable", version: "3.47.9", dart_sdk_version: "3.13.7",
+    archive: "stable/macos/flutter_macos_arm64_3.47.9-stable.zip", sha256: "6".repeat(64), dart_sdk_arch: "arm64", ...fields});
+  const document = {base_url: origin, releases: [
+    entry({}), entry({dart_sdk_arch: "x64", archive: "stable/macos/flutter_macos_3.47.9-stable.zip", sha256: "0".repeat(64)}),
+    entry({channel: "beta"}), entry({version: "3.47.8"})]};
+  assert.deepEqual(selectRelease(document, "3.47.9", "darwin", "arm64"), {
+    url: `${origin}/stable/macos/flutter_macos_arm64_3.47.9-stable.zip`, sha256: "6".repeat(64),
+    archive: "stable/macos/flutter_macos_arm64_3.47.9-stable.zip", dart: "3.13.7"});
+  assert.equal(selectRelease(document, "3.47.9", "darwin", "x64").sha256, "0".repeat(64));
+  assert.throws(() => selectRelease(document, "3.47.10", "darwin", "arm64"), /no single stable/);
+  assert.throws(() => selectRelease({...document, base_url: "https://example.com"}, "3.47.9", "darwin", "arm64"), /origin/);
+  assert.throws(() => selectRelease({base_url: origin, releases: [entry({archive: "../x.zip"})]}, "3.47.9", "darwin", "arm64"), /plain archive/);
+  assert.throws(() => selectRelease({base_url: origin, releases: [entry({}), entry({})]}, "3.47.9", "darwin", "arm64"), /no single/);
+  assert.throws(() => selectRelease(document, "3.47.9", "freebsd", "x64"), /no SDK/);
 });

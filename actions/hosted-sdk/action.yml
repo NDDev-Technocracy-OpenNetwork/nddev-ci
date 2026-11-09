@@ -113,14 +113,14 @@ runs:
       with:
         go-version: ${{ inputs.go-version }}
         cache: false
-    - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+    # flutter-action calls actions/cache by tag, which commit pinning refuses even when its cache is
+    # off; the official archive is taken directly and verified by the manifest's SHA-256.
+    - name: Prepare the exact Flutter SDK
       if: inputs.flutter-version != ''
-      with:
-        channel: stable
-        flutter-version: ${{ inputs.flutter-version }}
-        # Its built-in cache calls actions/cache by tag, which our commit pinning refuses; the SDK
-        # comes from Google's storage, not from GitHub releases.
-        cache: false
+      shell: bash
+      env:
+        SDK_FLUTTER_VERSION: ${{ inputs.flutter-version }}
+      run: node "$GITHUB_ACTION_PATH/flutter.mjs"
     - name: Flutter and Dart analytics off
       if: inputs.flutter-version != ''
       shell: bash
