@@ -8,6 +8,10 @@ name: check
 on:
   workflow_call:
     inputs:
+      artifact-registry:
+        description: Optional tool-download registry; empty uses the runner setting or official upstream sources.
+        type: string
+        default: ''
       runner:
         description: The label of our runners, used by private repositories.
         type: string
@@ -185,7 +189,12 @@ jobs:
           sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@09efa339d54c9ff6708c7b1939b3579337095936
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@0926e0b0d25c4451fc1a1f549c9875834a601de3
+
+      - name: Artifact registry
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        with:
+          url: ${{ inputs.artifact-registry }}
 
       - name: Read keys
         # GitHub accepts a deploy key for its one repository, and ssh stops at the first key that
@@ -407,7 +416,7 @@ jobs:
 
       - name: Prepare declared hosted SDKs
         if: runner.environment == 'github-hosted'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@09efa339d54c9ff6708c7b1939b3579337095936
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@0926e0b0d25c4451fc1a1f549c9875834a601de3
         with:
           node-version: ${{ inputs.node-version }}
           python-version: ${{ inputs.python-version }}
@@ -428,7 +437,7 @@ jobs:
           exit 1
       - name: Prepare declared native tool assets
         if: inputs.tool-assets != '' && runner.environment == 'github-hosted'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@09efa339d54c9ff6708c7b1939b3579337095936
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@0926e0b0d25c4451fc1a1f549c9875834a601de3
         with:
           manifest: ${{ inputs.tool-assets }}
           directory: ${{ runner.temp }}/nddev-ci/native-tools
@@ -436,7 +445,7 @@ jobs:
 
       - name: Hosted dependency caches
         if: runner.environment == 'github-hosted' && inputs.hosted-cache
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@09efa339d54c9ff6708c7b1939b3579337095936
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@0926e0b0d25c4451fc1a1f549c9875834a601de3
 
       - name: Check
         env:
@@ -486,7 +495,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@09efa339d54c9ff6708c7b1939b3579337095936
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@0926e0b0d25c4451fc1a1f549c9875834a601de3
         with:
           task: ${{ github.event_name == 'pull_request' && 'short check' || 'full check' }}
           task-type: test
