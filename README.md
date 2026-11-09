@@ -66,8 +66,9 @@ repository.
   unless the repository has its own `committed.toml`. It checks only the commits the change brings:
   merge commits and commits another branch already holds are left out. Any of them stops the merge.
 
-The same PR job compares tracked source lockfiles with OSV-Scanner. It binds the exact base,
-head and proposed merge commits, reads Git blobs rather than the working tree and runs no package
+The same PR job compares tracked source lockfiles with OSV-Scanner. It binds the exact head and
+proposed merge commits and compares the merge with its own base, which must be the pull request's
+base or a later commit the base branch moved forward to, reads Git blobs rather than the working tree and runs no package
 installers, build scripts, dependency resolution or call analysis. A change to a supported lockfile
 or dependency declaration selects all supported tracked lockfiles in both the base and merge.
 Unchanged dependency inputs and repositories without supported tracked lockfiles are explicitly
@@ -263,19 +264,12 @@ this workflow does not opt out of that boundary.
 
 ## Releases
 
-`actions/release` publishes the commit `main` moved forward to as one immutable GitHub Release,
-without building again. It takes the newest push check of that exact commit on `dev` from the
-caller's check workflow: a newer failed, cancelled or unknown run is never replaced by an older
-green one, a running check is awaited up to `wait-minutes`, and a missing one stops the release.
-A commit with the same tree but another identity never borrows a result.
-
-The named `artifacts` of that run are downloaded with their recorded digests, and their top-level
-files become the release files, with `SHA256SUMS`. Folders, links and hidden or repeated names
-stop the release. The version raises the last number of the newest `<tag-prefix><version>` tag;
-the owner chooses a new first or middle number through `version`. The tag is created at the
-commit, never moved, and a draft receives and verifies every file before it is published.
-A rerun finds the same tag and release and completes them once. The job needs `contents: write`
-and `actions: read`; enable immutable releases in the repository settings.
+A project calls `.github/workflows/release.yml` when `main` moves forward. It publishes that commit
+as one immutable GitHub Release without building again (`actions/release`). It takes the newest
+push check of that exact commit on `dev` from the caller's check workflow: a newer failed,
+cancelled or unknown run is never replaced by an older green one, a running check is awaited up to
+`wait-minutes`, and a missing one stops the release. A commit with the same tree but another
+identity never borrows a result.
 
 ```yaml
 on:
@@ -283,17 +277,24 @@ on:
     branches: [main]
 jobs:
   release:
-    runs-on: ubuntu-24.04
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/release.yml@<commit> # v<version>
     permissions:
       actions: read
       contents: write
-    steps:
-      - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release@<commit>
-        with:
-          check-workflow: ci.yml
-          artifacts: |
-            build
+    with:
+      check-workflow: ci.yml
+      artifacts: |
+        build
 ```
+
+The named `artifacts` of that run are downloaded with their recorded digests, and their top-level
+files become the release files, with `SHA256SUMS`. Folders, links and hidden or repeated names
+stop the release. The version raises the last number of the newest `<tag-prefix><version>` tag;
+the owner chooses a new first or middle number through `version`. The tag is created at the
+commit, never moved, and a draft receives and verifies every file before it is published.
+A rerun finds the same tag and release and completes them once. Public repositories release on
+GitHub's runners, private ones on `runner`. Enable immutable releases in the repository settings:
+GitHub then protects the tag and signs the release, and `gh release verify-asset` checks a file.
 
 This library releases itself the same way (`.github/workflows/publish.yml`). Callers pin a
 released commit with its version as a comment, so Dependabot proposes each new release.
@@ -322,6 +323,49 @@ repositories only on Enterprise Cloud, so a private repository relies on its imm
 attestation. Only callers that attest grant these permissions; `check.yml` callers are unaffected.
 A release's container images get their release-time scan by calling `security.yml` with `images`
 on the promotion to `main`, as security.md asks of every release.
+## Package registries
+
+`.github/workflows/registry.yml` publishes files of an immutable release to crates.io, PyPI or npm
+through trusted publishing: the job exchanges its identity for a short-lived registry token, so
+no registry token is stored. It downloads the named release files, requires their `SHA256SUMS`
+entries and GitHub's release attestation (`gh release verify-asset`), and publishes those exact
+bytes. A rerun skips a version the registry already holds with the same bytes and stops on
+different ones.
+
+- `crates`: one `.crate` file. The tagged source in `crate-directory` must reproduce it with
+  `cargo package --locked`, byte for byte, before `cargo publish`.
+- `pypi`: the wheels and source distribution; `environment` names the environment of the PyPI
+  trusted publisher.
+- `npm`: one package `.tgz` whose version is the release's, with npm provenance.
+
+```yaml
+jobs:
+  release:
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/release.yml@<commit> # v<version>
+    permissions:
+      actions: read
+      contents: write
+    with:
+      artifacts: |
+        python-dist
+  pypi:
+    needs: release
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/registry.yml@<commit> # v<version>
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+      registry: pypi
+      environment: pypi
+      files: |
+        example-1.2.3-py3-none-any.whl
+        example-1.2.3.tar.gz
+```
+
+Register the repository, workflow file of the caller and environment as the registry's trusted
+publisher first. Registries accept trusted publishing from GitHub's runners, so this job runs
+there for private repositories too.
 
 ## Daily security
 
@@ -359,6 +403,9 @@ holding the image) and passes its name as `sboms`; they are scanned with the res
 - Syft makes an SBOM of the repository and of each image; Trivy and Grype check it. Their shared
   policy overrides local scanner configuration and Trivy ignore files. Explicit caller SBOMs
   must exist and contain JSON inventories; missing, empty or malformed inputs fail the run.
+- The scanners run natively on Linux x64 or ARM64, each archive with its own pinned digest; any
+  other system stops before preparation. A public repository may choose its GitHub-hosted runner
+  in `hosted-runner`, as in `check.yml`.
 - One open issue, "Security report", holds the latest run's findings. A finding never fails the
   run; a scanner that cannot run does. No scanner reports to its maker or checks for updates.
 
