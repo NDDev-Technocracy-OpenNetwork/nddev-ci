@@ -51,12 +51,15 @@ repository, `hosted-runner` the GitHub-hosted runner of a public one.
   runner's optional `NDDEV_CI_ARTIFACT_REGISTRY`; when neither is set, downloads use official
   upstream REST and PyPI sources. No private environment variable is required. A declared
   unavailable registry fails bootstrap, and archive and wheel checksums remain mandatory.
+  The registry serves `/github-releases/sha256/<digest>/<owner>/<repository>/releases/download/<tag>/<asset>`,
+  `/pypi/simple/<project>/` metadata and `/pypi-files/` payloads. It is a download source,
+  separate from dependency caches and compiler-cache configuration.
 - A repository may omit recipes that have no work, as the command standard allows.
   The short check reads the parsed justfile before deciding whether to run `test`,
   aliases included. A failed check, a failed declared test or an invalid justfile
   remains a failure. The full check always runs `just verify`.
 - `setup: true` runs `just setup` before the checks. A project whose `just check` works without
-  network access, as checks.md asks, takes its dependencies and data there first.
+  network access takes its dependencies and data there first.
 - `fetch-depth` (default 1; 0 is the whole history) and `filter` (such as `blob:none`) go to the
   checkout, for checks that read history, such as a version rule that compares a pull request with
   its base.

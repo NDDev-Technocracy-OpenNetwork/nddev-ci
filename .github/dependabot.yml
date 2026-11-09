@@ -1,4 +1,4 @@
-# Dependabot watches this repository, as technologies.md asks: alerts, security updates at once,
+# Dependabot watches this repository: alerts, security updates at once,
 # and version updates after its three-day wait.
 version: 2
 updates:

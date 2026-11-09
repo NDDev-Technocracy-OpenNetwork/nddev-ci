@@ -1,7 +1,7 @@
 name: Outside telemetry off
 description: >-
   Sets the switches that turn outside telemetry and update checks off for every later step of the
-  job, as security.md asks of every runner job. Our private runners already set the contour's list;
+  job. Our private runners already set the contour's list;
   GitHub-hosted runners get the same switches from switches.env.
 runs:
   using: composite
