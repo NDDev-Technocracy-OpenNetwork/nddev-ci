@@ -1,4 +1,4 @@
-# The daily security run of security.md: live secrets, dependencies, licences and images.
+# The daily security scan: live secrets, dependencies, licences and images.
 name: security
 
 on:
