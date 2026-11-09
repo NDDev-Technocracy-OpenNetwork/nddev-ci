@@ -6,6 +6,14 @@ name: release
 on:
   workflow_call:
     inputs:
+      api-url:
+        description: Optional explicit metadata API source.
+        type: string
+        default: ''
+      artifact-api-url:
+        description: Optional artifact transport API serving the same artifact download route.
+        type: string
+        default: ''
       check-workflow:
         description: The caller's workflow file whose push check on dev qualifies the commit.
         type: string
@@ -38,6 +46,10 @@ on:
         description: The label of our runners, used by private repositories.
         type: string
         default: nddev-linux-standart
+    secrets:
+      artifact-token:
+        description: Optional separate credential for the declared artifact transport.
+        required: false
     outputs:
       version:
         description: The released version.
@@ -73,11 +85,11 @@ jobs:
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@d820ff05968f48d22bab103120c709078a04d1b9
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@570141705191fa3d636d9fe7af3e6bea1957d2dd
 
       - name: Release the verified commit
         id: release
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release@d820ff05968f48d22bab103120c709078a04d1b9
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release@570141705191fa3d636d9fe7af3e6bea1957d2dd
         with:
           check-workflow: ${{ inputs.check-workflow }}
           artifacts: ${{ inputs.artifacts }}
@@ -86,10 +98,13 @@ jobs:
           tag-prefix: ${{ inputs.tag-prefix }}
           name: ${{ inputs.name }}
           wait-minutes: ${{ inputs.wait-minutes }}
+          api-url: ${{ inputs.api-url }}
+          artifact-api-url: ${{ inputs.artifact-api-url }}
+          artifact-token: ${{ secrets.artifact-token }}
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@d820ff05968f48d22bab103120c709078a04d1b9
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@570141705191fa3d636d9fe7af3e6bea1957d2dd
         with:
           task: release
           task-type: deploy
