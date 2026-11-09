@@ -119,7 +119,7 @@ jobs:
           name: ${{ inputs.sboms }}
           path: ${{ runner.temp }}/security/caller
 
-      - name: Scan
+      - name: Secrets
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/security/out"
@@ -129,14 +129,18 @@ jobs:
           status=0
           kingfisher scan . --only-valid --no-update-check --format json > "$out/kingfisher.json" || status=$?
           [ "$status" -eq 0 ] || [ "$status" -eq 200 ] || { echo "::error::Kingfisher ended with $status"; exit 1; }
-          status=0
-          osv-scanner scan source -r --allow-no-lockfiles --offline-vulnerabilities --download-offline-databases \
-            --data-source native --format json . > "$out/osv.json" || status=$?
-          [ "$status" -eq 0 ] || [ "$status" -eq 1 ] || { echo "::error::OSV-Scanner ended with $status"; exit 1; }
-          # Licences come only from deps.dev, so this second run is online.
-          status=0
-          osv-scanner scan source -r --allow-no-lockfiles --licenses="$LICENSES" --format json . > "$out/licenses.json" || status=$?
-          [ "$status" -eq 0 ] || [ "$status" -eq 1 ] || { echo "::error::OSV-Scanner (licences) ended with $status"; exit 1; }
+
+      - name: Dependencies and licences
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-osv@6915ffd688ae329424769d1b96165abf25019149 # verified native scanner policy
+        with:
+          scanner: ${{ runner.temp }}/security/bin/osv-scanner
+          output: ${{ runner.temp }}/security/out
+          licenses: ${{ env.LICENSES }}
+
+      - name: Packages
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/security/out"
           echo "Creating the repository SBOM with Syft"
           syft "dir:." -o "cyclonedx-json=$out/sbom-repository.json"
           number=0
