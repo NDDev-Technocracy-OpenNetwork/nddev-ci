@@ -25,6 +25,12 @@ jobs:
 
   # The merge stops workflow that specialized callers use beside their own command jobs.
   merge-stops:
+    strategy:
+      fail-fast: false
+      matrix:
+        hosted-runner: [ubuntu-24.04, ubuntu-24.04-arm]
     uses: ./.github/workflows/merge-stops.yml
+    with:
+      hosted-runner: ${{ matrix.hosted-runner }}
     permissions:
       contents: read

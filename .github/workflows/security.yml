@@ -63,6 +63,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      - name: Outside telemetry off
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@21aa38787cb6ad69319c943ea81f74d0c495c307
+
       - name: Tools
         env:
           GH_TOKEN: ${{ github.token }}

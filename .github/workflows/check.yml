@@ -12,6 +12,12 @@ on:
         description: The label of our runners, used by private repositories.
         type: string
         default: nddev-linux-standart
+      hosted-runner:
+        description: >-
+          The GitHub-hosted Linux runner of a public repository: ubuntu-24.04, ubuntu-24.04-arm,
+          ubuntu-26.04 or ubuntu-26.04-arm.
+        type: string
+        default: ubuntu-24.04
       timeout-minutes:
         description: How long the check may run.
         type: number
@@ -30,6 +36,20 @@ on:
         default: 1
       filter:
         description: A partial clone filter for the checkout, such as blob:none.
+        type: string
+        default: ""
+      sparse-checkout:
+        description: Patterns the checkout keeps, one per line; empty keeps the whole tree.
+        type: string
+        default: ""
+      sparse-checkout-cone-mode:
+        description: Reads sparse-checkout as cone directories; false reads gitignore-style patterns.
+        type: boolean
+        default: true
+      diagnostics:
+        description: >-
+          Workspace-relative report files or folders, one per line, kept for 14 days when the check
+          fails, such as test reports. Only what is named here is kept.
         type: string
         default: ""
       setup:
@@ -100,23 +120,57 @@ jobs:
     name: ${{ github.event_name == 'pull_request' && 'short check' || 'full check' }}
     # A new label reruns the check only when it chooses the runner.
     if: github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:')
-    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || (contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') || github.event.inputs.runner == 'blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || (contains(github.event.pull_request.labels.*.name, 'runner:github') || github.event.inputs.runner == 'github') && 'ubuntu-24.04' || inputs.runner }}
+    # Public repositories always run on GitHub's runners; an unknown hosted label fails below.
+    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || (contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') || github.event.inputs.runner == 'blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || (contains(github.event.pull_request.labels.*.name, 'runner:github') || github.event.inputs.runner == 'github') && 'ubuntu-24.04' || inputs.runner }}
+    # A new push to a pull request cancels its older check; dev and main check every commit.
+    concurrency:
+      group: nddev-ci-check-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
     env:
       JUST_VERSION: "1.59.0"
-      JUST_SHA256: "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e"
+      JUST_SHA256_X64: "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e"
+      JUST_SHA256_ARM64: "23871b1702bfd550fb5f901778fd4290ecf2ee034a45a889fbe96d89b188086d"
       SCCACHE_VERSION: "0.19.0"
-      SCCACHE_SHA256: "aa73c7270c997894038c0d8f0d297865f57569e1687883322bc431713d4bb9dd"
+      SCCACHE_SHA256_X64: "aa73c7270c997894038c0d8f0d297865f57569e1687883322bc431713d4bb9dd"
+      SCCACHE_SHA256_ARM64: "3e47fc4a71b1ddd1b4294a0de9d34498922fdf41e3cd0bda5df3954e3d6deb9d"
       # The contour cache gateway's settings on our runner machines.
       GATEWAY_SETTINGS: /etc/contour/caches/environment.toml
     steps:
+      - name: Hosted runner and diagnostics
+        env:
+          PRIVATE: ${{ github.event.repository.private }}
+          HOSTED_RUNNER: ${{ inputs.hosted-runner }}
+          DIAGNOSTICS: ${{ inputs.diagnostics }}
+        run: |
+          set -euo pipefail
+          if [ "$PRIVATE" != true ]; then
+            case "$HOSTED_RUNNER" in
+              ubuntu-24.04 | ubuntu-24.04-arm | ubuntu-26.04 | ubuntu-26.04-arm) ;;
+              *) echo "::error::hosted-runner must be a GitHub-hosted Linux label of this workflow"; exit 1 ;;
+            esac
+          fi
+          # Diagnostics stay inside the workspace: no absolute path, home, parent or hidden name.
+          while IFS= read -r line || [ -n "$line" ]; do
+            [ -n "$line" ] || continue
+            case "/$line/" in
+              //* | /~* | */../* | */./* | */.[!.]* | *\\*) echo "::error::diagnostics names a path outside the workspace or a hidden name: $line"; exit 1 ;;
+            esac
+          done <<< "$DIAGNOSTICS"
+          date +%s > "$RUNNER_TEMP/nddev-ci-started"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: ${{ inputs.fetch-depth }}
           filter: ${{ inputs.filter }}
+          sparse-checkout: ${{ inputs.sparse-checkout }}
+          sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
+
+      - name: Outside telemetry off
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@21aa38787cb6ad69319c943ea81f74d0c495c307
 
       - name: Read keys
         # GitHub accepts a deploy key for its one repository, and ssh stops at the first key that
@@ -301,6 +355,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The check runs natively on Linux x64 or ARM64; every archive has its own pinned digest.
+          [ "$RUNNER_OS" = Linux ] || { echo "::error::check.yml runs on Linux runners; recipe.yml serves other systems"; exit 1; }
+          case "$(uname -m)" in
+            x86_64) rust=x86_64 just_sha=$JUST_SHA256_X64 sccache_sha=$SCCACHE_SHA256_X64 ;;
+            aarch64 | arm64) rust=aarch64 just_sha=$JUST_SHA256_ARM64 sccache_sha=$SCCACHE_SHA256_ARM64 ;;
+            *) echo "::error::check.yml supports Linux x64 and ARM64"; exit 1 ;;
+          esac
           bin="$RUNNER_TEMP/nddev-ci/bin"
           archive="$RUNNER_TEMP/nddev-ci/archive.tar.gz"
           mkdir -p "$bin"
@@ -324,11 +385,11 @@ jobs:
             echo "$2  $archive" | sha256sum --check --quiet
             tar -xzf "$archive" -C "$bin" --strip-components="$3" "$4"
           }
-          fetch "https://github.com/casey/just/releases/download/$JUST_VERSION/just-$JUST_VERSION-x86_64-unknown-linux-musl.tar.gz" \
-            "$JUST_SHA256" 0 just
+          fetch "https://github.com/casey/just/releases/download/$JUST_VERSION/just-$JUST_VERSION-$rust-unknown-linux-musl.tar.gz" \
+            "$just_sha" 0 just
           if [ -r "$GATEWAY_SETTINGS" ]; then
-            fetch "https://github.com/mozilla/sccache/releases/download/v$SCCACHE_VERSION/sccache-v$SCCACHE_VERSION-x86_64-unknown-linux-musl.tar.gz" \
-              "$SCCACHE_SHA256" 1 "sccache-v$SCCACHE_VERSION-x86_64-unknown-linux-musl/sccache"
+            fetch "https://github.com/mozilla/sccache/releases/download/v$SCCACHE_VERSION/sccache-v$SCCACHE_VERSION-$rust-unknown-linux-musl.tar.gz" \
+              "$sccache_sha" 1 "sccache-v$SCCACHE_VERSION-$rust-unknown-linux-musl/sccache"
           fi
           rm -f "$archive"
           echo "$bin" >> "$GITHUB_PATH"
@@ -439,11 +500,35 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Cache use
+      - name: Diagnostics of the failed check
+        # Only the caller's named reports are kept, never a release artifact of a failed check.
+        if: failure() && inputs.diagnostics != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: diagnostics-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ inputs.diagnostics }}
+          if-no-files-found: warn
+          include-hidden-files: false
+          retention-days: 14
+
+      - name: Summary
         if: always()
+        env:
+          CHECK: ${{ github.event_name == 'pull_request' && 'short check' || 'full check' }}
         run: |
+          started=$(cat "$RUNNER_TEMP/nddev-ci-started" 2>/dev/null || date +%s)
+          seconds=$(( $(date +%s) - started ))
+          {
+            echo "### $CHECK"
+            echo
+            echo "| Runner | Architecture | Duration |"
+            echo "| --- | --- | --- |"
+            echo "| $RUNNER_NAME ($RUNNER_ENVIRONMENT) | $(uname -m) | $((seconds / 60))m $((seconds % 60))s |"
+          } >> "$GITHUB_STEP_SUMMARY"
           if [ -n "${RUSTC_WRAPPER:-}" ] && [ -x "$RUSTC_WRAPPER" ]; then
-            "$RUSTC_WRAPPER" --show-stats 2>/dev/null | grep -E '^(Compile requests|Cache hits|Cache misses|Cache hits rate|Cache read errors|Cache write errors)' || true
+            stats=$("$RUSTC_WRAPPER" --show-stats 2>/dev/null | grep -E '^(Compile requests|Cache hits|Cache misses|Cache hits rate|Cache read errors|Cache write errors)' || true)
+            printf '%s\n' "$stats"
+            { echo; echo '```text'; printf '%s\n' "$stats"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Revoke App read token
@@ -461,157 +546,11 @@ jobs:
             }
 
   merge-stops:
-    # The merge stops of security.md: a secret in the change (Betterleaks), and a dangerous workflow
-    # (a broken file, an action not pinned by commit, a high-severity zizmor finding, a poutine
-    # finding of warning or error level), and a new critical dependency with a known fix.
-    # The change's commit messages are checked here too, as
-    # writing.md and checks.md ask (committed).
-    name: merge stops
+    # The merge stops of security.md, the same workflow a project with its own command jobs calls.
     if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:'))
-    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || (contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') || github.event.inputs.runner == 'blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || (contains(github.event.pull_request.labels.*.name, 'runner:github') || github.event.inputs.runner == 'github') && 'ubuntu-24.04' || inputs.runner }}
-    timeout-minutes: 10
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@21aa38787cb6ad69319c943ea81f74d0c495c307
+    with:
+      runner: ${{ inputs.runner }}
+      hosted-runner: ${{ inputs.hosted-runner }}
     permissions:
       contents: read
-    env:
-      BETTERLEAKS_VERSION: "1.10.0"
-      BETTERLEAKS_SHA256: "9d9ad503cd5d80d18a939352266c3fcca52f10da9b83cd5cfe646989b13940fe"
-      POUTINE_VERSION: "1.1.6"
-      POUTINE_SHA256: "abde716599a65608b023a69ed9316e5f083a7bca48612151c2720835883757ea"
-      POUTINE_DISABLE_VERSION_CHECK: "true"
-      ACTIONLINT_VERSION: "1.7.12"
-      ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
-      ZIZMOR_VERSION: "1.32.0"
-      ZIZMOR_SHA256: "84a6acb975accc13408786a2bd274b572537ca19c933ebbc13e78f3988562071"
-      COMMITTED_VERSION: "1.1.12"
-      COMMITTED_SHA256: "9a860b0a557bc842df663ce923213ff36f077ae2783f8db3123738823279387f"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - name: Tools
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          bin="$RUNNER_TEMP/nddev-ci/bin"
-          archive="$RUNNER_TEMP/nddev-ci/archive.tar.gz"
-          mkdir -p "$bin"
-          fetch() {
-            source=${1#https://github.com/}
-            repository=${source%%/releases/download/*}
-            release=${source#*/releases/download/}
-            tag=${release%%/*}
-            name=${release#*/}
-            printf 'Fetching check tool %s@%s: %s\n' "$repository" "$tag" "$name"
-            auth=()
-            if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
-            if [ -n "${NDS_CACHE_BASE:-}" ]; then
-              printf 'Using the configured artifact registry.\n'
-              curl -fsSL -o "$archive" "${NDS_CACHE_BASE%/}/github-releases/sha256/$2/$repository/releases/download/$tag/$name"
-            else
-              asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
-                jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
-              curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/$repository/releases/assets/$asset"
-            fi
-            echo "$2  $archive" | sha256sum --check --quiet
-            tar -xzf "$archive" -C "$bin" "$3"
-          }
-          fetch "https://github.com/betterleaks/betterleaks/releases/download/v$BETTERLEAKS_VERSION/betterleaks_${BETTERLEAKS_VERSION}_linux_x64.tar.gz" \
-            "$BETTERLEAKS_SHA256" betterleaks
-          fetch "https://github.com/boostsecurityio/poutine/releases/download/v$POUTINE_VERSION/poutine_Linux_x86_64.tar.gz" \
-            "$POUTINE_SHA256" poutine
-          fetch "https://github.com/crate-ci/committed/releases/download/v$COMMITTED_VERSION/committed-v${COMMITTED_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-            "$COMMITTED_SHA256" ./committed
-          fetch "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
-            "$ACTIONLINT_SHA256" actionlint
-          rm -f "$archive"
-          name="zizmor-$ZIZMOR_VERSION-py3-none-manylinux_2_28_x86_64.whl"
-          if [ -n "${NDS_CACHE_BASE:-}" ]; then
-            metadata="${NDS_CACHE_BASE%/}/pypi/simple/zizmor/"
-            origin="${NDS_CACHE_BASE%/}/pypi-files/"
-          else
-            metadata="https://pypi.org/simple/zizmor/"
-            origin="https://files.pythonhosted.org/"
-          fi
-          url=$(curl -fsSL -H 'Accept: application/vnd.pypi.simple.v1+json' "$metadata" |
-            jq -er --arg name "$name" '[.files[] | select(.filename == $name)] | if length == 1 then .[0].url | strings else error("wheel is missing or ambiguous") end')
-          case "$url" in "$origin"*) ;; *) echo "Wheel origin differs from the configured registry" >&2; exit 1 ;; esac
-          curl -fsSL -o "$archive" "$url"
-          echo "$ZIZMOR_SHA256  $archive" | sha256sum --check --quiet
-          python3 -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]))' "$archive" "zizmor-$ZIZMOR_VERSION.data/scripts/zizmor" > "$bin/zizmor"
-          chmod 0755 "$bin/zizmor"
-          rm -f "$archive"
-          echo "$bin" >> "$GITHUB_PATH"
-
-      - name: Commit messages
-        # writing.md: a Conventional Commits subject in the imperative, up to 72 characters, lines up
-        # to 100, no fixup or WIP commit. A repository's own committed.toml takes the place of this.
-        # Only the commits the change brings are checked: a merge commit is left out, and so is a
-        # commit another branch already holds, such as main's commits when main is merged into dev.
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          set -euo pipefail
-          config="$RUNNER_TEMP/nddev-ci/committed.toml"
-          if [ -f committed.toml ]; then
-            config=committed.toml
-          else
-            printf '%s\n' \
-              'style = "conventional"' \
-              'allowed_types = ["feat", "fix", "chore", "docs", "style", "refactor", "perf", "test", "build", "ci", "revert"]' \
-              'subject_length = 72' \
-              'line_length = 100' \
-              'subject_capitalized = false' \
-              'imperative_subject = true' \
-              'no_fixup = true' \
-              'no_wip = true' > "$config"
-          fi
-          failed=0
-          for commit in $(git rev-list --no-merges "$HEAD" "^$BASE" --not \
-            --exclude="origin/$HEAD_REF" --remotes=origin); do
-            git log -1 --format='%h %s' "$commit"
-            committed --config "$config" "$commit^..$commit" || failed=1
-          done
-          exit "$failed"
-
-      - name: No secret in the change
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: betterleaks git --no-banner --redact --log-opts="$BASE..$HEAD" .
-
-      - name: No new fixed critical dependency
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/dependency-guard@11437a00e9f5ff7697f53171601e724b9b4da643
-        with:
-          base: ${{ github.event.pull_request.base.sha }}
-          head: ${{ github.event.pull_request.head.sha }}
-          merge: ${{ github.sha }}
-
-      - name: No dangerous workflow
-        run: |
-          set -euo pipefail
-          if [ ! -d .github/workflows ]; then
-            echo "No workflows in this repository."
-            exit 0
-          fi
-          actionlint
-          zizmor --no-progress --min-severity high .github
-          # poutine's notes, such as an action of our own organisations from an unverified
-          # creator, are reported; its warnings and errors stop the merge.
-          poutine analyze_local . --quiet --disable-version-check --format json > "$RUNNER_TEMP/poutine.json"
-          python3 - "$RUNNER_TEMP/poutine.json" <<'PY'
-          import json, sys
-          report = json.load(open(sys.argv[1]))
-          levels = {name: rule.get("level", "") for name, rule in (report.get("rules") or {}).items()}
-          stops = 0
-          for finding in report.get("findings") or []:
-              level = levels.get(finding["rule_id"], "")
-              meta = finding.get("meta", {})
-              print(f"{level or 'note'}: {finding['rule_id']} in {meta.get('path')}:{meta.get('line')} {meta.get('details', '')}")
-              stops += level in ("warning", "error")
-          sys.exit(1 if stops else 0)
-          PY
