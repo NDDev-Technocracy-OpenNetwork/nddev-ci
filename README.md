@@ -517,7 +517,7 @@ holding the image) and passes its name as `sboms`; they are scanned with the res
 - One open issue, "Security report", holds the latest run's findings. A finding never fails the
   run; a scanner that cannot run does. No scanner reports to its maker or checks for updates.
 
-## Check
+## Developing the library
 
 ```sh
 just setup    # prepare the pinned analysis tools explicitly
