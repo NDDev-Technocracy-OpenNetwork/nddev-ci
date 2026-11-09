@@ -89,7 +89,7 @@ test("other commits, branches, events, workflows and repositories never qualify"
     run({ path: ".github/workflows/other.yml" }),
     run({ repository: { full_name: "other/project" } }),
     run({ head_repository: { full_name: "fork/project" } }),
-  ];
+  ].map((entry, index) => ({...entry, id: index + 1, run_number: index + 10}));
   assert.equal(selectQualifiedRun(foreign, where).state, "missing");
   assert.throws(() => selectQualifiedRun([], { ...where, sha: "abc" }), ReleaseError);
   assert.throws(() => selectQualifiedRun(new Array(101).fill(run({})), where), ReleaseError);
@@ -99,6 +99,11 @@ test("malformed newer evidence cannot fall back to an older successful run", () 
   for (const fields of [{repository: null}, {id: undefined}, {run_number: "11"}, {run_attempt: 0},
     {run_started_at: "unknown"}, {status: "unknown", conclusion: null}])
     assert.throws(() => selectQualifiedRun([run({}), run({id: 2, run_number: 11, ...fields})], where), ReleaseError);
+});
+
+test("contradictory run ordering and repeated attempts cannot select a green record", () => {
+  for (const next of [run({id: 2}), run({run_number: 11}), run({conclusion: "failure"})])
+    assert.throws(() => selectQualifiedRun([run({}), next], where), /contradictory/);
 });
 
 test("artifact names are plain, bounded and unique", () => {
