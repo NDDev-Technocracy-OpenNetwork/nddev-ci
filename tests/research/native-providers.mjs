@@ -93,7 +93,9 @@ try {
   const native = path.join(root, "native assets");
   const assetEnv = { ...process.env, INPUT_MANIFEST: manifest, INPUT_DIRECTORY: native, "INPUT_ADD-TO-PATH": "false", "INPUT_GITHUB-TOKEN": "", GITHUB_OUTPUT: "", GITHUB_PATH: "" };
   fs.mkdirSync(native);
-  const prepared = path.join(process.env.RUNNER_TEMP, "nddev-ci", "native-assets", selected.name);
+  const exposed = command("qualified-just");
+  assert(exposed, "the declared native executable must be exposed through the workflow PATH contract");
+  const prepared = path.join(path.dirname(exposed), selected.name);
   assert(fs.existsSync(prepared), "the workflow must prepare its declared archive before project commands");
   fs.copyFileSync(prepared, path.join(native, selected.name));
   await assets(assetEnv); await assets(assetEnv);
