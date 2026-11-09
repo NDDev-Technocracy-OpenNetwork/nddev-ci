@@ -87,7 +87,10 @@ jobs:
             [ -f "$dist/$name" ] || { echo "::error::$TAG has no file $name"; exit 1; }
             expected=$(awk -v name="$name" '$2 == name { print $1 }' "$dist/SHA256SUMS")
             actual=$(sha256sum "$dist/$name" | cut -d' ' -f1)
-            [ -n "$expected" ] && [ "$expected" = "$actual" ] || { echo "::error::$name differs from SHA256SUMS of $TAG"; exit 1; }
+            if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+              echo "::error::$name differs from SHA256SUMS of $TAG"
+              exit 1
+            fi
             gh release verify-asset "$TAG" "$dist/$name"
           done
           rm "$dist/SHA256SUMS"
