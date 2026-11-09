@@ -178,7 +178,7 @@ async function main() {
 }
 
 main().catch((error) => {
-  const message = error instanceof ReleaseError ? error.message : `Release failed: ${error.message}`;
+  const message = error instanceof ReleaseError ? error.message : "Release failed before completion.";
   console.log(`::error::${message.replace(/[\r\n%]/g, " ")}`);
   process.exitCode = 1;
 });
