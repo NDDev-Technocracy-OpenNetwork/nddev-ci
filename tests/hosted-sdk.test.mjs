@@ -91,6 +91,9 @@ test("Flutter is selected only where it publishes an SDK", () => {
   supported({node: "26.13.0"}, "linux", "arm64");
   assert.throws(() => supported({flutter: "3.47.9"}, "linux", "arm64"), /x64 runner/);
   assert.throws(() => supported({flutter: "3.47.9"}, "win32", "arm64"), /x64 runner/);
+  supported({java: "25.0.5"}, "linux", "arm64");
+  supported({java: "25.0.5"}, "win32", "x64");
+  assert.throws(() => supported({java: "25.0.5"}, "win32", "arm64"), /Windows on ARM64/);
 });
 
 test("Flutter comes from one stable entry of the official manifest with its digest", () => {

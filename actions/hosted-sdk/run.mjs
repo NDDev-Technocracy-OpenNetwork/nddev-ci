@@ -41,9 +41,12 @@ export function selections(environment) {
 export const toolCacheNames = Object.freeze({node: "node", python: "Python", uv: "uv", flutter: "flutter"});
 
 // Flutter publishes its SDK for Linux and Windows on x64 only, and for macOS on x64 and ARM64.
+// Temurin publishes no JDK for Windows on ARM64.
 export function supported(selected, platform = process.platform, arch = process.arch) {
   if (selected.flutter && platform !== "darwin" && arch !== "x64")
     throw new ActionError("Flutter publishes no SDK for this system and architecture; select an x64 runner.");
+  if (selected.java && platform === "win32" && arch === "arm64")
+    throw new ActionError("Temurin publishes no JDK for Windows on ARM64; select another runner.");
 }
 
 // The runner image's operating system release, which decides the native SDK builds: ImageOS where
