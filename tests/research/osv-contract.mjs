@@ -23,10 +23,10 @@ function command(args) {
   assert.ifError(result.error);
   return { status: result.status, stdout: result.stdout, stderr: result.stderr.replace(/https?:\/\/\S+/g, "<url>") };
 }
-function scan(folder, download = false) {
+function scan(folder, download = false, extra = []) {
   const args = ["scan", "source", "--format=json", "--all-packages", "--no-call-analysis", "--no-resolve", "--data-source=native", "--no-ignore", "--config", config, "--local-db-path", db];
   args.push(...(download ? ["--offline-vulnerabilities", "--download-offline-databases"] : ["--offline"]));
-  args.push("-r", folder);
+  args.push(...extra, "-r", folder);
   return command(args);
 }
 function lock(directory, name, version) {
@@ -91,6 +91,14 @@ try {
   fs.mkdirSync(empty);
   fs.writeFileSync(path.join(empty, "Cargo.lock"), "version=4\n");
   const noPackages = scan(empty);
+  const allowedEmpty = scan(empty, false, ["--allow-no-lockfiles", "--verbosity=error"]);
+  const quietClean = scan(base, false, ["--verbosity=error"]);
+  const mixed = path.join(root, "mixed");
+  lock(mixed, "is-number", "7.0.0");
+  fs.mkdirSync(path.join(mixed, "bad"));
+  fs.writeFileSync(path.join(mixed, "bad", "package-lock.json"), "{broken");
+  const mixedResult = scan(mixed, false, ["--verbosity=error"]);
+  console.log(JSON.stringify({ allowed_empty: allowedEmpty, quiet_clean: quietClean, mixed_invalid: mixedResult }));
   console.log(JSON.stringify({
     research_only: true, scanner: { version: version.stdout.trim(), ...asset },
     base_packages: oldReport.results.flatMap((s) => s.packages).length,
