@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { ActionError } from "../../lib/release-asset.mjs";
@@ -38,14 +39,30 @@ export function supported(selected, platform = process.platform, arch = process.
     throw new ActionError("Flutter publishes no SDK for this system and architecture; select an x64 runner.");
 }
 
+// The runner image's operating system release, which decides the native SDK builds: ImageOS where
+// the image sets it, otherwise the system's own release (some ARM64 and Windows images lack it).
+export function imageKey(environment, platform = process.platform, readRelease = () => readFileSync("/etc/os-release", "utf8"), release = os.release()) {
+  const declared = environment.ImageOS ?? "";
+  if (/^[a-z0-9]{1,32}$/.test(declared)) return declared;
+  let key = "";
+  if (platform === "linux") {
+    const fields = Object.fromEntries(readRelease().split("\n").map((line) => line.split("=")).filter((pair) => pair.length === 2)
+      .map(([name, value]) => [name, value.replace(/^"|"$/g, "")]));
+    key = `${fields.ID ?? ""}${fields.VERSION_ID ?? ""}`;
+  } else if (platform === "darwin") key = `darwin${release.split(".")[0]}`;
+  else if (platform === "win32") key = `win${release.split(".")[2] ?? ""}`;
+  key = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!/^[a-z0-9]{2,32}$/.test(key)) throw new ActionError("The hosted runner image is unknown.");
+  return key;
+}
+
 export function cachePlan(environment) {
   const selected = selections(environment);
   const root = environment.RUNNER_TOOL_CACHE;
   const parts = Object.keys(toolCacheNames).filter((name) => selected[name]);
   if (!parts.length) return {key: "", paths: []};
   if (!root || /[\r\n]/.test(root)) throw new ActionError("The runner tool cache is required.");
-  const image = environment.ImageOS ?? "";
-  if (!/^[a-z0-9]{1,32}$/.test(image)) throw new ActionError("The hosted runner image is unknown.");
+  const image = imageKey(environment);
   return {
     key: ["nddev-sdk-v1", image, environment.RUNNER_ARCH ?? process.arch,
       ...parts.map((name) => `${name}-${selected[name]}`)].join("-"),

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { cachePlan, main, selections, supported, verify } from "../actions/hosted-sdk/run.mjs";
+import { cachePlan, imageKey, main, selections, supported, verify } from "../actions/hosted-sdk/run.mjs";
 import { selectRelease } from "../actions/hosted-sdk/flutter.mjs";
 
 const hosted = {SDK_RUNNER_ENVIRONMENT: "github-hosted"};
@@ -69,8 +69,6 @@ test("the tool cache entry names the image, architecture and every exact cached 
     path.join("cache", "tools", "Python", "3.15.2"),
     path.join("cache", "tools", "uv", "0.13.7"),
   ]);
-  for (const ImageOS of [undefined, "", "Ubuntu 24", "../x"])
-    assert.throws(() => cachePlan({...base, ImageOS, SDK_NODE_VERSION: "26.13.0"}));
   assert.throws(() => cachePlan({...base, RUNNER_TOOL_CACHE: "", SDK_NODE_VERSION: "26.13.0"}));
 });
 
@@ -111,4 +109,15 @@ test("Flutter comes from one stable entry of the official manifest with its dige
   assert.throws(() => selectRelease({base_url: origin, releases: [entry({archive: "../x.zip"})]}, "3.47.9", "darwin", "arm64"), /plain archive/);
   assert.throws(() => selectRelease({base_url: origin, releases: [entry({}), entry({})]}, "3.47.9", "darwin", "arm64"), /no single/);
   assert.throws(() => selectRelease(document, "3.47.9", "freebsd", "x64"), /no SDK/);
+});
+
+test("the image key comes from ImageOS or from the system's own release", () => {
+  assert.equal(imageKey({ImageOS: "ubuntu24"}), "ubuntu24");
+  const linux = () => 'NAME="Ubuntu"\nID=ubuntu\nVERSION_ID="24.04"\n';
+  assert.equal(imageKey({}, "linux", linux), "ubuntu2404");
+  assert.equal(imageKey({ImageOS: "Ubuntu 24"}, "linux", linux), "ubuntu2404");
+  assert.equal(imageKey({}, "darwin", linux, "25.1.0"), "darwin25");
+  assert.equal(imageKey({}, "win32", linux, "10.0.26100"), "win26100");
+  assert.throws(() => imageKey({}, "linux", () => "NAME=x\n"), /image is unknown/);
+  assert.throws(() => imageKey({}, "freebsd", linux, "14.1"), /image is unknown/);
 });
