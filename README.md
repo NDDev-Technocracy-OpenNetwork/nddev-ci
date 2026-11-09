@@ -299,6 +299,50 @@ GitHub then protects the tag and signs the release, and `gh release verify-asset
 This library releases itself the same way (`.github/workflows/publish.yml`). Callers pin a
 released commit with its version as a comment, so Dependabot proposes each new release.
 
+## Package registries
+
+`.github/workflows/registry.yml` publishes files of an immutable release to crates.io, PyPI or npm
+through trusted publishing: the job exchanges its identity for a short-lived registry token, so
+no registry token is stored. It downloads the named release files, requires their `SHA256SUMS`
+entries and GitHub's release attestation (`gh release verify-asset`), and publishes those exact
+bytes. A rerun skips a version the registry already holds with the same bytes and stops on
+different ones.
+
+- `crates`: one `.crate` file. The tagged source in `crate-directory` must reproduce it with
+  `cargo package --locked`, byte for byte, before `cargo publish`.
+- `pypi`: the wheels and source distribution; `environment` names the environment of the PyPI
+  trusted publisher.
+- `npm`: one package `.tgz` whose version is the release's, with npm provenance.
+
+```yaml
+jobs:
+  release:
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/release.yml@<commit> # v<version>
+    permissions:
+      actions: read
+      contents: write
+    with:
+      artifacts: |
+        python-dist
+  pypi:
+    needs: release
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/registry.yml@<commit> # v<version>
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+      registry: pypi
+      environment: pypi
+      files: |
+        example-1.2.3-py3-none-any.whl
+        example-1.2.3.tar.gz
+```
+
+Register the repository, workflow file of the caller and environment as the registry's trusted
+publisher first. Registries accept trusted publishing from GitHub's runners, so this job runs
+there for private repositories too.
+
 ## Daily security
 
 `security.yml` is the daily run of security.md, called from a schedule in each repository with
