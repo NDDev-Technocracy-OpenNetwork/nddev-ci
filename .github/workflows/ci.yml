@@ -20,6 +20,7 @@ jobs:
       bun-version: '1.4.4'
       rust-version: '1.99.1'
       rust-components: clippy,rustfmt
+      diagnostics: reports
     permissions:
       contents: read
 

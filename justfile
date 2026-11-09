@@ -53,6 +53,11 @@ check: (_tools "check")
 
 # The documented caller workflow is valid.
 test:
+    mkdir -p reports
+    printf '%s\n' '{"failed":"diagnostics fixture"}' > reports/failure.json
+    printf '%s\n' 'NOT_A_REPORT=1' > reports/.env
+    printf '%s\n' 'outside' > outside.txt
+    false
     "{{ actionlint }}" examples/ci.yml
     rustc --edition 2024 --test tests/recipe-routing.rs -o "{{ tools }}/recipe-routing-tests"
     "{{ tools }}/recipe-routing-tests"
