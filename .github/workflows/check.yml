@@ -185,12 +185,18 @@ jobs:
           sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@570141705191fa3d636d9fe7af3e6bea1957d2dd
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@631fc9dbfd3e99296538a6c32a2828906218d7c2
 
       - name: Artifact registry
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@570141705191fa3d636d9fe7af3e6bea1957d2dd
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@631fc9dbfd3e99296538a6c32a2828906218d7c2
         with:
           url: ${{ inputs.artifact-registry }}
+
+      - name: Runner SDK profile
+        id: profile
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/runner-profile@631fc9dbfd3e99296538a6c32a2828906218d7c2
+        with:
+          external: ${{ github.event.repository.private && (contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') || github.event.inputs.runner == 'blacksmith') }}
 
       - name: Read keys
         # GitHub accepts a deploy key for its one repository, and ssh stops at the first key that
@@ -371,11 +377,14 @@ jobs:
           GIT
 
       - name: Native task runner
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/frontend@570141705191fa3d636d9fe7af3e6bea1957d2dd
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/frontend@631fc9dbfd3e99296538a6c32a2828906218d7c2
+        with:
+          managed: ${{ steps.profile.outputs.managed }}
 
       - name: Prepare or verify declared SDKs
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@570141705191fa3d636d9fe7af3e6bea1957d2dd
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@631fc9dbfd3e99296538a6c32a2828906218d7c2
         with:
+          managed: ${{ steps.profile.outputs.managed }}
           node-version: ${{ inputs.node-version }}
           python-version: ${{ inputs.python-version }}
           uv-version: ${{ inputs.uv-version }}
@@ -389,21 +398,25 @@ jobs:
           tools: ${{ inputs.tools }}
 
       - name: Require the managed private native tool profile
-        if: inputs.tool-assets != '' && runner.environment != 'github-hosted'
+        if: inputs.tool-assets != '' && steps.profile.outputs.managed == 'true'
         run: |
           echo "::error::Native asset bootstrap is hosted-only; private tools belong to the managed SDK."
           exit 1
       - name: Prepare declared native tool assets
-        if: inputs.tool-assets != '' && runner.environment == 'github-hosted'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@570141705191fa3d636d9fe7af3e6bea1957d2dd
+        if: inputs.tool-assets != '' && steps.profile.outputs.bootstrap == 'true'
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@631fc9dbfd3e99296538a6c32a2828906218d7c2
         with:
+          managed: ${{ steps.profile.outputs.managed }}
           manifest: ${{ inputs.tool-assets }}
           directory: ${{ runner.temp }}/nddev-ci/native-tools
           add-to-path: true
 
       - name: Hosted dependency caches
-        if: runner.environment == 'github-hosted' && inputs.hosted-cache
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@570141705191fa3d636d9fe7af3e6bea1957d2dd
+        if: steps.profile.outputs.bootstrap == 'true' && inputs.hosted-cache
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@631fc9dbfd3e99296538a6c32a2828906218d7c2
+
+        with:
+          managed: ${{ steps.profile.outputs.managed }}
 
       - name: Check
         env:
@@ -453,7 +466,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@570141705191fa3d636d9fe7af3e6bea1957d2dd
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@631fc9dbfd3e99296538a6c32a2828906218d7c2
         with:
           task: ${{ github.event_name == 'pull_request' && 'short check' || 'full check' }}
           task-type: test
@@ -477,7 +490,7 @@ jobs:
   merge-stops:
     # The merge stops, the same workflow a project with its own command jobs calls.
     if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:'))
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@570141705191fa3d636d9fe7af3e6bea1957d2dd
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@631fc9dbfd3e99296538a6c32a2828906218d7c2
     with:
       runner: ${{ inputs.runner }}
       artifact-registry: ${{ inputs.artifact-registry }}

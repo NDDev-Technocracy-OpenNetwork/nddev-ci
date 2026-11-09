@@ -37,6 +37,11 @@ repository, `hosted-runner` the GitHub-hosted runner of a public one.
 | `nddev-linux-arm64` | Linux ARM64 | Same class |
 | `nddev-macos` | Native macOS ARM64 | `nddev-linux-arm64` |
 
+`actions/runner-profile` distinguishes SDK ownership from GitHub's runner classification. An
+explicitly selected external provider can register as `self-hosted` while still requiring SDK
+bootstrap. The check's Blacksmith selection uses that external profile; managed device classes
+retain their prepared SDK. Direct action callers can select the same ownership with `managed`.
+
 Managed jobs use their private user account and prepared SDKs without sudo or global installers.
 A requested SDK or command-line tool must already match its exact version; a mismatch fails before
 project preparation. Linux ARM64 rejects Flutter because no official SDK is published for it.
@@ -246,12 +251,12 @@ are not implicitly enabled by upstream setup actions.
 
 ## Hosted dependency caches
 
-`actions/hosted-cache` restores a hosted job's dependency caches, keyed by the lock files in its
+`actions/hosted-cache` restores an external bootstrap job's dependency caches, keyed by the lock files in its
 `working-directory`: Cargo through rust-cache when `Cargo.lock` exists, and the Bun, npm, pnpm and
 uv package stores for `bun.lock`, `package-lock.json`, `pnpm-lock.yaml` and `uv.lock`. As with
 the contour's network cache, jobs of `dev` and `main` save at the end of a successful job and
 every other job only reads, so a pull request never writes what a release build reads. It serves
-GitHub-hosted runners only; our runners use the network cache. Package managers still verify
+external bootstrap profiles only; managed runners use their network cache. Package managers still verify
 every package against the lock files. The Cargo cache keeps dependency artifacts only: Cargo judges
 workspace packages by source mtimes, so their artifacts are always rebuilt from the checked-out
 sources. A project's own persistent target cache, such as a BuildKit cache mount, follows the same
