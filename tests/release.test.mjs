@@ -18,6 +18,7 @@ const run = (fields) => ({
   id: 1,
   run_number: 10,
   run_attempt: 1,
+  run_started_at: "2026-11-09T12:00:00Z",
   head_sha: sha,
   head_branch: "dev",
   event: "push",
@@ -92,6 +93,12 @@ test("other commits, branches, events, workflows and repositories never qualify"
   assert.equal(selectQualifiedRun(foreign, where).state, "missing");
   assert.throws(() => selectQualifiedRun([], { ...where, sha: "abc" }), ReleaseError);
   assert.throws(() => selectQualifiedRun(new Array(101).fill(run({})), where), ReleaseError);
+});
+
+test("malformed newer evidence cannot fall back to an older successful run", () => {
+  for (const fields of [{repository: null}, {id: undefined}, {run_number: "11"}, {run_attempt: 0},
+    {run_started_at: "unknown"}, {status: "unknown", conclusion: null}])
+    assert.throws(() => selectQualifiedRun([run({}), run({id: 2, run_number: 11, ...fields})], where), ReleaseError);
 });
 
 test("artifact names are plain, bounded and unique", () => {

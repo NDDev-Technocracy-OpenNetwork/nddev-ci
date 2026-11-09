@@ -1,21 +1,14 @@
 // Publishes one immutable GitHub Release of the exact commit that its full check on the
 // integration branch verified, reusing that check's artifacts instead of building again.
 // Every step reconciles what already exists, so a rerun completes the same release once.
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   appendFileSync,
   createReadStream,
-  lstatSync,
   mkdirSync,
-  openSync,
-  closeSync,
-  readdirSync,
   writeFileSync,
-  writeSync,
 } from "node:fs";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 
 import {
   ReleaseError,
@@ -24,9 +17,9 @@ import {
   checksums,
   nextVersion,
   parseVersion,
-  selectQualifiedRun,
   validPrefix,
 } from "../../lib/release.mjs";
+import { client, qualify, recheck, transferArtifacts } from "../../lib/qualification.mjs";
 
 const refuse = (message) => {
   throw new ReleaseError(message);
@@ -39,106 +32,6 @@ async function sha256(file) {
   const hash = createHash("sha256");
   for await (const bytes of createReadStream(file)) hash.update(bytes);
   return hash.digest("hex");
-}
-
-function client(token) {
-  const api = environment("GITHUB_API_URL");
-  async function request(method, route, { body, accept, raw } = {}) {
-    const url = route.startsWith("https://") ? route : `${api}${route}`;
-    for (let attempt = 0; ; attempt += 1) {
-      const response = await fetch(url, {
-        method,
-        headers: {
-          Accept: accept ?? "application/vnd.github+json",
-          Authorization: `Bearer ${token}`,
-          "User-Agent": "nddev-ci",
-          "X-GitHub-Api-Version": "2022-11-28",
-          ...(body === undefined || raw ? {} : { "Content-Type": "application/json" }),
-          ...(raw ? raw.headers : {}),
-        },
-        body: raw ? raw.body : body === undefined ? undefined : JSON.stringify(body),
-        ...(raw ? { duplex: "half" } : {}),
-        redirect: "manual",
-        signal: AbortSignal.timeout(raw ? 900000 : 60000),
-      });
-      // Only idempotent reads repeat after a transient server answer.
-      if (method === "GET" && [502, 503, 504].includes(response.status) && attempt < 3) {
-        await response.body?.cancel();
-        console.log(`GitHub answered ${response.status}; repeating the same read (${attempt + 1}/3).`);
-        await delay(2 ** attempt * 2000);
-        continue;
-      }
-      return response;
-    }
-  }
-  async function json(method, route, options = {}) {
-    const response = await request(method, route, options);
-    if (response.status === 404 && options.optional) return null;
-    if (!response.ok)
-      refuse(`GitHub ${method} ${route.split("?")[0]} failed with HTTP ${response.status}.`);
-    return response.status === 204 ? null : response.json();
-  }
-  return { request, json };
-}
-
-// A GitHub artifact archive arrives through a short-lived storage redirect without credentials.
-async function downloadArtifact(github, artifact, destination) {
-  const response = await github.request(
-    "GET",
-    `/repos/${environment("GITHUB_REPOSITORY")}/actions/artifacts/${artifact.id}/zip`,
-  );
-  if (response.status !== 302) refuse(`Artifact ${artifact.name} has no download redirect.`);
-  const location = new URL(response.headers.get("location") ?? "");
-  await response.body?.cancel();
-  if (location.protocol !== "https:") refuse("The artifact redirect is not HTTPS.");
-  const download = await fetch(location, {
-    redirect: "error",
-    signal: AbortSignal.timeout(900000),
-  });
-  if (!download.ok || !download.body) refuse(`Artifact ${artifact.name} download failed.`);
-  const hash = createHash("sha256");
-  let size = 0;
-  const output = openSync(destination, "wx", 0o600);
-  try {
-    for await (const chunk of download.body) {
-      size += chunk.byteLength;
-      if (size > artifact.size_in_bytes) refuse(`Artifact ${artifact.name} exceeds its size.`);
-      hash.update(chunk);
-      let written = 0;
-      while (written < chunk.length) written += writeSync(output, chunk, written, chunk.length - written);
-    }
-  } finally {
-    closeSync(output);
-  }
-  if (size !== artifact.size_in_bytes) refuse(`Artifact ${artifact.name} arrived incomplete.`);
-  if (artifact.digest && artifact.digest !== `sha256:${hash.digest("hex")}`)
-    refuse(`Artifact ${artifact.name} differs from its recorded digest.`);
-}
-
-// Extracts only regular files at the archive's top level; folders, links and escaping names refuse.
-function extract(archive, folder) {
-  const script = `
-import os, stat, sys, zipfile
-archive, folder = sys.argv[1], sys.argv[2]
-with zipfile.ZipFile(archive) as z:
-    for info in z.infolist():
-        name = info.filename
-        mode = info.external_attr >> 16
-        if info.is_dir() or "/" in name or "\\\\" in name or name in ("", ".", "..") or name.startswith("."):
-            sys.exit("artifact entries must be plain files at the top level: " + repr(name))
-        if mode and not stat.S_ISREG(mode):
-            sys.exit("artifact entry is not a regular file: " + repr(name))
-        target = os.path.join(folder, name)
-        with z.open(info) as source, open(target, "xb") as sink:
-            while chunk := source.read(1048576):
-                sink.write(chunk)
-`;
-  const result = spawnSync("python3", ["-I", "-c", script, archive, folder], {
-    encoding: "utf8",
-    timeout: 900000,
-  });
-  if (result.error || result.status !== 0)
-    refuse(`Artifact extraction refused: ${(result.stderr || "").trim().slice(0, 300)}`);
 }
 
 async function main() {
@@ -157,57 +50,25 @@ async function main() {
     refuse("wait-minutes must be a whole number from 0 to 120.");
   if (ref !== `refs/heads/${releaseBranch}`)
     refuse(`A release publishes only commits of ${releaseBranch}; this run is on ${ref}.`);
-  const github = client(input("github-token") || refuse("A token is required."));
+  const github = client(input("github-token") || refuse("A token is required."), input("api-url") || environment("GITHUB_API_URL"));
 
   // 1. The newest full check of this exact commit on the integration branch.
-  const deadline = Date.now() + waitMinutes * 60000;
-  let selection;
-  for (;;) {
-    const listed = await github.json(
-      "GET",
-      `/repos/${repository}/actions/workflows/${encodeURIComponent(workflow)}/runs?head_sha=${sha}&branch=${encodeURIComponent(checkBranch)}&event=push&per_page=100`,
-    );
-    selection = selectQualifiedRun(listed.workflow_runs, {
-      sha,
-      repository,
-      workflowPath: `.github/workflows/${workflow}`,
-      branch: checkBranch,
-    });
-    if (selection.state !== "pending" || Date.now() > deadline) break;
-    console.log(`${selection.reason} Waiting for its result.`);
-    await delay(30000);
-  }
-  if (selection.state !== "qualified") refuse(`No release: ${selection.reason}`);
-  const run = selection.run;
+  const qualified = await qualify(github, {sha, repository, workflowPath: `.github/workflows/${workflow}`, branch: checkBranch}, {waitMinutes});
+  const run = {id: qualified.run_id, run_attempt: qualified.run_attempt,
+    html_url: `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${repository}/actions/runs/${qualified.run_id}`};
   console.log(`Qualified by ${run.html_url} (attempt ${run.run_attempt}).`);
 
-  // 2. The verified artifacts of that run, without a new build.
+  // 2. The verified artifacts of that attempt, without a new build.
   const names = artifactNames(input("artifacts"));
-  const folder = path.join(temp, "nddev-ci-release", sha);
-  mkdirSync(folder, { recursive: true, mode: 0o700 });
-  const files = [];
+  const parent = path.join(temp, "nddev-ci-release");
+  mkdirSync(parent, {recursive: true, mode: 0o700});
+  const folder = path.join(parent, sha);
+  let files = [];
   if (names.length) {
-    const listed = await github.json(
-      "GET",
-      `/repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100`,
-    );
-    for (const name of names) {
-      const matches = listed.artifacts.filter((artifact) => artifact.name === name);
-      if (matches.length !== 1 || matches[0].expired)
-        refuse(`Artifact ${name} of run ${run.id} is missing, repeated or expired.`);
-      const archive = path.join(temp, "nddev-ci-release", `${matches[0].id}.zip`);
-      await downloadArtifact(github, matches[0], archive);
-      const before = new Set(readdirSync(folder));
-      extract(archive, folder);
-      for (const entry of readdirSync(folder))
-        if (!before.has(entry)) {
-          const file = path.join(folder, entry);
-          const stat = lstatSync(file);
-          if (!stat.isFile()) refuse(`Release input ${entry} is not a regular file.`);
-          files.push({ name: entry, path: file, size: stat.size, sha256: await sha256(file) });
-        }
-    }
-  }
+    const transferred = await transferArtifacts(github, qualified, names.join("\n"), folder,
+      {apiUrl: input("artifact-api-url"), token: input("artifact-token")});
+    files = transferred.files;
+  } else mkdirSync(folder, {recursive: true, mode: 0o700});
   const planned = checkFiles(files);
   if (planned.length) {
     const sums = path.join(folder, "SHA256SUMS");
@@ -287,6 +148,7 @@ async function main() {
       await github.json("DELETE", `/repos/${repository}/releases/assets/${existing.id}`);
     const upload = release.upload_url.replace(/\{.*\}$/, "");
     const response = await github.request("POST", `${upload}?name=${encodeURIComponent(file.name)}`, {
+      upload: true,
       raw: {
         headers: { "Content-Type": "application/octet-stream", "Content-Length": String(file.size) },
         body: createReadStream(file.path),
@@ -297,6 +159,7 @@ async function main() {
     if (uploaded.size !== file.size || uploaded.digest !== `sha256:${file.sha256}`)
       refuse(`GitHub recorded different bytes for ${file.name}.`);
   }
+  await recheck(github, qualified);
   if (release.draft)
     release = await github.json("PATCH", `/repos/${repository}/releases/${release.id}`, {
       body: { draft: false, make_latest: "true" },

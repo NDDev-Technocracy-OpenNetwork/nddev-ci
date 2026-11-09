@@ -6,6 +6,14 @@ name: release
 on:
   workflow_call:
     inputs:
+      api-url:
+        description: Optional explicit metadata API source.
+        type: string
+        default: ''
+      artifact-api-url:
+        description: Optional artifact transport API serving the same artifact download route.
+        type: string
+        default: ''
       check-workflow:
         description: The caller's workflow file whose push check on dev qualifies the commit.
         type: string
@@ -38,6 +46,10 @@ on:
         description: The label of our runners, used by private repositories.
         type: string
         default: nddev-linux-standart
+    secrets:
+      artifact-token:
+        description: Optional separate credential for the declared artifact transport.
+        required: false
     outputs:
       version:
         description: The released version.
@@ -86,6 +98,9 @@ jobs:
           tag-prefix: ${{ inputs.tag-prefix }}
           name: ${{ inputs.name }}
           wait-minutes: ${{ inputs.wait-minutes }}
+          api-url: ${{ inputs.api-url }}
+          artifact-api-url: ${{ inputs.artifact-api-url }}
+          artifact-token: ${{ secrets.artifact-token }}
 
       - name: Job record
         if: always()

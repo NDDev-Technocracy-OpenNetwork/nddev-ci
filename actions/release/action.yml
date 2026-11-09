@@ -33,6 +33,15 @@ inputs:
   github-token:
     description: A token with contents write and actions read.
     default: ${{ github.token }}
+  api-url:
+    description: Optional explicit metadata API source; empty uses github.api_url.
+    default: ''
+  artifact-api-url:
+    description: Optional artifact transport API serving the same artifact download route.
+    default: ''
+  artifact-token:
+    description: Optional separate read credential for the declared artifact transport.
+    default: ''
 outputs:
   version:
     description: The released version.

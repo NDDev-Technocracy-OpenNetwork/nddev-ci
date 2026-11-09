@@ -1,0 +1,32 @@
+name: Transfer qualified artifacts
+description: Recheck an exact qualification and transfer only its fresh digest-verified artifacts.
+inputs:
+  receipt:
+    description: JSON receipt from actions/qualify.
+    required: true
+  artifacts:
+    description: Exact artifact names, one per line.
+    required: true
+  directory:
+    description: New destination inside RUNNER_TEMP; empty selects checked-artifacts there.
+    default: ''
+  api-url:
+    description: Same explicit API source as qualification; empty uses github.api_url.
+    default: ''
+  github-token:
+    description: Read token for source metadata.
+    default: ${{ github.token }}
+  artifact-api-url:
+    description: Optional artifact transport API base serving the same repos/.../actions/artifacts/<id>/zip route.
+    default: ''
+  artifact-token:
+    description: Optional separate credential for the explicit artifact transport, never the metadata token.
+    default: ''
+outputs:
+  directory:
+    description: Directory of verified top-level files.
+  manifest:
+    description: Qualified run, artifact identities and measured file digests.
+runs:
+  using: node24
+  main: run.mjs

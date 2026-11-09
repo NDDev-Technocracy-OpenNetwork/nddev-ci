@@ -23,6 +23,7 @@ callers in [examples/](examples/): `ci.yml` for the checks, `release.yml` for re
 | `.github/workflows/provenance.yml` | Build provenance attestations of a public repository's artifacts |
 | `.github/workflows/security.yml` | The daily security run: live secrets, dependencies, licences, SBOMs and images |
 | `actions/hosted-sdk`, `actions/hosted-cache` | Exact SDKs, tools and dependency caches on GitHub's runners |
+| `actions/qualify`, `actions/checked-artifacts` | Exact full-check qualification and separate verified artifact transfer |
 | `actions/recipe`, `actions/release-assets` | A pinned Just frontend and verified native tool assets |
 | `actions/telemetry`, `actions/job-record` | Outside telemetry off; each job's summary and structured record |
 
@@ -402,6 +403,40 @@ GitHub then protects the tag and signs the release, and `gh release verify-asset
 
 This library releases itself the same way (`.github/workflows/publish.yml`). Callers pin a
 released commit with its version as a comment, so Dependabot proposes each new release.
+
+## Qualifying deployments
+
+`actions/qualify` selects the newest full check of an exact repository, commit, workflow, event and
+integration branch. It refuses malformed or truncated run inventories, failed or unknown results,
+and an older green run when a newer attempt exists. A pending check has a finite `wait-minutes`
+budget. Equal Git trees never substitute for commit identity.
+
+```yaml
+- uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/qualify@<commit>
+  id: checked
+  with:
+    commit: ${{ inputs.source-commit }}
+    check-workflow: ci.yml
+    check-branch: dev
+- uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/checked-artifacts@<commit>
+  with:
+    receipt: ${{ steps.checked.outputs.receipt }}
+    artifacts: build
+```
+
+Source deployments need only the first action. It outputs `run-id`, `run-attempt`, `commit` and a
+structured `receipt`. The optional transfer action rechecks that receipt before and after copying,
+requires fresh artifacts from that attempt with their recorded digests, and publishes a new
+directory only after every file verifies. Its `directory` is a new direct child of `RUNNER_TEMP`;
+`manifest` records the source, artifact identities and file digests. Expired, missing, repeated,
+foreign or stale artifacts refuse transfer. ZIP entries must be bounded regular top-level files.
+
+Both actions accept an explicit `api-url` for metadata. The transfer action and release interface
+also accept `artifact-api-url`, serving `/repos/<owner>/<repo>/actions/artifacts/<id>/zip`, with its
+own optional `artifact-token`. A declared transport does not fall back to another source. Metadata
+credentials stay at their API origin, and storage redirects receive no credentials. Signed storage
+URLs and transport exception details never enter diagnostics. Release publication uses the same
+qualification and transfer code.
 
 ## Container images
 
