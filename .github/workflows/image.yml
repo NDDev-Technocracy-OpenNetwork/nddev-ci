@@ -1,0 +1,153 @@
+# A project's container image, built once in CI as delivery.md asks. A pull request builds it to
+# prove the Dockerfile and pushes nothing; dev, main and runs by hand push it to GitHub's
+# container registry under the immutable tag sha-<commit>, with BuildKit's provenance and SBOM
+# attestations. The release tags that exact digest with its version (image-tag.yml), and the
+# release's security run scans it (security.yml with images).
+name: image
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: The image name inside the owner's namespace, such as platform-backend.
+        type: string
+        required: true
+      context:
+        description: The build context inside the repository.
+        type: string
+        default: .
+      dockerfile:
+        description: The Dockerfile path inside the repository.
+        type: string
+        default: Dockerfile
+      target:
+        description: The Dockerfile stage to build; empty builds the last one.
+        type: string
+        default: ""
+      build-args:
+        description: Build arguments, one NAME=value per line; never secrets.
+        type: string
+        default: ""
+      push:
+        description: Pushes outside pull requests; false only builds.
+        type: boolean
+        default: true
+      runner:
+        description: The label of our runners, used by private repositories.
+        type: string
+        default: nddev-linux-standart
+      hosted-runner:
+        description: >-
+          The GitHub-hosted Linux runner of a public repository, which also decides the image's
+          native platform: ubuntu-24.04 (linux/amd64) or ubuntu-24.04-arm (linux/arm64).
+        type: string
+        default: ubuntu-24.04
+    outputs:
+      reference:
+        description: The pushed image by digest, ghcr.io/<owner>/<image>@sha256:<digest>; empty when nothing was pushed.
+        value: ${{ jobs.image.outputs.reference }}
+
+permissions: {}
+
+jobs:
+  image:
+    name: image ${{ inputs.image }}
+    if: github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:')
+    # Public repositories build on GitHub's runners; an unknown hosted label fails below.
+    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || inputs.runner }}
+    concurrency:
+      group: nddev-ci-image-${{ github.workflow }}-${{ inputs.image }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    timeout-minutes: 60
+    permissions:
+      contents: read # read the source
+      packages: write # push the image and its attestations to GitHub's container registry
+    outputs:
+      reference: ${{ steps.reference.outputs.reference }}
+    steps:
+      - name: Image name and inputs
+        id: name
+        env:
+          PRIVATE: ${{ github.event.repository.private }}
+          HOSTED_RUNNER: ${{ inputs.hosted-runner }}
+          IMAGE: ${{ inputs.image }}
+          OWNER: ${{ github.repository_owner }}
+          CONTEXT: ${{ inputs.context }}
+          DOCKERFILE: ${{ inputs.dockerfile }}
+        run: |
+          set -euo pipefail
+          if [ "$PRIVATE" != true ]; then
+            case "$HOSTED_RUNNER" in ubuntu-24.04 | ubuntu-24.04-arm) ;; *) echo "::error::hosted-runner must be ubuntu-24.04 or ubuntu-24.04-arm"; exit 1 ;; esac
+          fi
+          [[ "$IMAGE" =~ ^[a-z0-9]+([._-][a-z0-9]+)*$ ]] || { echo "::error::image must be a plain lowercase image name"; exit 1; }
+          for path in "$CONTEXT" "$DOCKERFILE"; do
+            case "/$path/" in //* | */../*) echo "::error::context and dockerfile stay inside the repository"; exit 1 ;; esac
+          done
+          echo "name=ghcr.io/${OWNER,,}/$IMAGE" >> "$GITHUB_OUTPUT"
+          case "$(uname -m)" in
+            x86_64) echo "platform=linux/amd64" >> "$GITHUB_OUTPUT" ;;
+            aarch64 | arm64) echo "platform=linux/arm64" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::images build natively on Linux x64 or ARM64"; exit 1 ;;
+          esac
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Outside telemetry off
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@8e50b37577d73354cae906c6c3e07edb678592e9
+
+      - name: BuildKit
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          version: v0.38.2
+          # The pinned binary is downloaded and verified each time, never restored from a cache
+          # a pull request could have written.
+          cache-binary: false
+          driver: docker-container
+          driver-opts: image=moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
+
+      - name: Container registry
+        if: github.event_name != 'pull_request' && inputs.push
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build the image
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          target: ${{ inputs.target }}
+          build-args: ${{ inputs.build-args }}
+          platforms: ${{ steps.name.outputs.platform }}
+          push: ${{ github.event_name != 'pull_request' && inputs.push }}
+          tags: ${{ steps.name.outputs.name }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+          # GitHub's runners keep BuildKit layers in the repository's Actions cache; our runners
+          # use their own BuildKit state.
+          cache-from: ${{ runner.environment == 'github-hosted' && format('type=gha,scope=image-{0}', inputs.image) || '' }}
+          cache-to: ${{ runner.environment == 'github-hosted' && github.event_name != 'pull_request' && format('type=gha,mode=max,scope=image-{0}', inputs.image) || '' }}
+
+      - name: Image reference
+        id: reference
+        env:
+          PUSHED: ${{ github.event_name != 'pull_request' && inputs.push }}
+          NAME: ${{ steps.name.outputs.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [ "$PUSHED" = true ]; then
+            [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::the build reported no image digest"; exit 1; }
+            echo "reference=$NAME@$DIGEST" >> "$GITHUB_OUTPUT"
+            echo "### Image $NAME@$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Image $NAME built, not pushed" >> "$GITHUB_STEP_SUMMARY"
+          fi

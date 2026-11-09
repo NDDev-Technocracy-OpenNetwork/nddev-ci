@@ -298,6 +298,32 @@ GitHub then protects the tag and signs the release, and `gh release verify-asset
 This library releases itself the same way (`.github/workflows/publish.yml`). Callers pin a
 released commit with its version as a comment, so Dependabot proposes each new release.
 
+## Container images
+
+`.github/workflows/image.yml` builds a project's image once, as delivery.md asks. A pull request
+builds it to prove the Dockerfile and pushes nothing; `dev`, `main` and runs by hand push it to
+GitHub's container registry as `ghcr.io/<owner>/<image>:sha-<commit>`, with BuildKit's provenance
+and SBOM attestations, and output `reference` gives it by digest. The build runs natively on the
+runner's platform (`ubuntu-24.04` for linux/amd64, `ubuntu-24.04-arm` for linux/arm64) with the
+registry's Buildx 0.38.2 and BuildKit 0.34.2 pinned by digest; GitHub's runners keep layers in the
+Actions cache, written only outside pull requests.
+
+```yaml
+  image:
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/image.yml@<commit> # v<version>
+    permissions:
+      contents: read
+      packages: write
+    with:
+      image: platform-backend
+      dockerfile: docker/backend/Dockerfile
+```
+
+When `main` moves forward, `.github/workflows/image-tag.yml` gives the image that this exact
+commit's check pushed the release's version tag, without building again; a version tag that
+already names another digest stops it. The release then scans its images with `security.yml`
+and `images`, as security.md asks of every release.
+
 ## Daily security
 
 `security.yml` is the daily run of security.md, called from a schedule in each repository with

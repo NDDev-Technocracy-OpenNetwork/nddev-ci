@@ -31,3 +31,20 @@ jobs:
       hosted-runner: ubuntu-24.04-arm
     permissions:
       contents: read
+
+  # image.yml builds a dependency-free fixture natively on x64 and ARM64; nothing is pushed.
+  image:
+    strategy:
+      fail-fast: false
+      matrix:
+        hosted-runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    uses: ./.github/workflows/image.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      image: nddev-ci-image-fixture
+      context: tests/fixtures/image
+      dockerfile: tests/fixtures/image/Dockerfile
+      push: false
+      hosted-runner: ${{ matrix.hosted-runner }}
