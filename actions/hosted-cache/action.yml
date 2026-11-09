@@ -31,7 +31,14 @@ runs:
         stores=()
         [ -f bun.lock ] || [ -f bun.lockb ] && stores+=("$HOME/.bun/install/cache")
         [ -f package-lock.json ] && stores+=("$HOME/.npm")
-        [ -f pnpm-lock.yaml ] && stores+=("$HOME/.local/share/pnpm/store" "$HOME/Library/pnpm/store" "$LOCALAPPDATA/pnpm/store")
+        if [ -f pnpm-lock.yaml ]; then
+          # pnpm's default store of each system.
+          case "$RUNNER_OS" in
+            Linux) stores+=("$HOME/.local/share/pnpm/store") ;;
+            macOS) stores+=("$HOME/Library/pnpm/store") ;;
+            Windows) stores+=("$LOCALAPPDATA/pnpm/store") ;;
+          esac
+        fi
         [ -f uv.lock ] && stores+=("${UV_CACHE_DIR:-$RUNNER_TEMP/uv-cache}")
         {
           echo "write=$write"
