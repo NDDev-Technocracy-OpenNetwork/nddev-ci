@@ -5,7 +5,7 @@ through the same `just` commands an agent runs.
 
 ## Use
 
-The library is the one delivery system of every NDDev project, as delivery.md asks. A project
+The library provides reusable delivery workflows for NDDev projects. A project
 calls its reusable workflows, pinned to a released commit with the version as the comment, so
 Dependabot proposes each new release (`uses: …/check.yml@<commit> # v<version>`). Start from the
 callers in [examples/](examples/): `ci.yml` for the checks, `release.yml` for releases and
@@ -14,7 +14,7 @@ callers in [examples/](examples/): `ci.yml` for the checks, `release.yml` for re
 | Workflow or action | Does |
 | --- | --- |
 | `.github/workflows/check.yml` | The short check of a pull request and the full check of `dev` through the project's `just` recipes, with the merge stops |
-| `.github/workflows/merge-stops.yml` | The merge stops of security.md beside a project's own command jobs |
+| `.github/workflows/merge-stops.yml` | The merge stops beside a project's own command jobs |
 | `.github/workflows/recipe.yml` | One `just` recipe on a chosen runner, the unit of a native platform matrix |
 | `.github/workflows/image.yml` | A container image built once and pushed by commit |
 | `.github/workflows/release.yml` | An immutable GitHub Release of the commit `main` moved to, from its verified `dev` check |
@@ -43,22 +43,23 @@ repository, `hosted-runner` the GitHub-hosted runner of a public one.
   (Blacksmith's 2-vCPU runners, within their free minutes) or `runner:github` (GitHub's runners),
   or a run by hand chooses `blacksmith` or `github` in its `runner` input. Adding such a label
   reruns the check there; other labels do not. Nothing moves a waiting job on its own.
-- On our runners, Rust builds compile through sccache into the contour's R2 cache, by way of the
-  cache gateway of the machine named in `/etc/contour/caches/environment.toml`. Jobs of `dev` and
-  `main` read and write; every other job only reads, so a pull request never writes what a
-  release build reads. This separates honest builds, not hostile ones, as jobs share an account.
-- Every job builds with the machine's one Cargo home, `NDDEV_CARGO_DOWNLOAD_CACHE`: Rust cache keys
-  hold the paths of the dependency sources, so dependencies compiled in one job match in every other.
-- The check step reports how many compilations came from the cache.
-- When the runner supplies `NDS_CACHE_BASE`, tool bootstrap uses its SHA-256-addressed GitHub
-  release and PyPI routes. Checksums still verify every archive and wheel. An unavailable declared
-  registry fails bootstrap; environments without one use upstream REST and PyPI directly.
+- Managed runners provide their SDKs, package stores and compiler-cache configuration through
+  their execution environment. The library preserves `CARGO_HOME`, `RUSTC_WRAPPER` and the
+  compiler-cache settings; it does not read host configuration files or install a second cache client.
+  The job record includes sccache counters when the environment selects it.
+- `artifact-registry` optionally selects the tool-download registry. An empty input uses the
+  runner's optional `NDDEV_CI_ARTIFACT_REGISTRY`; when neither is set, downloads use official
+  upstream REST and PyPI sources. No private environment variable is required. A declared
+  unavailable registry fails bootstrap, and archive and wheel checksums remain mandatory.
+  The registry serves `/github-releases/sha256/<digest>/<owner>/<repository>/releases/download/<tag>/<asset>`,
+  `/pypi/simple/<project>/` metadata and `/pypi-files/` payloads. It is a download source,
+  separate from dependency caches and compiler-cache configuration.
 - A repository may omit recipes that have no work, as the command standard allows.
   The short check reads the parsed justfile before deciding whether to run `test`,
   aliases included. A failed check, a failed declared test or an invalid justfile
   remains a failure. The full check always runs `just verify`.
 - `setup: true` runs `just setup` before the checks. A project whose `just check` works without
-  network access, as checks.md asks, takes its dependencies and data there first.
+  network access takes its dependencies and data there first.
 - `fetch-depth` (default 1; 0 is the whole history) and `filter` (such as `blob:none`) go to the
   checkout, for checks that read history, such as a version rule that compares a pull request with
   its base.
@@ -84,7 +85,7 @@ repository, `hosted-runner` the GitHub-hosted runner of a public one.
   receive them.
 - A project may name an `artifact`, such as a release binary, and an `artifact-name`. The full
   check keeps it with its run for 90 days, so a deployment takes the build of a checked commit.
-- A pull request also runs the merge stops of security.md: Betterleaks over the change's commits,
+- A pull request also runs the merge stops: Betterleaks over the change's commits,
   and actionlint, zizmor (high severity) and poutine (warnings and errors; its notes are only
   reported) over the workflows, and committed over the change's commit messages: a Conventional
   Commits subject in the imperative up to 72 characters, lines up to 100, no fixup or WIP commit,
@@ -162,7 +163,7 @@ on our runners, which carry the contour's own list.
 ## Job records
 
 Each job of the library ends with `actions/job-record`: a summary on the run page and one JSON log
-line with OpenTelemetry's CI/CD and VCS attribute names, as observability.md asks. It carries
+line with OpenTelemetry's CI/CD and VCS attribute names, and carries
 `event.name` `nddev_ci.job.completed`, the workflow and run (`cicd.pipeline.*`), the task, its
 type and result (`cicd.pipeline.task.*`, with `success`, `failure` or `cancellation`), the runner
 (`cicd.worker.name`), repository, ref and commit (`vcs.*`), system and architecture, duration and
@@ -189,7 +190,7 @@ Flutter and Dart analytics are turned off.
 
 `tools` takes comma-separated `name@version` command-line tools, such as
 `cargo-nextest@0.9.151,cargo-deny@0.20.2,cargo-audit@0.22.2,cargo-shear@1.14.0`, at the
-registry's exact versions. They come from their official releases through `taiki-e/install-action`,
+caller's exact versions. They come from their official releases through `taiki-e/install-action`,
 which verifies each archive against its checksum manifest; nothing is compiled and no other
 source is tried. Private runners keep their managed SDK instead.
 The Bun setup action receives the native asset's official API redirect for the selected stable
@@ -210,6 +211,12 @@ runners; managed private environments retain their own SDK provider.
     rust-version: ${{ vars.CI_RUST_VERSION }}
     rust-components: clippy,rustfmt
 ```
+
+A project's `just setup` must support its chosen execution environment. Hosted jobs use the
+explicit SDK inputs and official upstream downloads; they cannot invoke a private runner installer
+or require private cache settings. Recipes that optionally read the tool-download registry use
+`NDDEV_CI_ARTIFACT_REGISTRY` with an empty default. Updating the library alone cannot repair a
+caller's mandatory private environment-variable lookup.
 
 Projects select their compatible versions and retain dependency locks, browser and native
 prerequisites, and their own setup/check/test recipes. Preparing a language SDK does not
@@ -384,12 +391,12 @@ released commit with its version as a comment, so Dependabot proposes each new r
 
 ## Container images
 
-`.github/workflows/image.yml` builds a project's image once, as delivery.md asks. A pull request
+`.github/workflows/image.yml` builds a project's image once. A pull request
 builds it to prove the Dockerfile and pushes nothing; `dev`, `main` and runs by hand push it to
 GitHub's container registry as `ghcr.io/<owner>/<image>:sha-<commit>`, with BuildKit's provenance
 and SBOM attestations, and output `reference` gives it by digest. The build runs natively on the
 runner's platform (`ubuntu-24.04` for linux/amd64, `ubuntu-24.04-arm` for linux/arm64) with the
-registry's Buildx 0.38.2 and BuildKit 0.34.2 pinned by digest; GitHub's runners keep layers in the
+pinned Buildx 0.38.2 and BuildKit 0.34.2 pinned by digest; GitHub's runners keep layers in the
 Actions cache, written only outside pull requests.
 
 ```yaml
@@ -406,7 +413,7 @@ Actions cache, written only outside pull requests.
 When `main` moves forward, `.github/workflows/image-tag.yml` gives the image that this exact
 commit's check pushed the release's version tag, without building again; a version tag that
 already names another digest stops it. The release then scans its images with `security.yml`
-and `images`, as security.md asks of every release.
+and `images` for every release.
 ## Build provenance
 
 A public repository attests what its build jobs produce with `.github/workflows/provenance.yml`,
@@ -430,7 +437,7 @@ names the source commit and workflow run that built it. GitHub records attestati
 repositories only on Enterprise Cloud, so a private repository relies on its immutable release's
 attestation. Only callers that attest grant these permissions; `check.yml` callers are unaffected.
 A release's container images get their release-time scan by calling `security.yml` with `images`
-on the promotion to `main`, as security.md asks of every release.
+on the promotion to `main` for every release.
 ## Package registries
 
 `.github/workflows/registry.yml` publishes files of an immutable release to crates.io, PyPI or npm
@@ -477,7 +484,7 @@ there for private repositories too.
 
 ## Daily security
 
-`security.yml` is the daily run of security.md, called from a schedule in each repository with
+`security.yml` is the daily security scan, called from a schedule in each repository with
 `contents: read` and `issues: write`:
 
 ```yaml
@@ -503,7 +510,7 @@ holding the image) and passes its name as `sboms`; they are scanned with the res
   licence policy; packages deps.dev knows no licence for are counted. The policy is the `[licenses]
   allow` list of the caller's `license-policy` file, such as the `deny.toml` cargo-deny reads, so
   both read one list; a named policy that is missing, malformed or empty fails the run. Without
-  one, the scan uses licenses.md's list for embedded dependencies: MIT, Apache-2.0, BSD-2-Clause,
+  one, the scan uses the default embedded-dependency allowlist: MIT, Apache-2.0, BSD-2-Clause,
   BSD-3-Clause, ISC, Zlib, Unicode-3.0 and CC0-1.0.
   Both reports use the shared policy outside the checkout: local OSV package overrides and
   ignore files cannot hide their findings. Scans do not resolve or execute package code;

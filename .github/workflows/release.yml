@@ -1,6 +1,6 @@
 # A project's release: every commit main moves forward to becomes one immutable GitHub Release,
 # qualified by the full check of that exact commit on dev and carrying that check's artifacts,
-# as delivery.md and github-workflow.md ask. Deployment stays with the contour's release controller.
+# with deployment handled by the caller.
 name: release
 
 on:
@@ -73,11 +73,11 @@ jobs:
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@09efa339d54c9ff6708c7b1939b3579337095936
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@0926e0b0d25c4451fc1a1f549c9875834a601de3
 
       - name: Release the verified commit
         id: release
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release@09efa339d54c9ff6708c7b1939b3579337095936
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release@0926e0b0d25c4451fc1a1f549c9875834a601de3
         with:
           check-workflow: ${{ inputs.check-workflow }}
           artifacts: ${{ inputs.artifacts }}
@@ -89,7 +89,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@09efa339d54c9ff6708c7b1939b3579337095936
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@0926e0b0d25c4451fc1a1f549c9875834a601de3
         with:
           task: release
           task-type: deploy

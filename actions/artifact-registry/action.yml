@@ -1,0 +1,9 @@
+name: Select the artifact registry
+description: Select an optional artifact registry; empty uses official upstream sources.
+inputs:
+  url:
+    description: Registry base URL, or empty to use the runner's optional NDDEV_CI_ARTIFACT_REGISTRY.
+    default: ''
+runs:
+  using: node24
+  main: run.mjs

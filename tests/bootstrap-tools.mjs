@@ -83,7 +83,7 @@ test("retained bootstrap tools must match their pinned bytes", () => {
     assert.equal(version.status, 0, "the changed ELF still reports its version");
     refused(["_tools", "check"], true);
     const unavailable = run(["tools"], false, {
-      NDS_CACHE_BASE: "http://127.0.0.1:0",
+      NDDEV_CI_ARTIFACT_REGISTRY: "http://127.0.0.1:0",
       NO_PROXY: "127.0.0.1",
       no_proxy: "127.0.0.1",
     });

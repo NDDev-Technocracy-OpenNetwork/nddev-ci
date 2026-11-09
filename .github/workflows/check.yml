@@ -1,5 +1,5 @@
 # The check of an NDDev project. A pull request gets the short check, `just check` and `just test`;
-# a push to `dev` or a run by hand gets the full check, `just verify`. As delivery.md asks, public
+# a push to `dev` or a run by hand gets the full check, `just verify`. Public
 # repositories run on GitHub's runners and private ones on ours, unless the pull request carries
 # the label `runner:blacksmith` or `runner:github`, or a run by hand chooses `blacksmith` or
 # `github` in its `runner` input.
@@ -8,6 +8,10 @@ name: check
 on:
   workflow_call:
     inputs:
+      artifact-registry:
+        description: Optional tool-download registry; empty uses the runner setting or official upstream sources.
+        type: string
+        default: ''
       runner:
         description: The label of our runners, used by private repositories.
         type: string
@@ -153,11 +157,6 @@ jobs:
       JUST_VERSION: "1.59.0"
       JUST_SHA256_X64: "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e"
       JUST_SHA256_ARM64: "23871b1702bfd550fb5f901778fd4290ecf2ee034a45a889fbe96d89b188086d"
-      SCCACHE_VERSION: "0.19.0"
-      SCCACHE_SHA256_X64: "aa73c7270c997894038c0d8f0d297865f57569e1687883322bc431713d4bb9dd"
-      SCCACHE_SHA256_ARM64: "3e47fc4a71b1ddd1b4294a0de9d34498922fdf41e3cd0bda5df3954e3d6deb9d"
-      # The contour cache gateway's settings on our runner machines.
-      GATEWAY_SETTINGS: /etc/contour/caches/environment.toml
     steps:
       - name: Hosted runner and diagnostics
         env:
@@ -190,7 +189,12 @@ jobs:
           sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@09efa339d54c9ff6708c7b1939b3579337095936
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@0926e0b0d25c4451fc1a1f549c9875834a601de3
+
+      - name: Artifact registry
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        with:
+          url: ${{ inputs.artifact-registry }}
 
       - name: Read keys
         # GitHub accepts a deploy key for its one repository, and ssh stops at the first key that
@@ -378,8 +382,8 @@ jobs:
           # The check runs natively on Linux x64 or ARM64; every archive has its own pinned digest.
           [ "$RUNNER_OS" = Linux ] || { echo "::error::check.yml runs on Linux runners; recipe.yml serves other systems"; exit 1; }
           case "$(uname -m)" in
-            x86_64) rust=x86_64 just_sha=$JUST_SHA256_X64 sccache_sha=$SCCACHE_SHA256_X64 ;;
-            aarch64 | arm64) rust=aarch64 just_sha=$JUST_SHA256_ARM64 sccache_sha=$SCCACHE_SHA256_ARM64 ;;
+            x86_64) rust=x86_64 just_sha=$JUST_SHA256_X64 ;;
+            aarch64 | arm64) rust=aarch64 just_sha=$JUST_SHA256_ARM64 ;;
             *) echo "::error::check.yml supports Linux x64 and ARM64"; exit 1 ;;
           esac
           bin="$RUNNER_TEMP/nddev-ci/bin"
@@ -394,9 +398,9 @@ jobs:
             printf 'Fetching check tool %s@%s: %s\n' "$repository" "$tag" "$name"
             auth=()
             if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
-            if [ -n "${NDS_CACHE_BASE:-}" ]; then
+            if [ -n "${NDDEV_CI_ARTIFACT_REGISTRY:-}" ]; then
               printf 'Using the configured artifact registry.\n'
-              curl -fsSL -o "$archive" "${NDS_CACHE_BASE%/}/github-releases/sha256/$2/$repository/releases/download/$tag/$name"
+              curl -fsSL -o "$archive" "${NDDEV_CI_ARTIFACT_REGISTRY%/}/github-releases/sha256/$2/$repository/releases/download/$tag/$name"
             else
               asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
                 jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
@@ -407,16 +411,12 @@ jobs:
           }
           fetch "https://github.com/casey/just/releases/download/$JUST_VERSION/just-$JUST_VERSION-$rust-unknown-linux-musl.tar.gz" \
             "$just_sha" 0 just
-          if [ -r "$GATEWAY_SETTINGS" ]; then
-            fetch "https://github.com/mozilla/sccache/releases/download/v$SCCACHE_VERSION/sccache-v$SCCACHE_VERSION-$rust-unknown-linux-musl.tar.gz" \
-              "$sccache_sha" 1 "sccache-v$SCCACHE_VERSION-$rust-unknown-linux-musl/sccache"
-          fi
           rm -f "$archive"
           echo "$bin" >> "$GITHUB_PATH"
 
       - name: Prepare declared hosted SDKs
         if: runner.environment == 'github-hosted'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@09efa339d54c9ff6708c7b1939b3579337095936
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@0926e0b0d25c4451fc1a1f549c9875834a601de3
         with:
           node-version: ${{ inputs.node-version }}
           python-version: ${{ inputs.python-version }}
@@ -437,7 +437,7 @@ jobs:
           exit 1
       - name: Prepare declared native tool assets
         if: inputs.tool-assets != '' && runner.environment == 'github-hosted'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@09efa339d54c9ff6708c7b1939b3579337095936
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@0926e0b0d25c4451fc1a1f549c9875834a601de3
         with:
           manifest: ${{ inputs.tool-assets }}
           directory: ${{ runner.temp }}/nddev-ci/native-tools
@@ -445,53 +445,7 @@ jobs:
 
       - name: Hosted dependency caches
         if: runner.environment == 'github-hosted' && inputs.hosted-cache
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@09efa339d54c9ff6708c7b1939b3579337095936
-
-      - name: Network cache
-        # Jobs of dev and main read and write the contour's R2 cache; every other job only reads it,
-        # so a pull request never writes what a release build reads.
-        run: |
-          set -euo pipefail
-          if [ ! -r "$GATEWAY_SETTINGS" ]; then
-            echo "This runner has no contour cache gateway; the build runs without the network cache."
-            exit 0
-          fi
-          setting() { sed -n "s/^$1 = \"\(.*\)\"$/\1/p" "$GATEWAY_SETTINGS" | head -n 1; }
-          case "$GITHUB_EVENT_NAME:$GITHUB_REF" in
-            push:refs/heads/dev | push:refs/heads/main | workflow_dispatch:refs/heads/dev | workflow_dispatch:refs/heads/main | schedule:refs/heads/dev | schedule:refs/heads/main)
-              address=$(setting trusted_listen)
-              mode=READ_WRITE
-              ;;
-            *)
-              address=$(setting untrusted_listen)
-              mode=READ_ONLY
-              ;;
-          esac
-          bucket=$(setting bucket)
-          if [ -z "$address" ] || [ -z "$bucket" ]; then
-            echo "::error::$GATEWAY_SETTINGS lacks the gateway's addresses or bucket"
-            exit 1
-          fi
-          # Rust cache keys hold the paths of the dependency sources, so every job builds with the
-          # machine's one Cargo home and its dependencies match across runner slots and jobs.
-          cargo_home=${NDDEV_CARGO_DOWNLOAD_CACHE:-${CARGO_HOME:-$HOME/.cargo}}
-          {
-            echo "CARGO_HOME=$cargo_home"
-            echo "RUSTC_WRAPPER=$RUNNER_TEMP/nddev-ci/bin/sccache"
-            echo "CARGO_INCREMENTAL=0"
-            echo "SCCACHE_CONF=/dev/null"
-            echo "SCCACHE_BUCKET=$bucket"
-            echo "SCCACHE_ENDPOINT=http://$address"
-            echo "SCCACHE_REGION=auto"
-            echo "SCCACHE_S3_USE_SSL=false"
-            echo "SCCACHE_S3_NO_CREDENTIALS=true"
-            echo "SCCACHE_S3_KEY_PREFIX=sccache"
-            echo "SCCACHE_S3_RW_MODE=$mode"
-            echo "SCCACHE_BASEDIRS=$GITHUB_WORKSPACE:$cargo_home"
-            echo "NO_PROXY=127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}"
-            echo "no_proxy=127.0.0.1,localhost${no_proxy:+,$no_proxy}"
-          } >> "$GITHUB_ENV"
-          echo "Rust builds compile through the network cache at $address, $mode."
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@0926e0b0d25c4451fc1a1f549c9875834a601de3
 
       - name: Check
         env:
@@ -541,7 +495,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@09efa339d54c9ff6708c7b1939b3579337095936
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@0926e0b0d25c4451fc1a1f549c9875834a601de3
         with:
           task: ${{ github.event_name == 'pull_request' && 'short check' || 'full check' }}
           task-type: test
@@ -563,11 +517,12 @@ jobs:
             }
 
   merge-stops:
-    # The merge stops of security.md, the same workflow a project with its own command jobs calls.
+    # The merge stops, the same workflow a project with its own command jobs calls.
     if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:'))
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@3bf9b52b24a4e83a0b2513088b76ff396f3f88b0
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@f905453f7ae4daf011e0cec3dd740599435190a2
     with:
       runner: ${{ inputs.runner }}
+      artifact-registry: ${{ inputs.artifact-registry }}
       hosted-runner: ${{ inputs.hosted-runner }}
     permissions:
       contents: read
