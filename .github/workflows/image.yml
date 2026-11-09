@@ -98,7 +98,7 @@ jobs:
           persist-credentials: false
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@d820ff05968f48d22bab103120c709078a04d1b9
 
       - name: BuildKit
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -157,7 +157,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@d820ff05968f48d22bab103120c709078a04d1b9
         with:
           task: image ${{ inputs.image }}
           task-type: build

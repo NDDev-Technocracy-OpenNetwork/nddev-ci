@@ -58,7 +58,7 @@ jobs:
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@d820ff05968f48d22bab103120c709078a04d1b9
 
       - name: Released files, verified
         id: files
@@ -109,7 +109,7 @@ jobs:
           ref: ${{ inputs.tag }}
       - name: Rust for packaging
         if: inputs.registry == 'crates'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@d820ff05968f48d22bab103120c709078a04d1b9
         with:
           rust-version: ${{ inputs.rust-version }}
       - name: Reproduce the released crate
@@ -164,7 +164,7 @@ jobs:
 
       - name: Node for npm
         if: inputs.registry == 'npm'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@d820ff05968f48d22bab103120c709078a04d1b9
         with:
           node-version: ${{ inputs.node-version }}
       - name: Publish to npm
@@ -188,7 +188,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@d820ff05968f48d22bab103120c709078a04d1b9
         with:
           task: publish to ${{ inputs.registry }}
           task-type: deploy

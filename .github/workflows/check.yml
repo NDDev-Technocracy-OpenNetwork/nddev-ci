@@ -185,10 +185,10 @@ jobs:
           sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@d820ff05968f48d22bab103120c709078a04d1b9
 
       - name: Artifact registry
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@d820ff05968f48d22bab103120c709078a04d1b9
         with:
           url: ${{ inputs.artifact-registry }}
 
@@ -371,10 +371,10 @@ jobs:
           GIT
 
       - name: Native task runner
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/frontend@241b36ee8d7f553f307fa80897833d22c2b124b4
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/frontend@d820ff05968f48d22bab103120c709078a04d1b9
 
       - name: Prepare or verify declared SDKs
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@241b36ee8d7f553f307fa80897833d22c2b124b4
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@d820ff05968f48d22bab103120c709078a04d1b9
         with:
           node-version: ${{ inputs.node-version }}
           python-version: ${{ inputs.python-version }}
@@ -395,7 +395,7 @@ jobs:
           exit 1
       - name: Prepare declared native tool assets
         if: inputs.tool-assets != '' && runner.environment == 'github-hosted'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@d820ff05968f48d22bab103120c709078a04d1b9
         with:
           manifest: ${{ inputs.tool-assets }}
           directory: ${{ runner.temp }}/nddev-ci/native-tools
@@ -403,7 +403,7 @@ jobs:
 
       - name: Hosted dependency caches
         if: runner.environment == 'github-hosted' && inputs.hosted-cache
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@d820ff05968f48d22bab103120c709078a04d1b9
 
       - name: Check
         env:
@@ -453,7 +453,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@d820ff05968f48d22bab103120c709078a04d1b9
         with:
           task: ${{ github.event_name == 'pull_request' && 'short check' || 'full check' }}
           task-type: test
@@ -477,7 +477,7 @@ jobs:
   merge-stops:
     # The merge stops, the same workflow a project with its own command jobs calls.
     if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:'))
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@f905453f7ae4daf011e0cec3dd740599435190a2
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@d820ff05968f48d22bab103120c709078a04d1b9
     with:
       runner: ${{ inputs.runner }}
       artifact-registry: ${{ inputs.artifact-registry }}
