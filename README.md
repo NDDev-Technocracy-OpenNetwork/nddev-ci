@@ -184,6 +184,16 @@ The action disables Bun's outside telemetry and isolates uv's cache and project 
 in the job's temporary directory. A selected Python is also passed to uv. Package caches
 are not implicitly enabled by upstream setup actions.
 
+## Hosted dependency caches
+
+`actions/hosted-cache` restores a hosted job's dependency caches, keyed by the lock files in its
+`working-directory`: Cargo through rust-cache when `Cargo.lock` exists, and the Bun, npm, pnpm and
+uv package stores for `bun.lock`, `package-lock.json`, `pnpm-lock.yaml` and `uv.lock`. As with
+the contour's network cache, jobs of `dev` and `main` save at the end of a successful job and
+every other job only reads, so a pull request never writes what a release build reads. It serves
+GitHub-hosted runners only; our runners use the network cache. Package managers still verify
+every package against the lock files.
+
 ## Native recipe steps
 
 Projects with separate native, database, browser or packaging jobs can invoke their
@@ -268,19 +278,12 @@ this workflow does not opt out of that boundary.
 
 ## Releases
 
-`actions/release` publishes the commit `main` moved forward to as one immutable GitHub Release,
-without building again. It takes the newest push check of that exact commit on `dev` from the
-caller's check workflow: a newer failed, cancelled or unknown run is never replaced by an older
-green one, a running check is awaited up to `wait-minutes`, and a missing one stops the release.
-A commit with the same tree but another identity never borrows a result.
-
-The named `artifacts` of that run are downloaded with their recorded digests, and their top-level
-files become the release files, with `SHA256SUMS`. Folders, links and hidden or repeated names
-stop the release. The version raises the last number of the newest `<tag-prefix><version>` tag;
-the owner chooses a new first or middle number through `version`. The tag is created at the
-commit, never moved, and a draft receives and verifies every file before it is published.
-A rerun finds the same tag and release and completes them once. The job needs `contents: write`
-and `actions: read`; enable immutable releases in the repository settings.
+A project calls `.github/workflows/release.yml` when `main` moves forward. It publishes that commit
+as one immutable GitHub Release without building again (`actions/release`). It takes the newest
+push check of that exact commit on `dev` from the caller's check workflow: a newer failed,
+cancelled or unknown run is never replaced by an older green one, a running check is awaited up to
+`wait-minutes`, and a missing one stops the release. A commit with the same tree but another
+identity never borrows a result.
 
 ```yaml
 on:
@@ -288,17 +291,24 @@ on:
     branches: [main]
 jobs:
   release:
-    runs-on: ubuntu-24.04
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/release.yml@<commit> # v<version>
     permissions:
       actions: read
       contents: write
-    steps:
-      - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release@<commit>
-        with:
-          check-workflow: ci.yml
-          artifacts: |
-            build
+    with:
+      check-workflow: ci.yml
+      artifacts: |
+        build
 ```
+
+The named `artifacts` of that run are downloaded with their recorded digests, and their top-level
+files become the release files, with `SHA256SUMS`. Folders, links and hidden or repeated names
+stop the release. The version raises the last number of the newest `<tag-prefix><version>` tag;
+the owner chooses a new first or middle number through `version`. The tag is created at the
+commit, never moved, and a draft receives and verifies every file before it is published.
+A rerun finds the same tag and release and completes them once. Public repositories release on
+GitHub's runners, private ones on `runner`. Enable immutable releases in the repository settings:
+GitHub then protects the tag and signs the release, and `gh release verify-asset` checks a file.
 
 This library releases itself the same way (`.github/workflows/publish.yml`). Callers pin a
 released commit with its version as a comment, so Dependabot proposes each new release.
@@ -327,8 +337,12 @@ holding the image) and passes its name as `sboms`; they are scanned with the res
 - TruffleHog and Kingfisher look for live secrets in the whole history: only secrets their makers'
   services accept count.
 - OSV-Scanner checks every lock file against its offline database. A second, online run asks
-  deps.dev, the one source of a lock file's licences, and lists the dependencies outside
-  licenses.md's list; packages deps.dev knows no licence for are counted.
+  deps.dev, the one source of a lock file's licences, and lists the dependencies outside the
+  licence policy; packages deps.dev knows no licence for are counted. The policy is the `[licenses]
+  allow` list of the caller's `license-policy` file, such as the `deny.toml` cargo-deny reads, so
+  both read one list; a named policy that is missing, malformed or empty fails the run. Without
+  one, the scan uses licenses.md's list for embedded dependencies: MIT, Apache-2.0, BSD-2-Clause,
+  BSD-3-Clause, ISC, Zlib, Unicode-3.0 and CC0-1.0.
   Both reports use the shared policy outside the checkout: local OSV package overrides and
   ignore files cannot hide their findings. Scans do not resolve or execute package code;
   malformed input fails the run instead of publishing a clean report.

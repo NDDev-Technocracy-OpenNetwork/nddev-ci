@@ -4,9 +4,12 @@ actionlint_version := "1.7.12"
 actionlint_sha256 := "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
 zizmor_version := "1.32.0"
 zizmor_sha256 := "84a6acb975accc13408786a2bd274b572537ca19c933ebbc13e78f3988562071"
+shellcheck_version := "0.11.0"
+shellcheck_sha256 := "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6"
 tools := env_var_or_default("NDDEV_CI_CHECK_TOOLS", justfile_directory() / ".tools")
 actionlint := tools / "checks" / ("actionlint-" + actionlint_sha256) / "actionlint"
 zizmor := tools / "checks" / ("zizmor-" + zizmor_sha256) / "zizmor"
+shellcheck := tools / "checks" / ("shellcheck-" + shellcheck_sha256)
 
 # Lists the commands.
 default:
@@ -49,12 +52,12 @@ check: (_tools "check")
     node --check lib/release.mjs
     node --check actions/release/run.mjs
     node --check tests/release.test.mjs
-    "{{ actionlint }}" .github/workflows/*.yml
+    PATH="{{ shellcheck }}:$PATH" "{{ actionlint }}" .github/workflows/*.yml
     "{{ zizmor }}" --min-severity medium .github actions
 
 # The documented caller workflow is valid.
 test:
-    "{{ actionlint }}" examples/ci.yml
+    PATH="{{ shellcheck }}:$PATH" "{{ actionlint }}" examples/ci.yml
     rustc --edition 2024 --test tests/recipe-routing.rs -o "{{ tools }}/recipe-routing-tests"
     "{{ tools }}/recipe-routing-tests"
     node --test tests/*.test.mjs
@@ -96,6 +99,7 @@ _tools mode:
       case "$tool" in
         actionlint) name="actionlint_${version}_linux_amd64.tar.gz"; identity="rhysd/actionlint@v$version/$name $sha" ;;
         zizmor) name="zizmor-$version-py3-none-manylinux_2_28_x86_64.whl"; identity="pypi:zizmor@$version/$name $sha" ;;
+        shellcheck) name="shellcheck-v$version.linux.x86_64.tar.gz"; identity="koalaman/shellcheck@v$version/$name $sha" ;;
         *) exit 1 ;;
       esac
       valid() {
@@ -111,6 +115,7 @@ _tools mode:
         [ "$recorded" = "${computed%% *}" ] || return 1
         output=$("$folder/$tool" --version) || return 1
         first=${output%%$'\n'*}
+        if [ "$tool" = shellcheck ]; then first=$(sed -n 2p <<< "$output"); fi
         [ "$first" = "$expected" ] || [[ "$first" == "$expected "* ]]
       }
       if valid; then return; fi
@@ -121,15 +126,17 @@ _tools mode:
       printf 'Preparing check tool %s (%s)\n' "$tool" "$version"
       stage=$(mktemp -d "{{ tools }}/checks/.prepare.XXXXXX")
       mkdir "$stage/ready"
-      if [ "$tool" = actionlint ]; then
+      if [ "$tool" = actionlint ] || [ "$tool" = shellcheck ]; then
+        repository=rhysd/actionlint
+        if [ "$tool" = shellcheck ]; then repository=koalaman/shellcheck; fi
         auth=()
         if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
         if [ -n "${NDS_CACHE_BASE:-}" ]; then
-          curl -fsSL -o "$stage/archive" "${NDS_CACHE_BASE%/}/github-releases/sha256/$sha/rhysd/actionlint/releases/download/v$version/$name"
+          curl -fsSL -o "$stage/archive" "${NDS_CACHE_BASE%/}/github-releases/sha256/$sha/$repository/releases/download/v$version/$name"
         else
-          asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/rhysd/actionlint/releases/tags/v$version" |
+          asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/v$version" |
             jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
-          curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$stage/archive" "https://api.github.com/repos/rhysd/actionlint/releases/assets/$asset"
+          curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$stage/archive" "https://api.github.com/repos/$repository/releases/assets/$asset"
         fi
       else
         if [ -n "${NDS_CACHE_BASE:-}" ]; then
@@ -147,6 +154,8 @@ _tools mode:
       echo "$sha  $stage/archive" | sha256sum --check --quiet
       if [ "$tool" = actionlint ]; then
         tar -xOzf "$stage/archive" actionlint > "$stage/ready/$tool"
+      elif [ "$tool" = shellcheck ]; then
+        tar -xOzf "$stage/archive" "shellcheck-v$version/shellcheck" > "$stage/ready/$tool"
       else
         # The pinned wheel contains one standalone ELF, with no Python runtime dependencies.
         python3 -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]))' "$stage/archive" "zizmor-$version.data/scripts/zizmor" > "$stage/ready/$tool"
@@ -154,6 +163,7 @@ _tools mode:
       chmod 0755 "$stage/ready/$tool"
       output=$("$stage/ready/$tool" --version)
       first=${output%%$'\n'*}
+      if [ "$tool" = shellcheck ]; then first=$(sed -n 2p <<< "$output"); fi
       if [ "$first" != "$expected" ] && [[ "$first" != "$expected "* ]]; then
         printf 'Check tool version differs: expected %s, received %s.\n' "$expected" "$first" >&2
         exit 1
@@ -169,13 +179,14 @@ _tools mode:
     }
     fetch actionlint {{ actionlint_version }} {{ actionlint_sha256 }} "{{ actionlint_version }}"
     fetch zizmor {{ zizmor_version }} {{ zizmor_sha256 }} "zizmor {{ zizmor_version }}"
+    fetch shellcheck {{ shellcheck_version }} {{ shellcheck_sha256 }} "version: {{ shellcheck_version }}"
     if [ "$mode" = setup ]; then
       rm -f -- "{{ tools }}/actionlint" "{{ tools }}/actionlint.tar.gz"
       rm -rf -- "{{ tools }}/zizmor"
       for previous in "{{ tools }}"/checks/*; do
         case "$previous" in
-          "{{ tools }}/checks/actionlint-{{ actionlint_sha256 }}"|"{{ tools }}/checks/zizmor-{{ zizmor_sha256 }}") continue ;;
+          "{{ tools }}/checks/actionlint-{{ actionlint_sha256 }}"|"{{ tools }}/checks/zizmor-{{ zizmor_sha256 }}"|"{{ tools }}/checks/shellcheck-{{ shellcheck_sha256 }}") continue ;;
         esac
-        if [[ "${previous##*/}" =~ ^(actionlint|zizmor)-[a-f0-9]{64}$ ]]; then rm -rf -- "$previous"; fi
+        if [[ "${previous##*/}" =~ ^(actionlint|zizmor|shellcheck)-[a-f0-9]{64}$ ]]; then rm -rf -- "$previous"; fi
       done
     fi

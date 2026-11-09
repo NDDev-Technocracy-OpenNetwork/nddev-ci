@@ -1,0 +1,65 @@
+name: Hosted dependency caches
+description: >-
+  Restores the dependency caches of a job on a GitHub-hosted runner, keyed by the project's lock
+  files: Cargo through rust-cache, and the Bun, npm, pnpm and uv package stores. As with the
+  contour's network cache, only dev and main write; every other job only reads, so a pull request
+  never writes what a release build reads. Our runners keep their own network cache instead.
+inputs:
+  working-directory:
+    description: The project folder whose lock files key the caches.
+    default: '.'
+runs:
+  using: composite
+  steps:
+    - name: Select the caches of the lock files present
+      id: select
+      shell: bash
+      env:
+        PROJECT: ${{ inputs.working-directory }}
+        RUNNER_KIND: ${{ runner.environment }}
+        EVENT: ${{ github.event_name }}
+        REF: ${{ github.ref }}
+      run: |
+        set -euo pipefail
+        [ "$RUNNER_KIND" = github-hosted ] || { echo "::error::hosted caches serve GitHub-hosted runners only"; exit 1; }
+        case "/$PROJECT/" in //* | */../* | *\\*) echo "::error::working-directory must stay inside the workspace"; exit 1 ;; esac
+        cd "$PROJECT"
+        write=false
+        case "$EVENT:$REF" in
+          push:refs/heads/dev | push:refs/heads/main | workflow_dispatch:refs/heads/dev | workflow_dispatch:refs/heads/main | schedule:refs/heads/dev | schedule:refs/heads/main) write=true ;;
+        esac
+        stores=()
+        [ -f bun.lock ] || [ -f bun.lockb ] && stores+=("$HOME/.bun/install/cache")
+        [ -f package-lock.json ] && stores+=("$HOME/.npm")
+        [ -f pnpm-lock.yaml ] && stores+=("$HOME/.local/share/pnpm/store" "$HOME/Library/pnpm/store" "$LOCALAPPDATA/pnpm/store")
+        [ -f uv.lock ] && stores+=("${UV_CACHE_DIR:-$RUNNER_TEMP/uv-cache}")
+        {
+          echo "write=$write"
+          echo "rust=$([ -f Cargo.lock ] && echo true || echo false)"
+          echo "stores<<NDDEV_STORES"
+          printf '%s\n' "${stores[@]}"
+          echo "NDDEV_STORES"
+        } >> "$GITHUB_OUTPUT"
+        echo "Hosted caches: Rust $([ -f Cargo.lock ] && echo yes || echo no), ${#stores[@]} package stores, write $write."
+    - name: Rust dependencies and build outputs
+      if: steps.select.outputs.rust == 'true'
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        workspaces: ${{ inputs.working-directory }}
+        save-if: ${{ steps.select.outputs.write }}
+        cache-on-failure: false
+    # dev and main restore and, at the end of a successful job, save; other jobs only restore.
+    - name: Package stores, saved by this job
+      if: steps.select.outputs.stores != '' && steps.select.outputs.write == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.select.outputs.stores }}
+        key: nddev-packages-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(format('{0}/bun.lock', inputs.working-directory), format('{0}/bun.lockb', inputs.working-directory), format('{0}/package-lock.json', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), format('{0}/uv.lock', inputs.working-directory)) }}
+        restore-keys: nddev-packages-v1-${{ runner.os }}-${{ runner.arch }}-
+    - name: Package stores, read only
+      if: steps.select.outputs.stores != '' && steps.select.outputs.write != 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.select.outputs.stores }}
+        key: nddev-packages-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(format('{0}/bun.lock', inputs.working-directory), format('{0}/bun.lockb', inputs.working-directory), format('{0}/package-lock.json', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory), format('{0}/uv.lock', inputs.working-directory)) }}
+        restore-keys: nddev-packages-v1-${{ runner.os }}-${{ runner.arch }}-
