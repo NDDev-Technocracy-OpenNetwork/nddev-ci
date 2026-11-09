@@ -36,6 +36,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Outside telemetry off
+        uses: ./actions/telemetry
+      - name: Require the telemetry switches on this system
+        run: >-
+          node -e "for(const [n,v] of Object.entries({DO_NOT_TRACK:'1',BUN_DO_NOT_TRACK:'1',TRIVY_DISABLE_TELEMETRY:'true'}))if(process.env[n]!==v)throw Error('telemetry switch missing: '+n)"
       - name: Prepare declared native SDKs
         id: sdk
         uses: ./actions/hosted-sdk

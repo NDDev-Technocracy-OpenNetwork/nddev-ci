@@ -12,9 +12,13 @@ runs:
       run: | # zizmor: ignore[github-env]
         set -euo pipefail
         switches="$GITHUB_ACTION_PATH/switches.env"
-        # Each line is NAME=value with a plain name and a value without spaces or quotes.
+        # Each line is NAME=value with a plain name and a value without spaces or quotes. A Windows
+        # checkout may end lines with CR; only the validated, normalized lines are written.
+        lines=()
         while IFS= read -r line || [ -n "$line" ]; do
+          line=${line%$'\r'}
           [[ "$line" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9._-]+$ ]] || { echo "::error::malformed telemetry switch"; exit 1; }
+          lines+=("$line")
         done < "$switches"
-        cat "$switches" >> "$GITHUB_ENV"
-        echo "Outside telemetry is off for $(grep -c . "$switches") switches."
+        printf '%s\n' "${lines[@]}" >> "$GITHUB_ENV"
+        echo "Outside telemetry is off for ${#lines[@]} switches."

@@ -6,7 +6,7 @@ const lines = readFileSync(
   new URL("../actions/telemetry/switches.env", import.meta.url),
   "utf8",
 )
-  .split("\n")
+  .split(/\r?\n/)
   .filter(Boolean);
 
 test("telemetry switches are plain, unique, sorted assignments", () => {
