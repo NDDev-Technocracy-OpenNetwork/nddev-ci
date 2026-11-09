@@ -173,6 +173,11 @@ names, case aliases, device names and escaping paths fail before preparation. A 
 member check preserves the previously accepted destination. Archive and warm member
 hashes are read in bounded chunks.
 
+The reusable `check.yml` and `recipe.yml` accept `tool-assets`, the path of this
+caller-owned manifest. On hosted runners the verified executables reach PATH before
+project setup or the selected preparation recipe. A private runner refuses that input
+and retains its managed SDK. Omitting the input prepares no native assets.
+
 `add-to-path: true` exposes the directory only after every declared file has passed;
 it requires at least one explicitly executable file. The `receipt` output records verified
 archive and file identities. This supports independently qualified native tools without

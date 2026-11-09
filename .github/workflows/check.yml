@@ -62,6 +62,10 @@ on:
         description: Optional comma-separated targets for the selected Rust toolchain.
         type: string
         default: ''
+      tool-assets:
+        description: Caller-owned exact public asset/member manifest for hosted runners; private runners use their managed SDK.
+        type: string
+        default: ''
       uv-version:
         description: Optional uv version for explicit preparation on hosted runners; prepared private runners retain their managed frontend.
         type: string
@@ -340,6 +344,19 @@ jobs:
           rust-version: ${{ inputs.rust-version }}
           rust-components: ${{ inputs.rust-components }}
           rust-targets: ${{ inputs.rust-targets }}
+
+      - name: Require the managed private native tool profile
+        if: inputs.tool-assets != '' && runner.environment != 'github-hosted'
+        run: |
+          echo "::error::Native asset bootstrap is hosted-only; private tools belong to the managed SDK."
+          exit 1
+      - name: Prepare declared native tool assets
+        if: inputs.tool-assets != '' && runner.environment == 'github-hosted'
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@0c513d80a5ddb9ea6b3b6da0068547c2003e637c
+        with:
+          manifest: ${{ inputs.tool-assets }}
+          directory: ${{ runner.temp }}/nddev-ci/native-tools
+          add-to-path: true
 
       - name: Network cache
         # Jobs of dev and main read and write the contour's R2 cache; every other job only reads it,
