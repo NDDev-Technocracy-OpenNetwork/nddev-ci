@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { managedRunner } from "../../lib/runner-profile.mjs";
 import {
   ActionError,
   downloadAsset,
@@ -56,7 +57,7 @@ function destinationDirectory(requested, roots) {
 }
 
 export async function main(environment = process.env) {
-  if (environment.RUNNER_ENVIRONMENT !== "github-hosted")
+  if (managedRunner(environment.RUNNER_ENVIRONMENT, environment.INPUT_MANAGED))
     throw new ActionError(
       "Prepared private runners retain their native asset provider.",
     );

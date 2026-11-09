@@ -1,0 +1,14 @@
+name: Select the runner SDK profile
+description: Keep managed SDK ownership separate from GitHub's runner classification.
+inputs:
+  external:
+    description: True only when the workflow explicitly selected an external provider.
+    default: 'false'
+outputs:
+  managed:
+    description: Whether the runner owns its prepared SDK.
+  bootstrap:
+    description: Whether the selected external runner needs SDK preparation.
+runs:
+  using: node24
+  main: run.mjs

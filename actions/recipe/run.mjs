@@ -16,6 +16,7 @@ import { pathToFileURL } from "node:url";
 
 import { ActionError, downloadAsset } from "../../lib/release-asset.mjs";
 import { extract } from "../../lib/native-member.mjs";
+import { managedRunner } from "../../lib/runner-profile.mjs";
 const configuration = JSON.parse(
   readFileSync(new URL("./just.json", import.meta.url), "utf8"),
 );
@@ -81,7 +82,7 @@ export function invocation({
 }
 
 async function executable(environment) {
-  if (environment.RUNNER_ENVIRONMENT === "self-hosted") {
+  if (managedRunner(environment.RUNNER_ENVIRONMENT, environment.INPUT_MANAGED)) {
     const result = spawnSync("just", ["--version"], {
       encoding: "utf8",
       env: commandEnvironment(environment),

@@ -4,13 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { ActionError } from "../../lib/release-asset.mjs";
+import { managedRunner } from "../../lib/runner-profile.mjs";
 
 const names = ["node", "python", "uv", "bun", "rust", "java", "go", "flutter"];
 const key = (name) => `SDK_${name.toUpperCase()}_VERSION`;
 
 export function selections(environment) {
-  if (!["github-hosted", "self-hosted"].includes(environment.SDK_RUNNER_ENVIRONMENT))
-    throw new ActionError("SDK verification requires a declared runner environment.");
+  managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED);
   const selected = {};
   for (const name of names) {
     const version = environment[key(name)] ?? "";
@@ -70,7 +70,7 @@ export function imageKey(environment, platform = process.platform, readRelease =
 // the tool cache, so a restored copy would be broken there; it is prepared fresh instead.
 export function cachePlan(environment, platform = process.platform) {
   const selected = selections(environment);
-  if (environment.SDK_RUNNER_ENVIRONMENT === "self-hosted") return {key: "", paths: []};
+  if (managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) return {key: "", paths: []};
   const root = environment.RUNNER_TOOL_CACHE;
   const parts = Object.keys(toolCacheNames).filter((name) => selected[name] &&
     !(name === "python" && platform === "darwin"));
@@ -146,13 +146,13 @@ export function main(mode, environment = process.env) {
     const plan = cachePlan(environment);
     if (environment.GITHUB_OUTPUT)
       appendFileSync(environment.GITHUB_OUTPUT,
-        `cache-key=${plan.key}\ncache-paths<<NDDEV_SDK_PATHS\n${plan.paths.join("\n")}\nNDDEV_SDK_PATHS\n`);
+        `bootstrap=${!managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)}\ncache-key=${plan.key}\ncache-paths<<NDDEV_SDK_PATHS\n${plan.paths.join("\n")}\nNDDEV_SDK_PATHS\n`);
     return;
   }
   if (mode !== "verify") throw new ActionError("Unknown hosted SDK command.");
   const receipt = verify(environment);
   const variables = {BUN_DO_NOT_TRACK: "1", DO_NOT_TRACK: "1"};
-  if (receipt.versions.uv && environment.SDK_RUNNER_ENVIRONMENT === "github-hosted") {
+  if (receipt.versions.uv && !managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) {
     if (!environment.RUNNER_TEMP || /[\r\n]/.test(environment.RUNNER_TEMP))
       throw new ActionError("A runner temporary directory is required.");
     variables.UV_CACHE_DIR = path.join(environment.RUNNER_TEMP, "uv-cache");
