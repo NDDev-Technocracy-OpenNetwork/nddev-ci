@@ -124,7 +124,7 @@ jobs:
     runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || (contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') || github.event.inputs.runner == 'blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || (contains(github.event.pull_request.labels.*.name, 'runner:github') || github.event.inputs.runner == 'github') && 'ubuntu-24.04' || inputs.runner }}
     # A new push to a pull request cancels its older check; dev and main check every commit.
     concurrency:
-      group: nddev-ci-check-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+      group: nddev-ci-check-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}-${{ inputs.hosted-runner }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:

@@ -29,9 +29,9 @@ jobs:
     if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:'))
     # Public repositories always run on GitHub's runners; an unknown hosted label fails below.
     runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || contains(github.event.pull_request.labels.*.name, 'runner:github') && 'ubuntu-24.04' || inputs.runner }}
-    # A new push to the pull request cancels its older stops.
+    # A new push to the pull request cancels its older stops of the same workflow and runner.
     concurrency:
-      group: nddev-ci-merge-stops-${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+      group: nddev-ci-merge-stops-${{ github.workflow }}-pr-${{ github.event.pull_request.number }}-${{ inputs.hosted-runner }}
       cancel-in-progress: true
     timeout-minutes: 10
     permissions:

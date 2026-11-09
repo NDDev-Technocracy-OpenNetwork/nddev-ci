@@ -23,14 +23,11 @@ jobs:
     permissions:
       contents: read
 
-  # The merge stops workflow that specialized callers use beside their own command jobs.
+  # The merge stops workflow that specialized callers use beside their own command jobs, here on
+  # ARM64; check.yml above runs the same stops on x64.
   merge-stops:
-    strategy:
-      fail-fast: false
-      matrix:
-        hosted-runner: [ubuntu-24.04, ubuntu-24.04-arm]
     uses: ./.github/workflows/merge-stops.yml
     with:
-      hosted-runner: ${{ matrix.hosted-runner }}
+      hosted-runner: ubuntu-24.04-arm
     permissions:
       contents: read
