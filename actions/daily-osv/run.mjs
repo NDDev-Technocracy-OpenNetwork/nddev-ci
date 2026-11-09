@@ -1,13 +1,8 @@
 import { spawnSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { scannerPolicy } from "../../lib/security-policy.mjs";
 
 export function main(environment = process.env) {
   const source = environment.GITHUB_WORKSPACE;
@@ -21,25 +16,8 @@ export function main(environment = process.env) {
     );
   if (!environment.INPUT_LICENSES)
     throw new Error("Daily scans require their licence policy.");
-  if (!environment.RUNNER_TEMP || !path.isAbsolute(environment.RUNNER_TEMP))
-    throw new Error(
-      "Daily scans require the job's private temporary directory.",
-    );
-  const temporary = realpathSync(environment.RUNNER_TEMP);
-  const relative = path.relative(realpathSync(source), temporary);
-  if (
-    !relative ||
-    (!relative.startsWith(`..${path.sep}`) &&
-      relative !== ".." &&
-      !path.isAbsolute(relative))
-  )
-    throw new Error(
-      "Daily scanner policy must stay outside the scanned checkout.",
-    );
-  const policy = mkdtempSync(path.join(temporary, "nddev-daily-osv-"));
+  const policy = scannerPolicy(environment, "osv-scanner.toml");
   try {
-    const config = path.join(policy, "osv-scanner.toml");
-    writeFileSync(config, "", { flag: "wx", mode: 0o400 });
     const common = [
       "scan",
       "source",
@@ -51,7 +29,7 @@ export function main(environment = process.env) {
       "--no-resolve",
       "--no-ignore",
       "--config",
-      config,
+      policy.config,
     ];
     const scan = (flags, name) => {
       const result = spawnSync(binary, [...common, ...flags, source], {
@@ -95,7 +73,7 @@ export function main(environment = process.env) {
       mode: 0o600,
     });
   } finally {
-    rmSync(policy, { recursive: true, force: true });
+    policy.cleanup();
   }
 }
 

@@ -38,6 +38,7 @@ check: (_tools "check")
     node --check tests/daily-osv-native.mjs
     node --check actions/daily-sbom/run.mjs
     node --check tests/daily-sbom-native.mjs
+    node --check lib/security-policy.mjs
     node --check tests/portable-recipe.test.mjs
     node --check tests/release-assets.test.mjs
     node --check tests/windows-archive.test.mjs

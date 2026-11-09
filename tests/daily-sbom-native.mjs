@@ -181,7 +181,7 @@ test("daily SBOM and vulnerability reports ignore local scanner suppressions", {
     const parse = (name) => JSON.parse(readFileSync(path.join(output, name)));
     const inventory = parse("sbom-repository.json");
     assert(
-      inventory.components.some(
+      (inventory.components ?? []).some(
         (p) => p.name === "vm2" && p.version === "3.9.10",
       ),
       "Syft must inventory vm2 despite local path exclusion",
