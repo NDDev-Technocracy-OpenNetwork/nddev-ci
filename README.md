@@ -253,19 +253,12 @@ this workflow does not opt out of that boundary.
 
 ## Releases
 
-`actions/release` publishes the commit `main` moved forward to as one immutable GitHub Release,
-without building again. It takes the newest push check of that exact commit on `dev` from the
-caller's check workflow: a newer failed, cancelled or unknown run is never replaced by an older
-green one, a running check is awaited up to `wait-minutes`, and a missing one stops the release.
-A commit with the same tree but another identity never borrows a result.
-
-The named `artifacts` of that run are downloaded with their recorded digests, and their top-level
-files become the release files, with `SHA256SUMS`. Folders, links and hidden or repeated names
-stop the release. The version raises the last number of the newest `<tag-prefix><version>` tag;
-the owner chooses a new first or middle number through `version`. The tag is created at the
-commit, never moved, and a draft receives and verifies every file before it is published.
-A rerun finds the same tag and release and completes them once. The job needs `contents: write`
-and `actions: read`; enable immutable releases in the repository settings.
+A project calls `.github/workflows/release.yml` when `main` moves forward. It publishes that commit
+as one immutable GitHub Release without building again (`actions/release`). It takes the newest
+push check of that exact commit on `dev` from the caller's check workflow: a newer failed,
+cancelled or unknown run is never replaced by an older green one, a running check is awaited up to
+`wait-minutes`, and a missing one stops the release. A commit with the same tree but another
+identity never borrows a result.
 
 ```yaml
 on:
@@ -273,17 +266,24 @@ on:
     branches: [main]
 jobs:
   release:
-    runs-on: ubuntu-24.04
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/release.yml@<commit> # v<version>
     permissions:
       actions: read
       contents: write
-    steps:
-      - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release@<commit>
-        with:
-          check-workflow: ci.yml
-          artifacts: |
-            build
+    with:
+      check-workflow: ci.yml
+      artifacts: |
+        build
 ```
+
+The named `artifacts` of that run are downloaded with their recorded digests, and their top-level
+files become the release files, with `SHA256SUMS`. Folders, links and hidden or repeated names
+stop the release. The version raises the last number of the newest `<tag-prefix><version>` tag;
+the owner chooses a new first or middle number through `version`. The tag is created at the
+commit, never moved, and a draft receives and verifies every file before it is published.
+A rerun finds the same tag and release and completes them once. Public repositories release on
+GitHub's runners, private ones on `runner`. Enable immutable releases in the repository settings:
+GitHub then protects the tag and signs the release, and `gh release verify-asset` checks a file.
 
 This library releases itself the same way (`.github/workflows/publish.yml`). Callers pin a
 released commit with its version as a comment, so Dependabot proposes each new release.
