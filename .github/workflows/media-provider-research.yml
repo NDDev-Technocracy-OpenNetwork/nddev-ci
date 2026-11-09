@@ -17,3 +17,17 @@ jobs:
       recipe: media-provider-research
       justfile: tests/fixtures/media-provider.just
       timeout-minutes: 10
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Retrieve one exact experimental media archive
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@c2586ba7c00cc89adff722e05bd10cab8a8ee196
+        with:
+          manifest: tests/fixtures/media-candidate/assets.json
+          directory: ${{ runner.temp }}/media-candidate-assets
+      - name: Qualify the isolated CLI feature set without product adoption
+        run: node tests/media-candidate-research.mjs
