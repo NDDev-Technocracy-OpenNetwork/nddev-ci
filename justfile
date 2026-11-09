@@ -36,6 +36,8 @@ check: (_tools "check")
     node --check tests/dependency-native.mjs
     node --check actions/daily-osv/run.mjs
     node --check tests/daily-osv-native.mjs
+    node --check actions/daily-sbom/run.mjs
+    node --check tests/daily-sbom-native.mjs
     node --check tests/portable-recipe.test.mjs
     node --check tests/release-assets.test.mjs
     node --check tests/windows-archive.test.mjs
@@ -52,6 +54,7 @@ test:
     node --test tests/bootstrap-tools.mjs
     node --test tests/dependency-native.mjs
     node --test tests/daily-osv-native.mjs
+    node --test tests/daily-sbom-native.mjs
 
 # Everything the full check on dev runs.
 verify: check test
