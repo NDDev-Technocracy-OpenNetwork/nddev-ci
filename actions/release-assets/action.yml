@@ -7,12 +7,17 @@ inputs:
   directory:
     description: Destination inside the checked-out workspace or RUNNER_TEMP.
     required: true
+  add-to-path:
+    description: Add the verified directory to PATH after every declared executable is prepared.
+    default: 'false'
   github-token:
     description: Existing job token used only for official public asset API reads.
     default: ${{ github.server_url == 'https://github.com' && github.token || '' }}
 outputs:
   directory:
     description: The prepared asset directory.
+  receipt:
+    description: Bounded JSON of the verified archive and native file identities.
 runs:
   using: node24
   main: run.mjs

@@ -58,12 +58,21 @@ jobs:
       - name: Select a pinned public asset for this native runner
         run: >-
           node -e "const fs=require('node:fs'),p=require('./actions/recipe/just.json'),a=p.targets[process.platform+'-'+process.arch];
-          fs.writeFileSync('native-assets.json',JSON.stringify({schema_version:1,assets:[{repository:p.repository,asset:a.asset,size:a.size,sha256:a.sha256,file:a.name}]}))"
+          fs.writeFileSync('native-assets.json',JSON.stringify({schema_version:1,assets:[{repository:p.repository,asset:a.asset,size:a.size,sha256:a.sha256,file:a.name,members:[{path:process.platform==='win32'?'just.exe':'just',file:process.platform==='win32'?'prepared-just.exe':'prepared-just',size:a.binary_size,sha256:a.binary_sha256,executable:true}]}]}))"
       - name: Prepare the exact public asset bytes
+        id: native-assets
         uses: ./actions/release-assets
         with:
           manifest: native-assets.json
           directory: ${{ runner.temp }}/native-assets
+          add-to-path: true
+      - name: Execute the verified native member
+        env:
+          NATIVE_ASSET_RECEIPT: ${{ steps.native-assets.outputs.receipt }}
+        run: >-
+          node -e "const {execFileSync}=require('node:child_process'),p=require('./actions/recipe/just.json'),r=JSON.parse(process.env.NATIVE_ASSET_RECEIPT);
+          if(r.assets[0].files.length!==2)throw Error('missing native receipt');
+          if(execFileSync('prepared-just',['--version'],{encoding:'utf8'}).trim()!=='just '+p.version)throw Error('native tool version mismatch')"
       - name: Verify and reuse the warm public asset
         uses: ./actions/release-assets
         with:

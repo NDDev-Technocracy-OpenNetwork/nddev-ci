@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   appendFileSync,
   chmodSync,
@@ -18,6 +17,12 @@ import {
   downloadAsset,
   validateAsset,
 } from "../../lib/release-asset.mjs";
+import {
+  filename,
+  members,
+  matches,
+  extract,
+} from "../../lib/native-member.mjs";
 
 const within = (root, candidate) => {
   const relative = path.relative(root, candidate);
@@ -62,8 +67,9 @@ export async function main(environment = process.env) {
   );
   if (!within(workspace, manifest))
     throw new ActionError("Asset manifest is outside the checkout.");
-  if (lstatSync(manifest).size > 1048576)
-    throw new ActionError("Asset manifest exceeds its size limit.");
+  const metadata = lstatSync(manifest);
+  if (!metadata.isFile() || metadata.size > 1048576)
+    throw new ActionError("Asset manifest must be a bounded regular file.");
   const document = JSON.parse(readFileSync(manifest, "utf8"));
   if (
     document.schema_version !== 1 ||
@@ -74,48 +80,88 @@ export async function main(environment = process.env) {
   const names = new Set();
   for (const asset of document.assets) {
     validateAsset(asset);
-    if (
-      typeof asset.file !== "string" ||
-      !/^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(asset.file) ||
-      names.has(asset.file)
-    )
-      throw new ActionError("Asset filenames must be unique basenames.");
-    names.add(asset.file);
+    filename(asset.file);
+    for (const file of [asset, ...members(asset)]) {
+      const identity = file.file.toLowerCase();
+      if (names.has(identity))
+        throw new ActionError(
+          "Asset filenames must be unique across archives and native members.",
+        );
+      names.add(identity);
+    }
+    if (names.size > 128)
+      throw new ActionError(
+        "The prepared native file inventory exceeds its bound.",
+      );
   }
+  const receipt = JSON.stringify({
+    schema_version: 1,
+    assets: document.assets.map((asset) => ({
+      repository: asset.repository,
+      asset: asset.asset,
+      sha256: asset.sha256,
+      files: [asset, ...members(asset)].map((file) => ({
+        file: file.file,
+        size: file.size,
+        sha256: file.sha256,
+        executable: file.executable === true,
+      })),
+    })),
+  });
+  if (Buffer.byteLength(receipt) > 65536)
+    throw new ActionError("The prepared asset receipt exceeds its bound.");
+  const addToPath = environment["INPUT_ADD-TO-PATH"] ?? "false";
+  if (!["true", "false"].includes(addToPath))
+    throw new ActionError("add-to-path must be true or false.");
+  if (
+    addToPath === "true" &&
+    !document.assets.some((asset) =>
+      [asset, ...members(asset)].some((file) => file.executable === true),
+    )
+  )
+    throw new ActionError(
+      "Adding native tools to PATH requires an explicitly executable pinned file.",
+    );
+  if (
+    typeof environment.INPUT_DIRECTORY !== "string" ||
+    /[\r\n\0]/.test(environment.INPUT_DIRECTORY)
+  )
+    throw new ActionError("Asset destination must be a single-line path.");
   const requested = path.resolve(workspace, environment.INPUT_DIRECTORY);
   const directory = destinationDirectory(requested, [workspace, temporaryRoot]);
   for (const asset of document.assets) {
     const target = path.join(directory, asset.file);
-    let current;
-    try {
-      current = lstatSync(target);
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
-    if (current) {
-      if (!current.isFile())
-        throw new ActionError("Asset destination is not a regular file.");
-      if (
-        current.size === asset.size &&
-        createHash("sha256").update(readFileSync(target)).digest("hex") ===
-          asset.sha256
-      ) {
-        if (asset.executable === true) chmodSync(target, 0o755);
-        continue;
-      }
-    }
+    const current = matches(target, asset);
     const staging = mkdtempSync(path.join(directory, ".asset-"));
     try {
       const source = path.join(staging, asset.file);
-      await downloadAsset(asset, source, environment["INPUT_GITHUB-TOKEN"]);
-      if (asset.executable === true) chmodSync(source, 0o755);
-      renameSync(source, target);
+      if (!current) {
+        await downloadAsset(asset, source, environment["INPUT_GITHUB-TOKEN"]);
+        if (asset.executable === true) chmodSync(source, 0o755);
+        renameSync(source, target);
+      } else if (asset.executable === true) chmodSync(target, 0o755);
+      for (const member of members(asset)) {
+        const installed = path.join(directory, member.file);
+        if (matches(installed, member)) {
+          if (member.executable === true) chmodSync(installed, 0o755);
+          continue;
+        }
+        const extracted = path.join(staging, member.file);
+        await extract(target, member, extracted);
+        if (member.executable === true) chmodSync(extracted, 0o755);
+        renameSync(extracted, installed);
+      }
     } finally {
       rmSync(staging, { recursive: true, force: true });
     }
   }
+  if (addToPath === "true" && environment.GITHUB_PATH)
+    appendFileSync(environment.GITHUB_PATH, `${directory}\n`);
   if (environment.GITHUB_OUTPUT)
-    appendFileSync(environment.GITHUB_OUTPUT, `directory=${directory}\n`);
+    appendFileSync(
+      environment.GITHUB_OUTPUT,
+      `directory=${directory}\nreceipt=${receipt}\n`,
+    );
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
   main().catch((error) => {

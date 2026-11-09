@@ -24,6 +24,7 @@ check: (_tools "check")
     node --check tests/hosted-sdk.test.mjs
     node --check actions/release-assets/run.mjs
     node --check lib/release-asset.mjs
+    node --check lib/native-member.mjs
     node --check tests/portable-recipe.test.mjs
     node --check tests/release-assets.test.mjs
     node --check tests/bootstrap-tools.mjs
