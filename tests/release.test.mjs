@@ -38,18 +38,17 @@ test("versions have three plain numbers", () => {
 
 test("an ordinary release raises the last number of the newest release", () => {
   const tags = ["v0.6.25", "v0.6.9", "v0.5.40", "history/44-x", "nddev-ci-v0.9.0", "vnext"];
-  assert.equal(nextVersion({ tags, prefix: "v", initial: "0.1.0" }), "0.6.26");
-  assert.equal(nextVersion({ tags: [], prefix: "v", initial: "0.6.26" }), "0.6.26");
-  assert.equal(nextVersion({ tags: ["history/1"], prefix: "v", initial: "1.0.0" }), "1.0.0");
+  assert.equal(nextVersion({ tags, initial: "0.1.0" }), "0.6.26");
+  assert.equal(nextVersion({ tags: [], initial: "0.6.26" }), "0.6.26");
+  assert.equal(nextVersion({ tags: ["history/1"], initial: "1.0.0" }), "1.0.0");
 });
 
 test("a chosen version must be newer than every release", () => {
   const tags = ["v1.4.2"];
-  assert.equal(nextVersion({ tags, prefix: "v", explicit: "1.5.0" }), "1.5.0");
-  assert.equal(nextVersion({ tags, prefix: "v", explicit: "2.0.0" }), "2.0.0");
+  assert.equal(nextVersion({ tags, explicit: "1.5.0" }), "1.5.0");
+  assert.equal(nextVersion({ tags, explicit: "2.0.0" }), "2.0.0");
   for (const explicit of ["1.4.2", "1.4.1", "1.3.9", "1.5"])
-    assert.throws(() => nextVersion({ tags, prefix: "v", explicit }), ReleaseError, explicit);
-  assert.throws(() => nextVersion({ tags, prefix: "../v", initial: "0.1.0" }), ReleaseError);
+    assert.throws(() => nextVersion({ tags, explicit }), ReleaseError, explicit);
 });
 
 test("the newest check of the exact commit qualifies it", () => {

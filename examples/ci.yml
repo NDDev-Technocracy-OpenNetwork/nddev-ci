@@ -1,45 +1,18 @@
-# A project's checks: the short check and merge stops on a pull request, the full check on dev.
-# Pin a released commit of the library with its version as the comment, so Dependabot proposes
-# each new release.
 name: ci
-
 on:
   pull_request:
-    # `labeled` lets the labels `runner:blacksmith` and `runner:github` rerun the check there.
     types: [opened, synchronize, reopened, labeled]
   push:
     branches: [dev]
   workflow_dispatch:
-    inputs:
-      runner:
-        description: Where a private repository's check runs.
-        type: choice
-        options: [ours, blacksmith, github]
-        default: ours
-
 permissions: {}
-
 jobs:
   check:
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@0000000000000000000000000000000000000000 # v0.0.0
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@52d8302d2272967a21fd8e3ae594205588648777 # v0.6.28
     permissions:
       contents: read
+    # Select only the exact SDKs/tools the project's recipes need.
     # with:
-    #   setup: true                  # run `just setup` first
-    #   rust-version: 1.99.1         # SDKs and tools on GitHub's runners, exact versions
+    #   setup: true
+    #   rust-version: ${{ vars.CI_RUST_VERSION }}
     #   rust-components: clippy,rustfmt
-    #   tools: cargo-nextest@0.9.151,cargo-deny@0.20.2
-    #   diagnostics: target/nextest/ci/junit.xml
-    # secrets:
-    #   read-keys: |                 # read other private repositories, such as modules
-    #     owner/repository
-    #     ${{ secrets.REPOSITORY_READ_KEY }}
-
-  # A project with a container image builds it once; dev pushes ghcr.io/<owner>/<image>:sha-<commit>.
-  # image:
-  #   uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/image.yml@0000000000000000000000000000000000000000 # v0.0.0
-  #   permissions:
-  #     contents: read
-  #     packages: write
-  #   with:
-  #     image: example-service

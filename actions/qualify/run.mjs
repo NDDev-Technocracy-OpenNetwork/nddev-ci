@@ -12,7 +12,7 @@ export async function main(environment = process.env) {
     workflowPath: `.github/workflows/${input("check-workflow") || "ci.yml"}`,
     branch: input("check-branch") || "dev", event: input("check-event") || "push",
   }, {waitMinutes: Number(input("wait-minutes") || "30")});
-  appendFileSync(environment.GITHUB_OUTPUT, `run-id=${result.run_id}\nrun-attempt=${result.run_attempt}\ncommit=${result.sha}\nreceipt=${JSON.stringify(result)}\n`);
+  appendFileSync(environment.GITHUB_OUTPUT, `receipt=${JSON.stringify(result)}\n`);
   console.log(`Qualified ${result.sha} by run ${result.run_id}, attempt ${result.run_attempt}.`);
   return result;
 }

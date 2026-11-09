@@ -30,14 +30,6 @@ on:
         description: The version of the first release when none exists.
         type: string
         default: 0.1.0
-      tag-prefix:
-        description: The tag prefix in front of the version.
-        type: string
-        default: v
-      name:
-        description: The release title in front of the version; empty uses the repository name.
-        type: string
-        default: ""
       wait-minutes:
         description: How long a still running qualifying check is awaited.
         type: number
@@ -85,18 +77,16 @@ jobs:
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@7e961aa1105359a063527b0d1111bd6f7554ec8e
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@92f5a4a550ec46781013a4685736ff336b1645bc
 
       - name: Release the verified commit
         id: release
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release@7e961aa1105359a063527b0d1111bd6f7554ec8e
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release@92f5a4a550ec46781013a4685736ff336b1645bc
         with:
           check-workflow: ${{ inputs.check-workflow }}
           artifacts: ${{ inputs.artifacts }}
           version: ${{ inputs.version }}
           initial-version: ${{ inputs.initial-version }}
-          tag-prefix: ${{ inputs.tag-prefix }}
-          name: ${{ inputs.name }}
           wait-minutes: ${{ inputs.wait-minutes }}
           api-url: ${{ inputs.api-url }}
           artifact-api-url: ${{ inputs.artifact-api-url }}
@@ -104,7 +94,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@7e961aa1105359a063527b0d1111bd6f7554ec8e
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@92f5a4a550ec46781013a4685736ff336b1645bc
         with:
           task: release
           task-type: deploy

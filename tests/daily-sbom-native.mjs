@@ -55,36 +55,13 @@ async function tools(directory) {
     // These asset IDs are the Linux x64 archives that the library's own check runs on.
     const sha256 = value(`${tool.toUpperCase()}_SHA256_X64`);
     const archive = path.join(directory, `${tool}.tar.gz`);
-    if (process.env.NDS_CACHE_BASE) {
-      const version = value(`${tool.toUpperCase()}_VERSION`);
-      const url = `${process.env.NDS_CACHE_BASE.replace(/\/$/, "")}/github-releases/sha256/${sha256}/${repository}/releases/download/v${version}/${name}`;
-      const result = spawnSync(
-        "curl",
-        [
-          "-fsSL",
-          "--max-time",
-          "180",
-          "--max-filesize",
-          String(size),
-          "-o",
-          archive,
-          url,
-        ],
-        { encoding: "utf8" },
-      );
-      assert.equal(
-        result.status,
-        0,
-        "the configured tool registry must be available",
-      );
-    } else {
-      // Trivy's source access profile is public, selected before requesting its exact asset.
-      await downloadAsset(
-        { repository, asset, size, sha256 },
-        archive,
-        tool === "trivy" ? undefined : process.env.GH_TOKEN,
-      );
-    }
+    // The same verified transport serves upstream and an explicitly declared registry.
+    await downloadAsset(
+      { repository, asset, size, sha256, name, tag: `v${value(`${tool.toUpperCase()}_VERSION`)}` },
+      archive,
+      tool === "trivy" ? undefined : process.env.GH_TOKEN,
+      process.env.NDDEV_CI_ARTIFACT_REGISTRY,
+    );
     const bytes = readFileSync(archive);
     assert.equal(bytes.length, size);
     assert.equal(createHash("sha256").update(bytes).digest("hex"), sha256);

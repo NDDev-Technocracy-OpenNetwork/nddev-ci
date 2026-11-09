@@ -26,12 +26,6 @@ inputs:
     description: Read token for the configured API source.
     default: ${{ github.token }}
 outputs:
-  run-id:
-    description: Qualified run ID.
-  run-attempt:
-    description: Qualified attempt.
-  commit:
-    description: Qualified exact commit.
   receipt:
     description: Structured qualification identity, without artifact transfer.
 runs:

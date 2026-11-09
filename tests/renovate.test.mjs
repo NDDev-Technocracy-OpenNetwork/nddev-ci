@@ -9,7 +9,7 @@ const base = {RUNNER_ENVIRONMENT: "self-hosted", GITHUB_REPOSITORY_OWNER: "examp
   INPUT_VERSION: "44.221.5", INPUT_REPOSITORIES: "example/first\nexample/second"};
 
 test("Renovate takes an exact managed selection and explicit same-organization scope", () => {
-  assert.deepEqual(selections(base), {version: "44.221.5", repositories: ["example/first", "example/second"], timeout: 45, dryRun: false});
+  assert.deepEqual(selections(base), {version: "44.221.5", repositories: ["example/first", "example/second"], timeout: 45});
   for (const version of ["latest", "44.x", "v44.221.5", "01.2.3", "44.221.5-rc1"])
     assert.throws(() => selections({...base, INPUT_VERSION: version}));
   for (const repositories of ["", "other/project", "example/first example/FIRST", "example/first;command"])
@@ -25,9 +25,8 @@ test("Renovate uses prepared binaries and cannot enable repository scripts or au
   assert.deepEqual(config.allowedCommands, []); assert.equal(config.exposeAllEnv, false);
   assert.equal(config.force.automerge, false); assert.equal(config.requireConfig, "required");
   assert.equal(config.dryRun, undefined);
-  const dry = {...base, "INPUT_DRY-RUN": "true", "INPUT_DOCKERHUB-USERNAME": "read-user", "INPUT_DOCKERHUB-TOKEN": "fixture-read-token"};
-  const configured = configuration(dry, selections(dry), "/owned/workspace");
-  assert.equal(configured.dryRun, "full");
+  const authenticated = {...base, "INPUT_DOCKERHUB-USERNAME": "read-user", "INPUT_DOCKERHUB-TOKEN": "fixture-read-token"};
+  const configured = configuration(authenticated, selections(authenticated), "/owned/workspace");
   assert.deepEqual(configured.hostRules, [{hostType: "docker", matchHost: "docker.io", username: "read-user", password: "fixture-read-token"}]);
   assert.throws(() => configuration({...base, "INPUT_DOCKERHUB-TOKEN": "fixture"}, selections(base), "/owned/workspace"));
 });

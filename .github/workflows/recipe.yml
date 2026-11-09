@@ -39,19 +39,19 @@ on:
         type: number
         default: 1
       node-version:
-        description: Optional exact hosted Node SDK version.
+        description: Optional exact Node SDK version.
         type: string
         default: ''
       python-version:
-        description: Optional exact hosted Python SDK version.
+        description: Optional exact Python SDK version.
         type: string
         default: ''
       bun-version:
-        description: Optional exact Bun version for hosted runners.
+        description: Optional exact Bun version.
         type: string
         default: ''
       rust-version:
-        description: Optional exact Rust version for hosted runners.
+        description: Optional exact Rust version.
         type: string
         default: ''
       rust-components:
@@ -67,15 +67,15 @@ on:
         type: string
         default: ''
       uv-version:
-        description: Optional exact hosted uv frontend version.
+        description: Optional exact uv version.
         type: string
         default: ''
       java-version:
-        description: Optional exact Temurin JDK version for hosted runners.
+        description: Optional exact Temurin JDK version.
         type: string
         default: ''
       go-version:
-        description: Optional exact Go version for hosted runners.
+        description: Optional exact Go version.
         type: string
         default: ''
       flutter-version:
@@ -86,10 +86,6 @@ on:
         description: Optional comma-separated name@exact-version command-line tools for hosted runners, such as cargo-nextest@0.9.151.
         type: string
         default: ''
-      hosted-cache:
-        description: Restores dependency caches keyed by the lock files on GitHub-hosted runners.
-        type: boolean
-        default: true
       artifact:
         description: A file or folder a non-pull-request run keeps, such as a native package for the release.
         type: string
@@ -123,6 +119,8 @@ jobs:
     # Public calls cannot select a private runner label. Unknown public labels refuse scheduling.
     runs-on: ${{ github.event.repository.private && inputs.runner || contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm","macos-15","macos-26","windows-2025","windows-11-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || '' }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
+    env:
+      SDK_MANAGED: ${{ github.event.repository.private }}
     permissions:
       contents: read
     steps:
@@ -147,20 +145,16 @@ jobs:
           sparse-checkout: ${{ inputs.sparse-checkout }}
           sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@7e961aa1105359a063527b0d1111bd6f7554ec8e
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@92f5a4a550ec46781013a4685736ff336b1645bc
 
       - name: Artifact registry
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@7e961aa1105359a063527b0d1111bd6f7554ec8e
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@92f5a4a550ec46781013a4685736ff336b1645bc
         with:
           url: ${{ inputs.artifact-registry }}
-      - name: Runner SDK profile
-        id: profile
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/runner-profile@7e961aa1105359a063527b0d1111bd6f7554ec8e
-
       - name: Prepare or verify declared SDKs
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@7e961aa1105359a063527b0d1111bd6f7554ec8e
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@92f5a4a550ec46781013a4685736ff336b1645bc
         with:
-          managed: ${{ steps.profile.outputs.managed }}
+          managed: ${{ env.SDK_MANAGED }}
           node-version: ${{ inputs.node-version }}
           python-version: ${{ inputs.python-version }}
           uv-version: ${{ inputs.uv-version }}
@@ -174,38 +168,38 @@ jobs:
           tools: ${{ inputs.tools }}
 
       - name: Require the managed private native tool profile
-        if: inputs.tool-assets != '' && steps.profile.outputs.managed == 'true'
+        if: inputs.tool-assets != '' && env.SDK_MANAGED == 'true'
         run: |
           echo "::error::Native asset bootstrap serves external profiles; managed runners keep their SDK."
           exit 1
       - name: Prepare declared native tool assets
-        if: inputs.tool-assets != '' && steps.profile.outputs.bootstrap == 'true'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@7e961aa1105359a063527b0d1111bd6f7554ec8e
+        if: inputs.tool-assets != '' && env.SDK_MANAGED == 'false'
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@92f5a4a550ec46781013a4685736ff336b1645bc
         with:
-          managed: ${{ steps.profile.outputs.managed }}
+          managed: ${{ env.SDK_MANAGED }}
           manifest: ${{ inputs.tool-assets }}
           directory: ${{ runner.temp }}/nddev-ci/native-tools
           add-to-path: true
 
       - name: Hosted dependency caches
-        if: steps.profile.outputs.bootstrap == 'true' && inputs.hosted-cache
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@7e961aa1105359a063527b0d1111bd6f7554ec8e
+        if: env.SDK_MANAGED == 'false'
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@92f5a4a550ec46781013a4685736ff336b1645bc
         with:
-          managed: ${{ steps.profile.outputs.managed }}
+          managed: ${{ env.SDK_MANAGED }}
           working-directory: ${{ inputs.working-directory }}
 
       - name: Prepare only the declared dependencies
         if: inputs.prepare != ''
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@7e961aa1105359a063527b0d1111bd6f7554ec8e
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@92f5a4a550ec46781013a4685736ff336b1645bc
         with:
-          managed: ${{ steps.profile.outputs.managed }}
+          managed: ${{ env.SDK_MANAGED }}
           recipe: ${{ inputs.prepare }}
           working-directory: ${{ inputs.working-directory }}
           justfile: ${{ inputs.justfile }}
       - name: Run the project command
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@7e961aa1105359a063527b0d1111bd6f7554ec8e
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@92f5a4a550ec46781013a4685736ff336b1645bc
         with:
-          managed: ${{ steps.profile.outputs.managed }}
+          managed: ${{ env.SDK_MANAGED }}
           recipe: ${{ inputs.recipe }}
           arguments: ${{ inputs.arguments }}
           working-directory: ${{ inputs.working-directory }}
@@ -233,7 +227,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@7e961aa1105359a063527b0d1111bd6f7554ec8e
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@92f5a4a550ec46781013a4685736ff336b1645bc
         with:
           task: just ${{ inputs.recipe }}
           task-type: ${{ inputs.artifact != '' && 'build' || 'test' }}

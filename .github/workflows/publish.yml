@@ -22,6 +22,5 @@ jobs:
       contents: write # create the tag and the release
     with:
       check-workflow: ci.yml
-      name: NDDev CI
       initial-version: 0.6.26
       version: ${{ inputs.version }}
