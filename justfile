@@ -36,6 +36,7 @@ check: (_tools "check")
     node --check actions/hosted-sdk/flutter.mjs
     node --check tests/bun-source.test.mjs
     node --check tests/hosted-sdk.test.mjs
+    node --check tests/sdk-runtime.test.mjs
     node --check actions/release-assets/run.mjs
     node --check lib/release-asset.mjs
     node --check lib/native-member.mjs
