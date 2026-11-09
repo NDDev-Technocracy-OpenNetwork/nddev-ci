@@ -100,6 +100,10 @@ repository secret under its contour's key policy; this library stores no keys.
 `check.yml`, `recipe.yml` and `actions/hosted-sdk` prepare only the SDKs explicitly selected by the caller:
 `node-version`, `python-version`, `uv-version`, `bun-version` and `rust-version`.
 Each value is an exact stable version; an empty input leaves that SDK unchanged.
+The Bun setup action receives the native asset's official API redirect for the selected stable
+tag. Its published source identity is recorded, its installed version is still measured and the
+transient signed transport URL is masked. It never selects another provider or architecture
+when the native asset cannot be resolved.
 `rust-components` and `rust-targets` accept comma-separated names alongside a Rust selection.
 The workflows use the same action and pinned upstream setup actions, then measure the actual executables before `just setup` or the selected preparation recipe.
 A missing or different version fails before project preparation. Its `receipt` output
