@@ -10,6 +10,7 @@ import {
   writeFileSync,
   existsSync,
   readdirSync,
+  realpathSync,
   appendFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -204,7 +205,7 @@ test("prepares only pinned archive members and repairs changed warm bytes before
     assert.equal(existsSync(path.join(directory, "unselected")), false);
     assert.equal(
       readFileSync(environment.GITHUB_PATH, "utf8"),
-      directory + "\n",
+      realpathSync(directory) + "\n",
     );
     const receipt = JSON.parse(
       readFileSync(environment.GITHUB_OUTPUT, "utf8")
