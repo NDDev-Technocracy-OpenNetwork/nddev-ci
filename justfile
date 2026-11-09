@@ -56,6 +56,10 @@ check: (_tools "check")
     node --check tests/telemetry.test.mjs
     node --check actions/job-record/run.mjs
     node --check tests/job-record.test.mjs
+    node --check lib/qualification.mjs
+    node --check actions/qualify/run.mjs
+    node --check actions/checked-artifacts/run.mjs
+    node --check tests/qualification.test.mjs
     node --check lib/release.mjs
     node --check actions/release/run.mjs
     node --check tests/release.test.mjs

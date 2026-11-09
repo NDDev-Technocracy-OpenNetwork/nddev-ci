@@ -147,14 +147,14 @@ jobs:
           sparse-checkout: ${{ inputs.sparse-checkout }}
           sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@d820ff05968f48d22bab103120c709078a04d1b9
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@570141705191fa3d636d9fe7af3e6bea1957d2dd
 
       - name: Artifact registry
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@d820ff05968f48d22bab103120c709078a04d1b9
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@570141705191fa3d636d9fe7af3e6bea1957d2dd
         with:
           url: ${{ inputs.artifact-registry }}
       - name: Prepare or verify declared SDKs
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@d820ff05968f48d22bab103120c709078a04d1b9
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@570141705191fa3d636d9fe7af3e6bea1957d2dd
         with:
           node-version: ${{ inputs.node-version }}
           python-version: ${{ inputs.python-version }}
@@ -175,7 +175,7 @@ jobs:
           exit 1
       - name: Prepare declared native tool assets
         if: inputs.tool-assets != '' && runner.environment == 'github-hosted'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@d820ff05968f48d22bab103120c709078a04d1b9
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@570141705191fa3d636d9fe7af3e6bea1957d2dd
         with:
           manifest: ${{ inputs.tool-assets }}
           directory: ${{ runner.temp }}/nddev-ci/native-tools
@@ -183,19 +183,19 @@ jobs:
 
       - name: Hosted dependency caches
         if: runner.environment == 'github-hosted' && inputs.hosted-cache
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@d820ff05968f48d22bab103120c709078a04d1b9
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@570141705191fa3d636d9fe7af3e6bea1957d2dd
         with:
           working-directory: ${{ inputs.working-directory }}
 
       - name: Prepare only the declared dependencies
         if: inputs.prepare != ''
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@d820ff05968f48d22bab103120c709078a04d1b9
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@570141705191fa3d636d9fe7af3e6bea1957d2dd
         with:
           recipe: ${{ inputs.prepare }}
           working-directory: ${{ inputs.working-directory }}
           justfile: ${{ inputs.justfile }}
       - name: Run the project command
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@d820ff05968f48d22bab103120c709078a04d1b9
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@570141705191fa3d636d9fe7af3e6bea1957d2dd
         with:
           recipe: ${{ inputs.recipe }}
           arguments: ${{ inputs.arguments }}
@@ -224,7 +224,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@d820ff05968f48d22bab103120c709078a04d1b9
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@570141705191fa3d636d9fe7af3e6bea1957d2dd
         with:
           task: just ${{ inputs.recipe }}
           task-type: ${{ inputs.artifact != '' && 'build' || 'test' }}

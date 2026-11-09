@@ -1,0 +1,39 @@
+name: Qualify an exact checked commit
+description: Select the newest full check of an exact commit without transferring its artifacts.
+inputs:
+  commit:
+    description: Exact source commit; empty uses github.sha.
+    default: ''
+  repository:
+    description: Source owner/repository; empty uses github.repository.
+    default: ''
+  check-workflow:
+    description: Full-check workflow file in .github/workflows.
+    default: ci.yml
+  check-branch:
+    description: Integration branch whose full verification qualifies the commit.
+    default: dev
+  check-event:
+    description: Full-check event, push or workflow_dispatch.
+    default: push
+  wait-minutes:
+    description: Finite wait for a pending check, from 0 to 120 minutes.
+    default: '30'
+  api-url:
+    description: Explicit GitHub-compatible API source; empty uses github.api_url.
+    default: ''
+  github-token:
+    description: Read token for the configured API source.
+    default: ${{ github.token }}
+outputs:
+  run-id:
+    description: Qualified run ID.
+  run-attempt:
+    description: Qualified attempt.
+  commit:
+    description: Qualified exact commit.
+  receipt:
+    description: Structured qualification identity, without artifact transfer.
+runs:
+  using: node24
+  main: run.mjs

@@ -24,7 +24,8 @@ export function selections(environment) {
 
 export function directory(environment, value, optional = false) {
   const root = realpathSync(environment.RUNNER_TEMP);
-  const target = path.resolve(value || ".");
+  const requested = path.resolve(value || ".");
+  const target = path.join(realpathSync(path.dirname(requested)), path.basename(requested));
   if (path.dirname(target) !== root || !/^nddev-renovate-[A-Za-z0-9]+$/.test(path.basename(target)))
     refuse("Renovate workspace must be its owned temporary directory.");
   let stat;

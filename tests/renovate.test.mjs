@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { childEnvironment, configuration, directory, main, selections } from "../actions/renovate/run.mjs";
@@ -44,7 +44,7 @@ test("owned Renovate cleanup is safe to repeat and refuses unrelated or linked d
   const outside = mkdtempSync(path.join(tmpdir(), "renovate-unrelated-"));
   try {
     writeFileSync(path.join(workspace, "token-placeholder"), "fixture credential");
-    assert.equal(directory({RUNNER_TEMP: root}, workspace), workspace);
+    assert.equal(directory({RUNNER_TEMP: root}, workspace), realpathSync(workspace));
     assert.throws(() => directory({RUNNER_TEMP: root}, outside));
     const linked = path.join(root, "nddev-renovate-linked");
     symlinkSync(outside, linked, process.platform === "win32" ? "junction" : "dir");

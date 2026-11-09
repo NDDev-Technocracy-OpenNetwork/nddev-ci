@@ -1,0 +1,47 @@
+name: qualified artifact
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+permissions: {}
+jobs:
+  transfer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Start
+        run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Outside telemetry off
+        uses: ./actions/telemetry
+      - name: Qualify this exact commit's native fixture workflow
+        id: checked
+        uses: ./actions/qualify
+        with:
+          check-workflow: recipe-smoke.yml
+          wait-minutes: '15'
+      - name: Transfer its actual GitHub artifact
+        id: files
+        uses: ./actions/checked-artifacts
+        with:
+          receipt: ${{ steps.checked.outputs.receipt }}
+          artifacts: provenance-fixture
+      - name: Require the checked commit in the transferred bytes
+        env:
+          DIRECTORY: ${{ steps.files.outputs.directory }}
+        run: >-
+          node -e "const fs=require('node:fs'),path=require('node:path');
+          const text=fs.readFileSync(path.join(process.env.DIRECTORY,'provenance-fixture.txt'),'utf8');
+          if(text!=='nddev-ci provenance fixture '+process.env.GITHUB_SHA+'\n')throw Error('artifact source identity differs')"
+      - name: Job record
+        if: always()
+        uses: ./actions/job-record
+        with:
+          task: qualified artifact
+          status: ${{ job.status }}
+          started-file: ${{ runner.temp }}/nddev-ci-started
