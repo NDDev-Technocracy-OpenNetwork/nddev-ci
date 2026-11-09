@@ -85,11 +85,11 @@ jobs:
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@d820ff05968f48d22bab103120c709078a04d1b9
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@570141705191fa3d636d9fe7af3e6bea1957d2dd
 
       - name: Release the verified commit
         id: release
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release@d820ff05968f48d22bab103120c709078a04d1b9
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release@570141705191fa3d636d9fe7af3e6bea1957d2dd
         with:
           check-workflow: ${{ inputs.check-workflow }}
           artifacts: ${{ inputs.artifacts }}
@@ -104,7 +104,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@d820ff05968f48d22bab103120c709078a04d1b9
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@570141705191fa3d636d9fe7af3e6bea1957d2dd
         with:
           task: release
           task-type: deploy
