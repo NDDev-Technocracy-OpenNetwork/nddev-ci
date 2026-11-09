@@ -137,7 +137,8 @@ jobs:
           status=0
           osv-scanner scan source -r --allow-no-lockfiles --licenses="$LICENSES" --format json . > "$out/licenses.json" || status=$?
           [ "$status" -eq 0 ] || [ "$status" -eq 1 ] || { echo "::error::OSV-Scanner (licences) ended with $status"; exit 1; }
-          syft "dir:." --quiet -o "cyclonedx-json=$out/sbom-repository.json"
+          echo "Creating the repository SBOM with Syft"
+          syft "dir:." -o "cyclonedx-json=$out/sbom-repository.json"
           number=0
           while IFS= read -r image; do
             [ -n "$image" ] || continue
@@ -159,8 +160,10 @@ jobs:
           done
           for sbom in "$out"/sbom-*.json; do
             name=$(basename "$sbom" .json)
-            grype "sbom:$sbom" --quiet -o json > "$out/grype-$name.json"
-            trivy sbom --quiet --format json --output "$out/trivy-$name.json" "$sbom"
+            printf 'Scanning %s with Grype\n' "$name"
+            grype "sbom:$sbom" -o json > "$out/grype-$name.json"
+            printf 'Scanning %s with Trivy\n' "$name"
+            trivy sbom --format json --output "$out/trivy-$name.json" "$sbom"
           done
 
       - name: Report
