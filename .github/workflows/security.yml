@@ -73,7 +73,7 @@ jobs:
       TRIVY_SHA256_X64: "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf"
       TRIVY_SHA256_ARM64: "ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3"
       # the default allowlist for embedded dependencies, as SPDX identifiers; a caller's policy replaces it.
-      LICENSES: MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,Zlib,Unicode-3.0,CC0-1.0
+      LICENSES: MIT,MIT-0,Apache-2.0,Apache-2.0 WITH LLVM-exception,BSD-2-Clause,BSD-3-Clause,0BSD,ISC,Zlib,BSL-1.0,BlueOak-1.0.0,CC0-1.0,Unicode-3.0,Unicode-DFS-2016,PostgreSQL,PSF-2.0,Python-2.0,CNRI-Python,MIT-CMU,IJG,CDLA-Permissive-2.0,MPL-2.0,EPL-2.0,Unlicense
     steps:
       - name: Native scanner platform
         env:
@@ -187,7 +187,7 @@ jobs:
             echo "Licence policy: the default allowlist."
             exit 0
           fi
-          # A configured policy must exist and name plain SPDX identifiers; it is never ignored.
+          # A configured policy must exist and name SPDX identifiers or WITH exceptions.
           python3 -I - "$POLICY" >> "$GITHUB_OUTPUT" <<'PY'
           import os, re, sys, tomllib
           path = sys.argv[1]
@@ -199,9 +199,9 @@ jobs:
               sys.exit(f"::error::licence policy {path!r} is not valid TOML: {error}")
           allow = (policy.get("licenses") or {}).get("allow")
           if not isinstance(allow, list) or not allow or not all(
-              isinstance(item, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+-]*", item) for item in allow
+              isinstance(item, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+-]*(?: WITH [A-Za-z0-9][A-Za-z0-9.+-]*)?", item) for item in allow
           ) or len(set(allow)) != len(allow):
-              sys.exit(f"::error::licence policy {path!r} needs a [licenses] allow list of unique SPDX identifiers")
+              sys.exit(f"::error::licence policy {path!r} needs a [licenses] allow list of unique SPDX identifiers or WITH exceptions")
           print("licenses=" + ",".join(allow))
           print(f"Licence policy: {path}, {len(allow)} identifiers.", file=sys.stderr)
           PY
