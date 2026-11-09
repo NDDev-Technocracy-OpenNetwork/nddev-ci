@@ -137,8 +137,23 @@ on our runners, which carry the contour's own list.
 ## Hosted SDK preparation
 
 `check.yml`, `recipe.yml` and `actions/hosted-sdk` prepare only the SDKs explicitly selected by the caller:
-`node-version`, `python-version`, `uv-version`, `bun-version` and `rust-version`.
-Each value is an exact stable version; an empty input leaves that SDK unchanged.
+`node-version`, `python-version`, `uv-version`, `bun-version`, `rust-version`, `java-version`
+(Temurin), `go-version` and `flutter-version` (stable, with its Dart SDK, whose version the receipt
+also records; Flutter publishes Linux and Windows SDKs for x64 only, so an ARM64 Linux or Windows
+runner refuses it; Temurin publishes no JDK for Windows on ARM64, which refuses `java-version`). Each value is an exact stable version; an empty input leaves that SDK unchanged.
+Node, Python and uv come from GitHub releases; once a job has prepared an exact selection on a
+runner image and architecture, later jobs of the repository restore it from the Actions cache and
+download nothing. The 8–9 November 2026 HTTP 504 failures of anonymous release downloads showed
+why. Flutter comes from its official release manifest and archive on Google's storage, verified by
+the manifest's SHA-256 and cached the same way; flutter-action is not used because it calls
+actions/cache by tag, which commit pinning refuses. The JDK uses setup-java's own SDK cache.
+Flutter and Dart analytics are turned off.
+
+`tools` takes comma-separated `name@version` command-line tools, such as
+`cargo-nextest@0.9.151,cargo-deny@0.20.2,cargo-audit@0.22.2,cargo-shear@1.14.0`, at the
+registry's exact versions. They come from their official releases through `taiki-e/install-action`,
+which verifies each archive against its checksum manifest; nothing is compiled and no other
+source is tried. Private runners keep their managed SDK instead.
 The Bun setup action receives the native asset's official API redirect for the selected stable
 tag. Its published source identity is recorded, its installed version is still measured and the
 transient signed transport URL is masked. It never selects another provider or architecture
