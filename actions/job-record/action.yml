@@ -1,0 +1,22 @@
+name: Job record
+description: >-
+  Ends a job with its summary and one structured JSON record with OpenTelemetry field names:
+  the pipeline, task, source revision, runner, duration, compiler-cache use and result. The record
+  goes to the job log; when our runner names a telemetry file in NDDEV_CI_TELEMETRY_FILE, it is
+  appended there too, and the contour delivers it to its observability stack.
+inputs:
+  task:
+    description: The task's name, such as short check, full check or just test.
+    required: true
+  task-type:
+    description: build, test or deploy.
+    default: test
+  status:
+    description: The job's status at this point, normally job.status.
+    required: true
+  started-file:
+    description: A file holding the job's start as Unix seconds; empty measures nothing.
+    default: ''
+runs:
+  using: node24
+  main: run.mjs

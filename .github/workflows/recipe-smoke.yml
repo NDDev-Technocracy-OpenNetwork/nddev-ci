@@ -106,3 +106,18 @@ jobs:
           justfile: tests/fixtures/portable.just
           recipe: script-probe
           arguments: '["path with spaces","$(must-stay-literal)","مرحبا-Ә-测试"]'
+      - name: The job's record reaches the runner's telemetry file
+        if: always()
+        uses: ./actions/job-record
+        env:
+          NDDEV_CI_TELEMETRY_FILE: ${{ runner.temp }}/ci-telemetry.jsonl
+        with:
+          task: portable smoke
+          status: ${{ job.status }}
+      - name: Require one valid record
+        if: always()
+        env:
+          SINK: ${{ runner.temp }}/ci-telemetry.jsonl
+        run: >-
+          node -e "const l=require('fs').readFileSync(process.env.SINK,'utf8').trim().split('\n');
+          const r=JSON.parse(l[l.length-1]); if(l.length!==1||r['event.name']!=='nddev_ci.job.completed'||!r['vcs.ref.head.revision'])throw Error('bad job record')"
