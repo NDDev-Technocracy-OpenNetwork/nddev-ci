@@ -32,7 +32,7 @@ jobs:
     # A new label reruns the stops only when it chooses the runner.
     if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:'))
     # Public repositories always run on GitHub's runners; an unknown hosted label fails below.
-    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || contains(github.event.pull_request.labels.*.name, 'runner:github') && 'ubuntu-24.04' || inputs.runner }}
+    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || contains(github.event.pull_request.labels.*.name, 'runner:github') && 'ubuntu-24.04' || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || inputs.runner) }}
     # A new push to the pull request cancels its older stops of the same workflow and runner.
     concurrency:
       group: nddev-ci-merge-stops-${{ github.workflow }}-pr-${{ github.event.pull_request.number }}-${{ inputs.hosted-runner }}
@@ -62,15 +62,17 @@ jobs:
       SHELLCHECK_SHA256_X64: "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6"
       SHELLCHECK_SHA256_ARM64: "68a8133197a50beb8803f8d42f9908d1af1c5540d4bb05fdfca8c1fa47decefc"
     steps:
-      - name: Hosted runner
-        if: ${{ !github.event.repository.private }}
+      - name: Start and hosted runner
         env:
           HOSTED_RUNNER: ${{ inputs.hosted-runner }}
+          PRIVATE: ${{ github.event.repository.private }}
         run: |
-          case "$HOSTED_RUNNER" in
+          if [ "$PRIVATE" != true ]; then
+            case "$HOSTED_RUNNER" in
             ubuntu-24.04 | ubuntu-24.04-arm | ubuntu-26.04 | ubuntu-26.04-arm) ;;
             *) echo "::error::hosted-runner must be a GitHub-hosted Linux label of this workflow"; exit 1 ;;
-          esac
+            esac
+          fi
           date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

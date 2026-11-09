@@ -153,9 +153,8 @@ jobs:
         uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@0926e0b0d25c4451fc1a1f549c9875834a601de3
         with:
           url: ${{ inputs.artifact-registry }}
-      - name: Prepare declared hosted SDKs
-        if: runner.environment == 'github-hosted'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@0926e0b0d25c4451fc1a1f549c9875834a601de3
+      - name: Prepare or verify declared SDKs
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@241b36ee8d7f553f307fa80897833d22c2b124b4
         with:
           node-version: ${{ inputs.node-version }}
           python-version: ${{ inputs.python-version }}
@@ -190,13 +189,13 @@ jobs:
 
       - name: Prepare only the declared dependencies
         if: inputs.prepare != ''
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@241b36ee8d7f553f307fa80897833d22c2b124b4
         with:
           recipe: ${{ inputs.prepare }}
           working-directory: ${{ inputs.working-directory }}
           justfile: ${{ inputs.justfile }}
       - name: Run the project command
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@241b36ee8d7f553f307fa80897833d22c2b124b4
         with:
           recipe: ${{ inputs.recipe }}
           arguments: ${{ inputs.arguments }}

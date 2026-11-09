@@ -153,10 +153,6 @@ jobs:
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
-    env:
-      JUST_VERSION: "1.59.0"
-      JUST_SHA256_X64: "409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e"
-      JUST_SHA256_ARM64: "23871b1702bfd550fb5f901778fd4290ecf2ee034a45a889fbe96d89b188086d"
     steps:
       - name: Hosted runner and diagnostics
         env:
@@ -374,49 +370,11 @@ jobs:
           GIT_CONFIG_VALUE_1=!f() { if [ "$1" = get ]; then printf "%s\n" "username=x-access-token" "password=$NDDEV_CI_READ_TOKEN"; fi; }; f
           GIT
 
-      - name: Tools
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # The check runs natively on Linux x64 or ARM64; every archive has its own pinned digest.
-          [ "$RUNNER_OS" = Linux ] || { echo "::error::check.yml runs on Linux runners; recipe.yml serves other systems"; exit 1; }
-          case "$(uname -m)" in
-            x86_64) rust=x86_64 just_sha=$JUST_SHA256_X64 ;;
-            aarch64 | arm64) rust=aarch64 just_sha=$JUST_SHA256_ARM64 ;;
-            *) echo "::error::check.yml supports Linux x64 and ARM64"; exit 1 ;;
-          esac
-          bin="$RUNNER_TEMP/nddev-ci/bin"
-          archive="$RUNNER_TEMP/nddev-ci/archive.tar.gz"
-          mkdir -p "$bin"
-          fetch() {
-            source=${1#https://github.com/}
-            repository=${source%%/releases/download/*}
-            release=${source#*/releases/download/}
-            tag=${release%%/*}
-            name=${release#*/}
-            printf 'Fetching check tool %s@%s: %s\n' "$repository" "$tag" "$name"
-            auth=()
-            if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
-            if [ -n "${NDDEV_CI_ARTIFACT_REGISTRY:-}" ]; then
-              printf 'Using the configured artifact registry.\n'
-              curl -fsSL -o "$archive" "${NDDEV_CI_ARTIFACT_REGISTRY%/}/github-releases/sha256/$2/$repository/releases/download/$tag/$name"
-            else
-              asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
-                jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
-              curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/$repository/releases/assets/$asset"
-            fi
-            echo "$2  $archive" | sha256sum --check --quiet
-            tar -xzf "$archive" -C "$bin" --strip-components="$3" "$4"
-          }
-          fetch "https://github.com/casey/just/releases/download/$JUST_VERSION/just-$JUST_VERSION-$rust-unknown-linux-musl.tar.gz" \
-            "$just_sha" 0 just
-          rm -f "$archive"
-          echo "$bin" >> "$GITHUB_PATH"
+      - name: Native task runner
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/frontend@241b36ee8d7f553f307fa80897833d22c2b124b4
 
-      - name: Prepare declared hosted SDKs
-        if: runner.environment == 'github-hosted'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@0926e0b0d25c4451fc1a1f549c9875834a601de3
+      - name: Prepare or verify declared SDKs
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@241b36ee8d7f553f307fa80897833d22c2b124b4
         with:
           node-version: ${{ inputs.node-version }}
           python-version: ${{ inputs.python-version }}

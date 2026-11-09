@@ -57,6 +57,12 @@ export function record(environment, now = new Date()) {
     "host.arch": { X64: "amd64", ARM64: "arm64" }[environment.RUNNER_ARCH] ?? os.arch(),
   };
   const started = input("started-file");
+  const queued = input("queue-seconds") || environment.NDDEV_CI_QUEUE_SECONDS || "";
+  if (queued !== "") {
+    if (!/^\d+(?:\.\d+)?$/.test(queued) || !Number.isFinite(Number(queued)))
+      throw new Error("queue-seconds must be a measured nonnegative number");
+    document["nddev_ci.queue_seconds"] = Number(queued);
+  }
   if (started && existsSync(started)) {
     const seconds = Number(readFileSync(started, "utf8").trim());
     if (Number.isSafeInteger(seconds) && seconds > 0)
@@ -78,13 +84,14 @@ export function main(environment = process.env) {
   const line = JSON.stringify(document);
   console.log(line);
   const seconds = document["nddev_ci.duration_seconds"];
+  const queue = document["nddev_ci.queue_seconds"];
   const cache = Object.entries(document).filter(([key]) => key.startsWith("nddev_ci.sccache."))
     .map(([key, value]) => `${key.slice("nddev_ci.sccache.".length)} ${value}`).join(", ");
   if (environment.GITHUB_STEP_SUMMARY)
     appendFileSync(environment.GITHUB_STEP_SUMMARY, [
       `### ${document["cicd.pipeline.task.name"]}: ${document["cicd.pipeline.task.run.result"]}`, "",
-      "| Runner | System | Duration | Compiler cache |", "| --- | --- | --- | --- |",
-      `| ${document["cicd.worker.name"]} (${document["nddev_ci.runner.environment"]}) | ${document["os.type"]} ${document["host.arch"]} | ${seconds === undefined ? "unknown" : `${Math.floor(seconds / 60)}m ${seconds % 60}s`} | ${cache || "none"} |`,
+      "| Runner | System | Queue | Duration | Compiler cache |", "| --- | --- | --- | --- | --- |",
+      `| ${document["cicd.worker.name"]} (${document["nddev_ci.runner.environment"]}) | ${document["os.type"]} ${document["host.arch"]} | ${queue === undefined ? "unknown" : `${queue}s`} | ${seconds === undefined ? "unknown" : `${Math.floor(seconds / 60)}m ${seconds % 60}s`} | ${cache || "none"} |`,
       "",
     ].join("\n"));
   // Our runners name a telemetry file the contour collects; GitHub's runners leave this unset.

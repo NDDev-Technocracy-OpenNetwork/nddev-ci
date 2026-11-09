@@ -54,7 +54,7 @@ jobs:
     name: image ${{ inputs.image }}
     if: github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:')
     # Public repositories build on GitHub's runners; an unknown hosted label fails below.
-    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || inputs.runner }}
+    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || inputs.runner) }}
     concurrency:
       # Each runner of one image has its own group, so x64 and ARM64 builds never cancel each other.
       group: nddev-ci-image-${{ github.workflow }}-${{ inputs.image }}-${{ inputs.hosted-runner }}-${{ inputs.runner }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
@@ -86,6 +86,7 @@ jobs:
           done
           echo "name=ghcr.io/${OWNER,,}/$IMAGE" >> "$GITHUB_OUTPUT"
           date +%s > "$RUNNER_TEMP/nddev-ci-started"
+          [ "$RUNNER_OS" = Linux ] || { echo "::error::images require a native Linux runner"; exit 1; }
           case "$(uname -m)" in
             x86_64) echo "platform=linux/amd64" >> "$GITHUB_OUTPUT" ;;
             aarch64 | arm64) echo "platform=linux/arm64" >> "$GITHUB_OUTPUT" ;;

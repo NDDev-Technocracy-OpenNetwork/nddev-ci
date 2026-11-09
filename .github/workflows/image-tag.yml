@@ -29,7 +29,7 @@ jobs:
   tag:
     name: tag ${{ inputs.image }}
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || inputs.runner }}
+    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || inputs.runner) }}
     timeout-minutes: 15
     permissions:
       packages: write # add the version tag to the existing image

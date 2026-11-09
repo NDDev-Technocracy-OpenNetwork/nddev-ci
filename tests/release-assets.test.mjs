@@ -87,6 +87,25 @@ for (const variant of ["redirect", "size", "digest", "forbidden"]) {
   });
 }
 
+test("declared registries receive no GitHub token and cannot switch sources", async (t) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "registry-asset-"));
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({url: String(url), options});
+    return requests.length === 1 ? new Response(bytes) : new Response(null, {status: 403});
+  });
+  const pinned = {...asset, tag: "v1.0.0", name: "tool.tar.gz"};
+  try {
+    await downloadAsset(pinned, path.join(directory, "tool"), "test-read-token", "http://127.0.0.1:8080/cache");
+    assert.equal(requests[0].url, `http://127.0.0.1:8080/cache/github-releases/sha256/${asset.sha256}/example/tool/releases/download/v1.0.0/tool.tar.gz`);
+    assert.equal(requests[0].options.headers.Authorization, undefined);
+    await assert.rejects(downloadAsset(pinned, path.join(directory, "other"), "test-read-token", "http://127.0.0.1:8080/cache"));
+    assert.equal(requests.length, 2);
+    await assert.rejects(downloadAsset(asset, path.join(directory, "missing-identity"), "test-read-token", "http://127.0.0.1:8080/cache"));
+    assert.equal(requests.length, 2);
+  } finally { rmSync(directory, {recursive: true, force: true}); }
+});
+
 test("valid warm assets need no download and unsafe destinations create nothing", async (t) => {
   const workspace = mkdtempSync(path.join(tmpdir(), "release-workspace-"));
   const temporary = mkdtempSync(path.join(tmpdir(), "release-temporary-"));

@@ -120,9 +120,10 @@ async function executable(environment) {
     try {
       const archive = path.join(temporary, asset.name);
       await downloadAsset(
-        { ...asset, repository: configuration.repository },
+        { ...asset, repository: configuration.repository, tag: configuration.version },
         archive,
         environment["INPUT_GITHUB-TOKEN"],
+        environment.NDDEV_CI_ARTIFACT_REGISTRY,
       );
       const source = path.join(temporary, path.basename(binary));
       await extract(

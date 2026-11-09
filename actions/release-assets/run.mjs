@@ -136,7 +136,7 @@ export async function main(environment = process.env) {
     try {
       const source = path.join(staging, asset.file);
       if (!current) {
-        await downloadAsset(asset, source, environment["INPUT_GITHUB-TOKEN"]);
+        await downloadAsset(asset, source, environment["INPUT_GITHUB-TOKEN"], environment.NDDEV_CI_ARTIFACT_REGISTRY);
         if (asset.executable === true) chmodSync(source, 0o755);
         renameSync(source, target);
       } else if (asset.executable === true) chmodSync(target, 0o755);
