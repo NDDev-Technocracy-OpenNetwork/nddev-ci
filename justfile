@@ -52,6 +52,10 @@ test:
 # Everything the full check on dev runs.
 verify: check test
 
+# Qualify the existing hosted native providers without installing or changing them.
+qualify-native-providers:
+    node tests/research/native-providers.mjs
+
 # Applies formatting.
 fix:
     just --fmt
