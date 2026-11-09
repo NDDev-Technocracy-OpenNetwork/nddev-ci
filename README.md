@@ -199,7 +199,8 @@ On external bootstrap profiles both workflows also restore the dependency caches
 (Temurin), `go-version` and `flutter-version` (stable, with its Dart SDK, whose version the receipt
 also records; Flutter publishes Linux and Windows SDKs for x64 only, so an ARM64 Linux or Windows
 runner refuses it; Temurin publishes no JDK for Windows on ARM64, which refuses `java-version`). Each value is an exact stable version; an empty input leaves that SDK unchanged.
-Node, Python and uv come from GitHub releases; once a job has prepared an exact selection on a
+SDK validation and preparation use the runner's embedded JavaScript action runtime; no Node SDK
+is required before preparation. Node, Python and uv come from GitHub releases; once a job has prepared an exact selection on a
 runner image and architecture, later jobs of the repository restore it from the Actions cache and
 download nothing. The 8–9 November 2026 HTTP 504 failures of anonymous release downloads showed
 why. Flutter comes from its official release manifest and archive on Google's storage, verified by
