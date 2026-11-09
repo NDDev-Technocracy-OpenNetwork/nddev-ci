@@ -14,6 +14,7 @@ import {
   appendFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { downloadAsset } from "../lib/release-asset.mjs";
@@ -55,6 +56,52 @@ test("authenticates only the official API and verifies streamed bytes", async (t
     assert.equal(requests[1].options.redirect, "error");
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a failed storage socket cannot leave the API redirect as the download result", {timeout: 20000}, async (t) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "release-redirect-transport-"));
+  const nativeFetch = globalThis.fetch, requests = [], apiCredentials = [], storageCredentials = [];
+  const listen = async (handler) => {
+    const server = createServer(handler);
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    return {server, url: `http://127.0.0.1:${server.address().port}`};
+  };
+  const api = await listen((req, res) => {
+    apiCredentials.push(req.headers.authorization);
+    res.writeHead(302, {location: "https://release-assets.githubusercontent.com/asset?signature=fixture-private"});
+    res.end();
+  });
+  const storage = await listen((req) => {
+    storageCredentials.push(req.headers.authorization);
+    req.socket.destroy();
+  });
+  t.mock.method(globalThis, "fetch", (url, options) => {
+    const value = String(url), source = value.startsWith("https://api.github.com/");
+    requests.push({url: value, source, options});
+    // Keep the actual origin checks, but exercise the fetch rejection with a real local socket.
+    return nativeFetch(source ? api.url : storage.url, options);
+  });
+  try {
+    const target = path.join(directory, "tool");
+    await assert.rejects(downloadAsset(asset, target, "test-read-token"), (error) => {
+      assert.match(error.message, /Pinned release asset transport did not complete/);
+      assert.doesNotMatch(error.message, /HTTP 302|fixture-private|test-read-token/);
+      return true;
+    });
+    assert.equal(requests.filter((r) => r.source).length, 4);
+    assert.equal(requests.filter((r) => !r.source).length, 4);
+    assert.ok(requests.filter((r) => r.source).every((r) => r.url === "https://api.github.com/repos/example/tool/releases/assets/123"));
+    assert.ok(requests.filter((r) => !r.source).every((r) => r.options.redirect === "error" && r.options.headers.Authorization === undefined));
+    assert.ok(apiCredentials.every((value) => value === "Bearer test-read-token"));
+    assert.ok(storageCredentials.length > 0 && storageCredentials.every((value) => value === undefined));
+    assert.equal(existsSync(target), false);
+  } finally {
+    for (const {server} of [api, storage]) {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
+    rmSync(directory, {recursive: true, force: true});
   }
 });
 
