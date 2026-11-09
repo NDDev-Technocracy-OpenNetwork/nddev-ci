@@ -261,3 +261,8 @@ execution. Workflow steps use their contents-read token for API rate limits; a l
 read public assets without a token. A source with restricted token access declares public
 access explicitly (Trivy); failures never switch identities. Package/compiler caching belongs to the runner SDK and
 network-cache contract. Tool bootstrap has one source and fails if it cannot fetch or verify it.
+
+## Credit
+
+NDDev CI is licensed under [Apache 2.0](LICENSE). When you use or adapt it, please name NDDev and
+link this repository.
