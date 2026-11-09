@@ -178,7 +178,10 @@ uv package stores for `bun.lock`, `package-lock.json`, `pnpm-lock.yaml` and `uv.
 the contour's network cache, jobs of `dev` and `main` save at the end of a successful job and
 every other job only reads, so a pull request never writes what a release build reads. It serves
 GitHub-hosted runners only; our runners use the network cache. Package managers still verify
-every package against the lock files.
+every package against the lock files. The Cargo cache keeps dependency artifacts only: Cargo judges
+workspace packages by source mtimes, so their artifacts are always rebuilt from the checked-out
+sources. A project's own persistent target cache, such as a BuildKit cache mount, follows the same
+rule (contour-platform-infrastructure#168).
 
 ## Native recipe steps
 
