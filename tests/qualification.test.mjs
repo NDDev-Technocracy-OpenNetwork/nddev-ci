@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { client, downloadArtifact, qualify, receipt, recheck, selectArtifacts, transferArtifacts } from "../lib/qualification.mjs";
 
 const where = {repository: "fixture/project", sha: "a".repeat(40), workflowPath: ".github/workflows/ci.yml", branch: "dev", event: "push"};
@@ -138,5 +140,31 @@ test("actual ZIP bytes transfer atomically; tampering, unsafe members and newer 
     assert.equal(existsSync(path.join(root, "newer")), false);
     assert.ok(readdirSync(root).every((name) => !name.startsWith(".checked-artifacts-")));
     await assert.rejects(downloadArtifact(github, where.repository, {...metadata(), digest: `sha256:${"0".repeat(64)}`}, path.join(root, "tampered")), /differ/);
+  } finally { await close(api.server); rmSync(root, {recursive: true, force: true}); }
+});
+
+test("the actual release entrypoint never prints unexpected error details", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "release-error-boundary-"));
+  const privatePath = path.join(root, "private-credential-fixture");
+  writeFileSync(privatePath, "a regular file cannot hold the release workspace");
+  let reads = 0;
+  const api = await listen((req, res) => {
+    if (req.method !== "GET" || !req.url.includes("/workflows/ci.yml/runs?")) { res.writeHead(405); res.end(); return; }
+    reads++; res.setHeader("content-type", "application/json"); res.end(JSON.stringify(inventory()));
+  });
+  try {
+    const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
+      stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...process.env,
+        GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: privatePath,
+        GITHUB_API_URL: api.url, GITHUB_SERVER_URL: "https://github.com", "INPUT_API-URL": api.url,
+        "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", "INPUT_WAIT-MINUTES": "0", INPUT_ARTIFACTS: "",
+        "INPUT_CHECK-WORKFLOW": "ci.yml", "INPUT_CHECK-BRANCH": "dev", "INPUT_RELEASE-BRANCH": "main", "INPUT_TAG-PREFIX": "v"},
+    });
+    let output = "";
+    child.stdout.on("data", (bytes) => {output += bytes;}); child.stderr.on("data", (bytes) => {output += bytes;});
+    const [code] = await once(child, "close");
+    assert.equal(code, 1); assert.equal(reads, 1);
+    assert.match(output, /Release failed before completion\./);
+    assert.doesNotMatch(output, /private-credential-fixture|opaque-credential-fixture/);
   } finally { await close(api.server); rmSync(root, {recursive: true, force: true}); }
 });
