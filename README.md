@@ -66,8 +66,9 @@ repository.
   unless the repository has its own `committed.toml`. It checks only the commits the change brings:
   merge commits and commits another branch already holds are left out. Any of them stops the merge.
 
-The same PR job compares tracked source lockfiles with OSV-Scanner. It binds the exact base,
-head and proposed merge commits, reads Git blobs rather than the working tree and runs no package
+The same PR job compares tracked source lockfiles with OSV-Scanner. It binds the exact head and
+proposed merge commits and compares the merge with its own base, which must be the pull request's
+base or a later commit the base branch moved forward to, reads Git blobs rather than the working tree and runs no package
 installers, build scripts, dependency resolution or call analysis. A change to a supported lockfile
 or dependency declaration selects all supported tracked lockfiles in both the base and merge.
 Unchanged dependency inputs and repositories without supported tracked lockfiles are explicitly
