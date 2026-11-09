@@ -565,7 +565,7 @@ jobs:
   merge-stops:
     # The merge stops of security.md, the same workflow a project with its own command jobs calls.
     if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:'))
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@21aa38787cb6ad69319c943ea81f74d0c495c307
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@3bf9b52b24a4e83a0b2513088b76ff396f3f88b0
     with:
       runner: ${{ inputs.runner }}
       hosted-runner: ${{ inputs.hosted-runner }}
