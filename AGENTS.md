@@ -1,7 +1,7 @@
 # Agents
 
-Follow the [agent standards](https://github.com/NDDev-Technocracy-Standarts/agent-standards),
-starting with `vision.md`; delivery.md describes this library.
+Follow the owner-provided local standards, starting with `vision.md`; the delivery topic
+describes this library. Keep their source locations and contents private.
 
 - The repository is public. It holds only workflows and their code. Hosts, keys and private
   settings reach it as inputs or from the runner machine, never from this repository.
