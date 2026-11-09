@@ -108,8 +108,16 @@ test("daily reports retain vulnerable and disallowed-licence packages despite lo
     );
     const workflow = readFileSync(new URL("../.github/workflows/security.yml", import.meta.url), "utf8");
     const defaults = workflow.match(/^      LICENSES: (.+)$/m)[1];
+    const policyScript = workflow.split("      - name: Licence policy\n")[1].split("        run: |\n")[1]
+      .split("      - name:")[0].split("\n").map((line) => line.replace(/^          /, "")).join("\n");
+    const policyOutput = path.join(root, "license-outputs");
+    const policy = spawnSync("bash", ["-euo", "pipefail", "-c", policyScript], {cwd: workspace, encoding: "utf8",
+      env: {...process.env, POLICY: "", LICENSES: defaults, GITHUB_OUTPUT: policyOutput}});
+    assert.ifError(policy.error);
+    assert.equal(policy.status, 0, policy.stderr);
+    const identifiers = readFileSync(policyOutput, "utf8").trim().slice("licenses=".length);
     const defaultOutput = path.join(root, "default reports");
-    const admitted = run(defaultOutput, defaults);
+    const admitted = run(defaultOutput, identifiers);
     assert.ifError(admitted.error);
     assert.equal(admitted.status, 0, admitted.stderr);
     const defaultLicenses = JSON.parse(readFileSync(path.join(defaultOutput, "licenses.json")));
