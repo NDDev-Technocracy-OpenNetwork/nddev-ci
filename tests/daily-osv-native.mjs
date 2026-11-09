@@ -25,6 +25,7 @@ test("daily reports retain vulnerable and disallowed-licence packages despite lo
     const tools = path.join(root, "tools");
     for (const folder of [workspace, temporary, tools]) mkdirSync(folder);
     const binary = await prepareScanner(tools);
+    writeFileSync(path.join(workspace, ".gitignore"), "nested/\n");
     for (const sub of ["", "nested"]) {
       const folder = path.join(workspace, sub);
       mkdirSync(folder, { recursive: true });
