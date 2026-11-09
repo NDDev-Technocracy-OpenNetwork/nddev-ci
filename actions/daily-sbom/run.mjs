@@ -21,6 +21,22 @@ export function main(environment = process.env) {
     throw new Error(
       "Daily package scans need absolute workspace, tools and output paths.",
     );
+  let callerFiles = [];
+  if (environment.INPUT_SBOMS) {
+    if (
+      !path.isAbsolute(environment.INPUT_SBOMS) ||
+      !existsSync(environment.INPUT_SBOMS) ||
+      !lstatSync(environment.INPUT_SBOMS).isDirectory()
+    )
+      throw new Error(
+        "Caller SBOMs require their real absolute input directory.",
+      );
+    callerFiles = readdirSync(environment.INPUT_SBOMS).filter((name) =>
+      name.endsWith(".json"),
+    );
+    if (!callerFiles.length)
+      throw new Error("Caller SBOM directory contains no JSON inventories.");
+  }
   mkdirSync(output, { recursive: true, mode: 0o700 });
   const policy = scannerPolicy(environment, "scanners.yaml");
   try {
@@ -63,10 +79,8 @@ export function main(environment = process.env) {
         mode: 0o600,
       });
     }
-    if (environment.INPUT_SBOMS && existsSync(environment.INPUT_SBOMS)) {
-      for (const name of readdirSync(environment.INPUT_SBOMS).filter((name) =>
-        name.endsWith(".json"),
-      )) {
+    if (environment.INPUT_SBOMS) {
+      for (const name of callerFiles) {
         const from = path.join(environment.INPUT_SBOMS, name);
         if (!lstatSync(from).isFile())
           throw new Error("Caller SBOMs must be regular files.");

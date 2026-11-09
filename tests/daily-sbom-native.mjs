@@ -178,6 +178,16 @@ test("daily SBOM and vulnerability reports ignore local scanner suppressions", {
     const result = run();
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr);
+    const missing = run({ INPUT_SBOMS: path.join(root, "missing caller") });
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /Caller SBOMs require/);
+    assert.doesNotMatch(missing.stdout, /Running syft/);
+    const emptyCaller = path.join(root, "empty caller");
+    mkdirSync(emptyCaller);
+    const empty = run({ INPUT_SBOMS: emptyCaller });
+    assert.equal(empty.status, 1);
+    assert.match(empty.stderr, /no JSON inventories/);
+    assert.doesNotMatch(empty.stdout, /Running syft/);
     const parse = (name) => JSON.parse(readFileSync(path.join(output, name)));
     const inventory = parse("sbom-repository.json");
     assert(
