@@ -66,10 +66,13 @@ export function imageKey(environment, platform = process.platform, readRelease =
   return key;
 }
 
-export function cachePlan(environment) {
+// The macOS Python build installs its framework under /Library/Frameworks and leaves only links in
+// the tool cache, so a restored copy would be broken there; it is prepared fresh instead.
+export function cachePlan(environment, platform = process.platform) {
   const selected = selections(environment);
   const root = environment.RUNNER_TOOL_CACHE;
-  const parts = Object.keys(toolCacheNames).filter((name) => selected[name]);
+  const parts = Object.keys(toolCacheNames).filter((name) => selected[name] &&
+    !(name === "python" && platform === "darwin"));
   if (!parts.length) return {key: "", paths: []};
   if (!root || /[\r\n]/.test(root)) throw new ActionError("The runner tool cache is required.");
   const image = imageKey(environment);

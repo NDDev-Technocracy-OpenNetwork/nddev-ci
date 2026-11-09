@@ -61,8 +61,11 @@ test("Java, Go and Flutter take exact versions like the other SDKs", () => {
 test("the tool cache entry names the image, architecture and every exact cached SDK", () => {
   const base = {...hosted, RUNNER_TOOL_CACHE: path.join("cache", "tools"), ImageOS: "ubuntu24", RUNNER_ARCH: "ARM64"};
   assert.deepEqual(cachePlan({...base, SDK_RUST_VERSION: "1.99.1"}), {key: "", paths: []});
+  const mac = cachePlan({...base, ImageOS: "macos15", SDK_NODE_VERSION: "26.13.0", SDK_PYTHON_VERSION: "3.15.2"}, "darwin");
+  assert.equal(mac.key, "nddev-sdk-v1-macos15-ARM64-node-26.13.0");
+  assert.deepEqual(mac.paths, [path.join("cache", "tools", "node", "26.13.0")]);
   const plan = cachePlan({...base, SDK_NODE_VERSION: "26.13.0", SDK_PYTHON_VERSION: "3.15.2",
-    SDK_UV_VERSION: "0.13.7", SDK_BUN_VERSION: "1.4.4"});
+    SDK_UV_VERSION: "0.13.7", SDK_BUN_VERSION: "1.4.4"}, "linux");
   assert.equal(plan.key, "nddev-sdk-v1-ubuntu24-ARM64-node-26.13.0-python-3.15.2-uv-0.13.7");
   assert.deepEqual(plan.paths, [
     path.join("cache", "tools", "node", "26.13.0"),
@@ -76,11 +79,11 @@ test("validation writes the cache plan as step outputs", () => {
   const root = mkdtempSync(path.join(tmpdir(), "hosted-sdk-plan-"));
   try {
     const environment = {...hosted, RUNNER_TOOL_CACHE: root, ImageOS: "macos15", RUNNER_ARCH: "ARM64",
-      SDK_PYTHON_VERSION: "3.15.2", GITHUB_OUTPUT: path.join(root, "output")};
+      SDK_NODE_VERSION: "26.13.0", GITHUB_OUTPUT: path.join(root, "output")};
     main("validate", environment);
     const output = readFileSync(environment.GITHUB_OUTPUT, "utf8");
-    assert.match(output, /^cache-key=nddev-sdk-v1-macos15-ARM64-python-3\.15\.2$/m);
-    assert.ok(output.includes(`cache-paths<<NDDEV_SDK_PATHS\n${path.join(root, "Python", "3.15.2")}\nNDDEV_SDK_PATHS\n`));
+    assert.match(output, /^cache-key=nddev-sdk-v1-macos15-ARM64-node-26\.13\.0$/m);
+    assert.ok(output.includes(`cache-paths<<NDDEV_SDK_PATHS\n${path.join(root, "node", "26.13.0")}\nNDDEV_SDK_PATHS\n`));
   } finally { rmSync(root, {recursive: true, force: true}); }
 });
 
