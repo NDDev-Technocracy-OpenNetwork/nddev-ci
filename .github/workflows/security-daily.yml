@@ -14,3 +14,6 @@ jobs:
     permissions:
       contents: read
       issues: write
+    # The configured-policy path, with the same list as licenses.md.
+    with:
+      license-policy: tests/fixtures/license-policy/deny.toml
