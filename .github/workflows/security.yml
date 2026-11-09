@@ -13,6 +13,12 @@ on:
         description: The runner label the scan runs on.
         type: string
         default: nddev-linux-standart
+      hosted-runner:
+        description: >-
+          The GitHub-hosted Linux runner of a public repository: ubuntu-24.04, ubuntu-24.04-arm,
+          ubuntu-26.04 or ubuntu-26.04-arm.
+        type: string
+        default: ubuntu-24.04
       images:
         description: Container images the project releases, one per line, scanned on their SBOM.
         type: string
@@ -37,24 +43,31 @@ permissions: {}
 jobs:
   scan:
     name: daily security
-    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || inputs.runner }}
+    # Public repositories scan on GitHub's runners; an unknown hosted label fails below.
+    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || inputs.runner }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
       issues: write
     env:
       TRUFFLEHOG_VERSION: "3.99.8"
-      TRUFFLEHOG_SHA256: "7c3b02f160f28929a467e29e20fba98746e0729f6e37c3c25761e4f8789abe08"
+      TRUFFLEHOG_SHA256_X64: "7c3b02f160f28929a467e29e20fba98746e0729f6e37c3c25761e4f8789abe08"
+      TRUFFLEHOG_SHA256_ARM64: "a0382d83dd58c967af5dd0175cc732c62c836ab1d15dc9ae71b01a2d3f0911b2"
       KINGFISHER_VERSION: "2.16.0"
-      KINGFISHER_SHA256: "97cdbe7706a722ea085d1e83a00a98b0e9432fc58b21c9a3e36f591b5c1446d7"
+      KINGFISHER_SHA256_X64: "97cdbe7706a722ea085d1e83a00a98b0e9432fc58b21c9a3e36f591b5c1446d7"
+      KINGFISHER_SHA256_ARM64: "fece052a018c127f664e96f76c1ad6be39fe3d4df71db91caaa462e92a99aed1"
       OSV_SCANNER_VERSION: "2.7.0"
-      OSV_SCANNER_SHA256: "160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b"
+      OSV_SCANNER_SHA256_X64: "160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b"
+      OSV_SCANNER_SHA256_ARM64: "4061ef4c021ed3c47f203b818f337e351336cc5cd67c0274fc36bd1dfc728dd7"
       SYFT_VERSION: "1.56.0"
-      SYFT_SHA256: "1c2493cfcf52d3367d6cb25780d9190c111c2219c34c820574c43e8bae15c528"
+      SYFT_SHA256_X64: "1c2493cfcf52d3367d6cb25780d9190c111c2219c34c820574c43e8bae15c528"
+      SYFT_SHA256_ARM64: "ace61b9397ae28189c674ae332d67a8074dafd71e87724dfb8b22412d8253bb5"
       GRYPE_VERSION: "0.121.1"
-      GRYPE_SHA256: "bc3ea3f9e6fd56ac781c08c6c5e614271b79f438200757f6932085c19b0a4657"
+      GRYPE_SHA256_X64: "bc3ea3f9e6fd56ac781c08c6c5e614271b79f438200757f6932085c19b0a4657"
+      GRYPE_SHA256_ARM64: "33670612aad351c48cf3c37f4a85d8b043d1b64b21e6034e675bb00b956d78c1"
       TRIVY_VERSION: "0.76.2"
-      TRIVY_SHA256: "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf"
+      TRIVY_SHA256_X64: "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf"
+      TRIVY_SHA256_ARM64: "ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3"
       # No scanner reports to its maker or looks for its own updates.
       DO_NOT_TRACK: "1"
       TRIVY_DISABLE_TELEMETRY: "true"
@@ -64,6 +77,22 @@ jobs:
       # licenses.md's list for embedded dependencies, as SPDX identifiers; a caller's policy replaces it.
       LICENSES: MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,Zlib,Unicode-3.0,CC0-1.0
     steps:
+      - name: Native scanner platform
+        env:
+          PRIVATE: ${{ github.event.repository.private }}
+          HOSTED_RUNNER: ${{ inputs.hosted-runner }}
+        run: |
+          set -euo pipefail
+          # The scanners run natively on Linux x64 or ARM64; any other system stops before preparation.
+          if [ "$PRIVATE" != true ]; then
+            case "$HOSTED_RUNNER" in
+              ubuntu-24.04 | ubuntu-24.04-arm | ubuntu-26.04 | ubuntu-26.04-arm) ;;
+              *) echo "::error::hosted-runner must be a GitHub-hosted Linux label of this workflow"; exit 1 ;;
+            esac
+          fi
+          [ "$RUNNER_OS" = Linux ] || { echo "::error::the daily scan runs on Linux runners"; exit 1; }
+          case "$(uname -m)" in x86_64 | aarch64 | arm64) ;; *) echo "::error::the daily scan supports Linux x64 and ARM64"; exit 1 ;; esac
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -80,6 +109,11 @@ jobs:
           bin="$RUNNER_TEMP/security/bin"
           download="$RUNNER_TEMP/security/download"
           mkdir -p "$bin"
+          case "$(uname -m)" in
+            x86_64) arch=X64 go=amd64 kingfisher=x64 trivy=64bit ;;
+            aarch64 | arm64) arch=ARM64 go=arm64 kingfisher=arm64 trivy=ARM64 ;;
+          esac
+          digest() { local name="${1}_SHA256_$arch"; printf '%s' "${!name}"; }
           fetch() {
             source=${1#https://github.com/}
             repository=${source%%/releases/download/*}
@@ -103,19 +137,19 @@ jobs:
             fi
             echo "$2  $download" | sha256sum --check --quiet
           }
-          fetch "https://github.com/trufflesecurity/trufflehog/releases/download/v$TRUFFLEHOG_VERSION/trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz" "$TRUFFLEHOG_SHA256"
+          fetch "https://github.com/trufflesecurity/trufflehog/releases/download/v$TRUFFLEHOG_VERSION/trufflehog_${TRUFFLEHOG_VERSION}_linux_$go.tar.gz" "$(digest TRUFFLEHOG)"
           tar -xzf "$download" -C "$bin" trufflehog
-          fetch "https://github.com/mongodb/kingfisher/releases/download/v$KINGFISHER_VERSION/kingfisher-linux-x64.tgz" "$KINGFISHER_SHA256"
+          fetch "https://github.com/mongodb/kingfisher/releases/download/v$KINGFISHER_VERSION/kingfisher-linux-$kingfisher.tgz" "$(digest KINGFISHER)"
           tar -xzf "$download" -C "$bin" kingfisher
-          fetch "https://github.com/google/osv-scanner/releases/download/v$OSV_SCANNER_VERSION/osv-scanner_linux_amd64" "$OSV_SCANNER_SHA256"
+          fetch "https://github.com/google/osv-scanner/releases/download/v$OSV_SCANNER_VERSION/osv-scanner_linux_$go" "$(digest OSV_SCANNER)"
           install -m 0755 "$download" "$bin/osv-scanner"
-          fetch "https://github.com/anchore/syft/releases/download/v$SYFT_VERSION/syft_${SYFT_VERSION}_linux_amd64.tar.gz" "$SYFT_SHA256"
+          fetch "https://github.com/anchore/syft/releases/download/v$SYFT_VERSION/syft_${SYFT_VERSION}_linux_$go.tar.gz" "$(digest SYFT)"
           tar -xzf "$download" -C "$bin" syft
-          fetch "https://github.com/anchore/grype/releases/download/v$GRYPE_VERSION/grype_${GRYPE_VERSION}_linux_amd64.tar.gz" "$GRYPE_SHA256"
+          fetch "https://github.com/anchore/grype/releases/download/v$GRYPE_VERSION/grype_${GRYPE_VERSION}_linux_$go.tar.gz" "$(digest GRYPE)"
           tar -xzf "$download" -C "$bin" grype
           # This public upstream restricts organization-token access. Select public access before
           # the request; an error never retries under another identity.
-          fetch "https://github.com/aquasecurity/trivy/releases/download/v$TRIVY_VERSION/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" "$TRIVY_SHA256" public
+          fetch "https://github.com/aquasecurity/trivy/releases/download/v$TRIVY_VERSION/trivy_${TRIVY_VERSION}_Linux-$trivy.tar.gz" "$(digest TRIVY)" public
           tar -xzf "$download" -C "$bin" trivy
           rm -f "$download"
           echo "$bin" >> "$GITHUB_PATH"

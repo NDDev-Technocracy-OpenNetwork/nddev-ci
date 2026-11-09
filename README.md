@@ -334,6 +334,9 @@ holding the image) and passes its name as `sboms`; they are scanned with the res
 - Syft makes an SBOM of the repository and of each image; Trivy and Grype check it. Their shared
   policy overrides local scanner configuration and Trivy ignore files. Explicit caller SBOMs
   must exist and contain JSON inventories; missing, empty or malformed inputs fail the run.
+- The scanners run natively on Linux x64 or ARM64, each archive with its own pinned digest; any
+  other system stops before preparation. A public repository may choose its GitHub-hosted runner
+  in `hosted-runner`, as in `check.yml`.
 - One open issue, "Security report", holds the latest run's findings. A finding never fails the
   run; a scanner that cannot run does. No scanner reports to its maker or checks for updates.
 
