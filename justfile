@@ -59,7 +59,7 @@ check: (_tools "check")
 
 # The documented caller workflow is valid.
 test:
-    PATH="{{ shellcheck }}:$PATH" "{{ actionlint }}" examples/ci.yml
+    PATH="{{ shellcheck }}:$PATH" "{{ actionlint }}" examples/*.yml
     rustc --edition 2024 --test tests/recipe-routing.rs -o "{{ tools }}/recipe-routing-tests"
     "{{ tools }}/recipe-routing-tests"
     node --test tests/*.test.mjs

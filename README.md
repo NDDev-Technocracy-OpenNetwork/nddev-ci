@@ -1,12 +1,37 @@
 # NDDev CI
 
-The shared CI library of NDDev projects. A project calls one reusable workflow, pinned by commit,
-and it runs the same `just` commands an agent runs.
+The shared CI library of NDDev projects: checks, images, releases, publication and security,
+through the same `just` commands an agent runs.
 
 ## Use
 
-Copy [examples/ci.yml](examples/ci.yml) to `.github/workflows/ci.yml` and pin a commit of this
-repository.
+The library is the one delivery system of every NDDev project, as delivery.md asks. A project
+calls its reusable workflows, pinned to a released commit with the version as the comment, so
+Dependabot proposes each new release (`uses: …/check.yml@<commit> # v<version>`). Start from the
+callers in [examples/](examples/): `ci.yml` for the checks, `release.yml` for releases and
+`security.yml` for the daily security run.
+
+| Workflow or action | Does |
+| --- | --- |
+| `.github/workflows/check.yml` | The short check of a pull request and the full check of `dev` through the project's `just` recipes, with the merge stops |
+| `.github/workflows/merge-stops.yml` | The merge stops of security.md beside a project's own command jobs |
+| `.github/workflows/recipe.yml` | One `just` recipe on a chosen runner, the unit of a native platform matrix |
+| `.github/workflows/image.yml` | A container image built once and pushed by commit |
+| `.github/workflows/release.yml` | An immutable GitHub Release of the commit `main` moved to, from its verified `dev` check |
+| `.github/workflows/image-tag.yml` | The release's version tag on the checked image digest |
+| `.github/workflows/registry.yml` | Publication to crates.io, PyPI or npm through trusted publishing |
+| `.github/workflows/provenance.yml` | Build provenance attestations of a public repository's artifacts |
+| `.github/workflows/security.yml` | The daily security run: live secrets, dependencies, licences, SBOMs and images |
+| `actions/hosted-sdk`, `actions/hosted-cache` | Exact SDKs, tools and dependency caches on GitHub's runners |
+| `actions/recipe`, `actions/release-assets` | A pinned Just frontend and verified native tool assets |
+| `actions/telemetry`, `actions/job-record` | Outside telemetry off; each job's summary and structured record |
+
+Every workflow names its runners the same way: `runner` is the label of our runners for a private
+repository, `hosted-runner` the GitHub-hosted runner of a public one.
+
+## Checks
+
+`check.yml` runs the project's own recipes:
 
 | Event | Runs |
 | --- | --- |
@@ -492,7 +517,7 @@ holding the image) and passes its name as `sboms`; they are scanned with the res
 - One open issue, "Security report", holds the latest run's findings. A finding never fails the
   run; a scanner that cannot run does. No scanner reports to its maker or checks for updates.
 
-## Check
+## Developing the library
 
 ```sh
 just setup    # prepare the pinned analysis tools explicitly
