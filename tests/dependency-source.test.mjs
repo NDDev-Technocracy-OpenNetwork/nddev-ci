@@ -110,7 +110,7 @@ test("only exact merge parents and the checked out merge may be compared", () =>
 		const revisions = merge(base, head);
 		assert.throws(
 			() => sources(root, { ...revisions, head: base }),
-			/exact PR base and head/,
+			/exact PR head/,
 		);
 		assert.throws(
 			() => sources(root, { ...revisions, base: "dev" }),
@@ -118,7 +118,30 @@ test("only exact merge parents and the checked out merge may be compared", () =>
 		);
 		assert.throws(
 			() => sources(root, { ...revisions, merge: head }),
-			/exact PR base and head/,
+			/exact PR head/,
+		);
+	}));
+test("a base branch that moved on is compared at the merge's own base", () =>
+	fixture(({ root, git, write, commit, merge }) => {
+		write("Cargo.lock", "version=4\nbase\n");
+		const base = commit();
+		write("Cargo.lock", "version=4\nhead\n");
+		const head = commit();
+		git("checkout", "--detach", base);
+		write("Cargo.lock", "version=4\nmoved base\n");
+		const moved = commit();
+		const revisions = merge(moved, head);
+		const input = sources(root, { ...revisions, base });
+		assert.equal(input.revisions.base, base);
+		assert.equal(input.revisions.mergeBase, moved);
+		assert.equal(input.changed, true);
+		git("checkout", "--detach", head);
+		write("unrelated.txt", "x");
+		const unrelated = commit();
+		git("checkout", "--detach", revisions.merge);
+		assert.throws(
+			() => sources(root, { ...revisions, base: unrelated }),
+			/neither the PR base nor a later commit/,
 		);
 	}));
 test("Git renames preserve a finding's lock scope", () =>

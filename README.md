@@ -66,8 +66,9 @@ repository.
   unless the repository has its own `committed.toml`. It checks only the commits the change brings:
   merge commits and commits another branch already holds are left out. Any of them stops the merge.
 
-The same PR job compares tracked source lockfiles with OSV-Scanner. It binds the exact base,
-head and proposed merge commits, reads Git blobs rather than the working tree and runs no package
+The same PR job compares tracked source lockfiles with OSV-Scanner. It binds the exact head and
+proposed merge commits and compares the merge with its own base, which must be the pull request's
+base or a later commit the base branch moved forward to, reads Git blobs rather than the working tree and runs no package
 installers, build scripts, dependency resolution or call analysis. A change to a supported lockfile
 or dependency declaration selects all supported tracked lockfiles in both the base and merge.
 Unchanged dependency inputs and repositories without supported tracked lockfiles are explicitly
@@ -177,7 +178,10 @@ uv package stores for `bun.lock`, `package-lock.json`, `pnpm-lock.yaml` and `uv.
 the contour's network cache, jobs of `dev` and `main` save at the end of a successful job and
 every other job only reads, so a pull request never writes what a release build reads. It serves
 GitHub-hosted runners only; our runners use the network cache. Package managers still verify
-every package against the lock files.
+every package against the lock files. The Cargo cache keeps dependency artifacts only: Cargo judges
+workspace packages by source mtimes, so their artifacts are always rebuilt from the checked-out
+sources. A project's own persistent target cache, such as a BuildKit cache mount, follows the same
+rule (contour-platform-infrastructure#168).
 
 ## Native recipe steps
 
@@ -323,6 +327,49 @@ When `main` moves forward, `.github/workflows/image-tag.yml` gives the image tha
 commit's check pushed the release's version tag, without building again; a version tag that
 already names another digest stops it. The release then scans its images with `security.yml`
 and `images`, as security.md asks of every release.
+## Package registries
+
+`.github/workflows/registry.yml` publishes files of an immutable release to crates.io, PyPI or npm
+through trusted publishing: the job exchanges its identity for a short-lived registry token, so
+no registry token is stored. It downloads the named release files, requires their `SHA256SUMS`
+entries and GitHub's release attestation (`gh release verify-asset`), and publishes those exact
+bytes. A rerun skips a version the registry already holds with the same bytes and stops on
+different ones.
+
+- `crates`: one `.crate` file. The tagged source in `crate-directory` must reproduce it with
+  `cargo package --locked`, byte for byte, before `cargo publish`.
+- `pypi`: the wheels and source distribution; `environment` names the environment of the PyPI
+  trusted publisher.
+- `npm`: one package `.tgz` whose version is the release's, with npm provenance.
+
+```yaml
+jobs:
+  release:
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/release.yml@<commit> # v<version>
+    permissions:
+      actions: read
+      contents: write
+    with:
+      artifacts: |
+        python-dist
+  pypi:
+    needs: release
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/registry.yml@<commit> # v<version>
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+      registry: pypi
+      environment: pypi
+      files: |
+        example-1.2.3-py3-none-any.whl
+        example-1.2.3.tar.gz
+```
+
+Register the repository, workflow file of the caller and environment as the registry's trusted
+publisher first. Registries accept trusted publishing from GitHub's runners, so this job runs
+there for private repositories too.
 
 ## Daily security
 
@@ -360,6 +407,9 @@ holding the image) and passes its name as `sboms`; they are scanned with the res
 - Syft makes an SBOM of the repository and of each image; Trivy and Grype check it. Their shared
   policy overrides local scanner configuration and Trivy ignore files. Explicit caller SBOMs
   must exist and contain JSON inventories; missing, empty or malformed inputs fail the run.
+- The scanners run natively on Linux x64 or ARM64, each archive with its own pinned digest; any
+  other system stops before preparation. A public repository may choose its GitHub-hosted runner
+  in `hosted-runner`, as in `check.yml`.
 - One open issue, "Security report", holds the latest run's findings. A finding never fails the
   run; a scanner that cannot run does. No scanner reports to its maker or checks for updates.
 

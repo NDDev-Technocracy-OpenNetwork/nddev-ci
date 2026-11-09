@@ -5,6 +5,12 @@ on:
   schedule:
     - cron: "41 3 * * *"
   workflow_dispatch:
+    inputs:
+      hosted-runner:
+        description: The GitHub-hosted Linux runner of this run.
+        type: choice
+        options: [ubuntu-24.04, ubuntu-24.04-arm, ubuntu-26.04, ubuntu-26.04-arm]
+        default: ubuntu-24.04
 
 permissions: {}
 
@@ -17,3 +23,4 @@ jobs:
     # The configured-policy path, with the same list as licenses.md.
     with:
       license-policy: tests/fixtures/license-policy/deny.toml
+      hosted-runner: ${{ inputs.hosted-runner || 'ubuntu-24.04' }}

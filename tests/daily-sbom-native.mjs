@@ -52,7 +52,8 @@ async function tools(directory) {
     ],
   ];
   for (const [tool, repository, asset, size, name] of assets) {
-    const sha256 = value(`${tool.toUpperCase()}_SHA256`);
+    // These asset IDs are the Linux x64 archives that the library's own check runs on.
+    const sha256 = value(`${tool.toUpperCase()}_SHA256_X64`);
     const archive = path.join(directory, `${tool}.tar.gz`);
     if (process.env.NDS_CACHE_BASE) {
       const version = value(`${tool.toUpperCase()}_VERSION`);
