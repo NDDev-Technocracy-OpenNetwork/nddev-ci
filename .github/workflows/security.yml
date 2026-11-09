@@ -55,7 +55,6 @@ jobs:
       TRIVY_SKIP_VERSION_CHECK: "true"
       GRYPE_CHECK_FOR_APP_UPDATE: "false"
       SYFT_CHECK_FOR_APP_UPDATE: "false"
-      IMAGES: ${{ inputs.images }}
       # licenses.md's list, as SPDX identifiers.
       LICENSES: MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,0BSD,ISC,Zlib,Unicode-3.0,Unicode-DFS-2016,CC0-1.0,MPL-2.0
     steps:
@@ -119,7 +118,7 @@ jobs:
           name: ${{ inputs.sboms }}
           path: ${{ runner.temp }}/security/caller
 
-      - name: Scan
+      - name: Secrets
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/security/out"
@@ -129,42 +128,21 @@ jobs:
           status=0
           kingfisher scan . --only-valid --no-update-check --format json > "$out/kingfisher.json" || status=$?
           [ "$status" -eq 0 ] || [ "$status" -eq 200 ] || { echo "::error::Kingfisher ended with $status"; exit 1; }
-          status=0
-          osv-scanner scan source -r --allow-no-lockfiles --offline-vulnerabilities --download-offline-databases \
-            --data-source native --format json . > "$out/osv.json" || status=$?
-          [ "$status" -eq 0 ] || [ "$status" -eq 1 ] || { echo "::error::OSV-Scanner ended with $status"; exit 1; }
-          # Licences come only from deps.dev, so this second run is online.
-          status=0
-          osv-scanner scan source -r --allow-no-lockfiles --licenses="$LICENSES" --format json . > "$out/licenses.json" || status=$?
-          [ "$status" -eq 0 ] || [ "$status" -eq 1 ] || { echo "::error::OSV-Scanner (licences) ended with $status"; exit 1; }
-          echo "Creating the repository SBOM with Syft"
-          syft "dir:." -o "cyclonedx-json=$out/sbom-repository.json"
-          number=0
-          while IFS= read -r image; do
-            [ -n "$image" ] || continue
-            number=$((number + 1))
-            if ! syft "$image" -o "cyclonedx-json=$out/sbom-image-$number.json" > /dev/null 2> "$out/syft.log"; then
-              echo "::error::Syft could not read $image: $(tail -n 5 "$out/syft.log" | tr '\n' ' ')"
-              exit 1
-            fi
-            echo "$image" > "$out/sbom-image-$number.name"
-          done <<< "$IMAGES"
-          # SBOMs the caller made (private images it alone can read) are scanned the same way.
-          for sbom in "$RUNNER_TEMP"/security/caller/*.json; do
-            [ -e "$sbom" ] || continue
-            name=$(basename "$sbom" .json)
-            cp "$sbom" "$out/sbom-caller-$name.json"
-            if [ -e "${sbom%.json}.name" ]; then
-              cp "${sbom%.json}.name" "$out/sbom-caller-$name.name"
-            fi
-          done
-          for sbom in "$out"/sbom-*.json; do
-            name=$(basename "$sbom" .json)
-            printf 'Scanning %s with Grype\n' "$name"
-            grype "sbom:$sbom" -o json > "$out/grype-$name.json"
-            printf 'Scanning %s with Trivy\n' "$name"
-            trivy sbom --format json --output "$out/trivy-$name.json" "$sbom"
-          done
+
+      - name: Dependencies and licences
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-osv@005a15bdeb6099c2cd6a425483e7155ab959b557 # verified native scanner policy
+        with:
+          scanner: ${{ runner.temp }}/security/bin/osv-scanner
+          output: ${{ runner.temp }}/security/out
+          licenses: ${{ env.LICENSES }}
+
+      - name: Packages
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-sbom@005a15bdeb6099c2cd6a425483e7155ab959b557 # verified native SBOM policy
+        with:
+          tools: ${{ runner.temp }}/security/bin
+          output: ${{ runner.temp }}/security/out
+          images: ${{ inputs.images }}
+          sboms: ${{ inputs.sboms != '' && format('{0}/security/caller', runner.temp) || '' }}
 
       - name: Report
         env:

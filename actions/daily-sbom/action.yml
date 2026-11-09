@@ -1,0 +1,18 @@
+name: Daily package reports
+description: Make and scan the daily repository, image and caller SBOMs with prepared native tools.
+inputs:
+  tools:
+    description: Absolute directory of the verified Syft, Grype and Trivy executables.
+    required: true
+  output:
+    description: Private job directory for the SBOMs and scanner reports.
+    required: true
+  images:
+    description: Container images to inventory, one per line.
+    default: ''
+  sboms:
+    description: Optional directory of caller-owned CycloneDX JSON files and image names.
+    default: ''
+runs:
+  using: node24
+  main: run.mjs
