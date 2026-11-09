@@ -81,10 +81,10 @@ jobs:
           fetch-depth: 0
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@7e961aa1105359a063527b0d1111bd6f7554ec8e
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@92f5a4a550ec46781013a4685736ff336b1645bc
 
       - name: Artifact registry
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@7e961aa1105359a063527b0d1111bd6f7554ec8e
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@92f5a4a550ec46781013a4685736ff336b1645bc
         with:
           url: ${{ inputs.artifact-registry }}
 
@@ -194,7 +194,7 @@ jobs:
         run: betterleaks git --no-banner --redact --log-opts="$BASE..$HEAD" .
 
       - name: No new fixed critical dependency
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/dependency-guard@7e961aa1105359a063527b0d1111bd6f7554ec8e
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/dependency-guard@92f5a4a550ec46781013a4685736ff336b1645bc
         with:
           base: ${{ github.event.pull_request.base.sha }}
           head: ${{ github.event.pull_request.head.sha }}
@@ -230,7 +230,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@7e961aa1105359a063527b0d1111bd6f7554ec8e
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@92f5a4a550ec46781013a4685736ff336b1645bc
         with:
           task: merge stops
           task-type: test
