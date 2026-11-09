@@ -48,10 +48,10 @@ jobs:
       - name: Start
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@a20e612d91af50af313e06f0989b14457e0c6cb5
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@9795917fc97bf71b2761e609a87adbb189119894
       - name: Validate managed Renovate and explicit scope
         id: prepare
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/renovate@a20e612d91af50af313e06f0989b14457e0c6cb5
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/renovate@9795917fc97bf71b2761e609a87adbb189119894
         with:
           mode: prepare
           version: ${{ inputs.renovate-version }}
@@ -71,7 +71,7 @@ jobs:
           permission-checks: read
           permission-statuses: read
       - name: Run Renovate
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/renovate@a20e612d91af50af313e06f0989b14457e0c6cb5
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/renovate@9795917fc97bf71b2761e609a87adbb189119894
         with:
           mode: run
           version: ${{ inputs.renovate-version }}
@@ -83,7 +83,7 @@ jobs:
           dockerhub-token: ${{ secrets.dockerhub-token }}
       - name: Remove Renovate workspace and local credentials
         if: always() && steps.prepare.outputs.directory != ''
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/renovate@a20e612d91af50af313e06f0989b14457e0c6cb5
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/renovate@9795917fc97bf71b2761e609a87adbb189119894
         with:
           mode: cleanup
           version: ${{ inputs.renovate-version }}
@@ -91,7 +91,7 @@ jobs:
           directory: ${{ steps.prepare.outputs.directory }}
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@a20e612d91af50af313e06f0989b14457e0c6cb5
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@9795917fc97bf71b2761e609a87adbb189119894
         with:
           task: managed Renovate
           status: ${{ job.status }}

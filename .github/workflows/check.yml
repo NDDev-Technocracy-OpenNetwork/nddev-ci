@@ -182,10 +182,10 @@ jobs:
           sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@a20e612d91af50af313e06f0989b14457e0c6cb5
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@9795917fc97bf71b2761e609a87adbb189119894
 
       - name: Artifact registry
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@a20e612d91af50af313e06f0989b14457e0c6cb5
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@9795917fc97bf71b2761e609a87adbb189119894
         with:
           url: ${{ inputs.artifact-registry }}
 
@@ -368,12 +368,12 @@ jobs:
           GIT
 
       - name: Native task runner
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/frontend@a20e612d91af50af313e06f0989b14457e0c6cb5
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/frontend@9795917fc97bf71b2761e609a87adbb189119894
         with:
           managed: ${{ env.SDK_MANAGED }}
 
       - name: Prepare or verify declared SDKs
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@a20e612d91af50af313e06f0989b14457e0c6cb5
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@9795917fc97bf71b2761e609a87adbb189119894
         with:
           managed: ${{ env.SDK_MANAGED }}
           node-version: ${{ inputs.node-version }}
@@ -395,7 +395,7 @@ jobs:
           exit 1
       - name: Prepare declared native tool assets
         if: inputs.tool-assets != '' && env.SDK_MANAGED == 'false'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@a20e612d91af50af313e06f0989b14457e0c6cb5
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@9795917fc97bf71b2761e609a87adbb189119894
         with:
           managed: ${{ env.SDK_MANAGED }}
           manifest: ${{ inputs.tool-assets }}
@@ -404,7 +404,7 @@ jobs:
 
       - name: Hosted dependency caches
         if: env.SDK_MANAGED == 'false'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@a20e612d91af50af313e06f0989b14457e0c6cb5
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@9795917fc97bf71b2761e609a87adbb189119894
         with:
           managed: ${{ env.SDK_MANAGED }}
 
@@ -456,7 +456,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@a20e612d91af50af313e06f0989b14457e0c6cb5
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@9795917fc97bf71b2761e609a87adbb189119894
         with:
           task: ${{ github.event_name == 'pull_request' && 'short check' || 'full check' }}
           task-type: test
