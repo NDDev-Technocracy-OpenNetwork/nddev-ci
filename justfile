@@ -27,6 +27,8 @@ check: (_tools "check")
     node --check lib/native-member.mjs
     node --check lib/dependency-report.mjs
     node --check lib/dependency-source.mjs
+    node --check lib/dependency-scan.mjs
+    node --check actions/dependency-guard/run.mjs
     node --check tests/dependency-report.test.mjs
     node --check tests/dependency-source.test.mjs
     node --check tests/portable-recipe.test.mjs
