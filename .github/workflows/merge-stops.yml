@@ -53,6 +53,11 @@ jobs:
       COMMITTED_VERSION: "1.1.12"
       COMMITTED_SHA256_X64: "9a860b0a557bc842df663ce923213ff36f077ae2783f8db3123738823279387f"
       COMMITTED_SHA256_ARM64: "2077f9fa0157f3e0bfa7273327aa26c793d05b16620e046e499a982dd6fd2e7c"
+      # actionlint checks run: scripts with the ShellCheck on PATH; the pinned one makes the stop
+      # independent of the runner image.
+      SHELLCHECK_VERSION: "0.11.0"
+      SHELLCHECK_SHA256_X64: "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6"
+      SHELLCHECK_SHA256_ARM64: "68a8133197a50beb8803f8d42f9908d1af1c5540d4bb05fdfca8c1fa47decefc"
       DO_NOT_TRACK: "1"
     steps:
       - name: Hosted runner
@@ -117,6 +122,10 @@ jobs:
             "$(digest COMMITTED)" ./committed
           fetch "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_$actionlint.tar.gz" \
             "$(digest ACTIONLINT)" actionlint
+          fetch "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.$rust.tar.gz" \
+            "$(digest SHELLCHECK)" "shellcheck-v$SHELLCHECK_VERSION/shellcheck"
+          mv "$bin/shellcheck-v$SHELLCHECK_VERSION/shellcheck" "$bin/shellcheck"
+          rmdir "$bin/shellcheck-v$SHELLCHECK_VERSION"
           name="zizmor-$ZIZMOR_VERSION-py3-none-$wheel.whl"
           if [ -n "${NDS_CACHE_BASE:-}" ]; then
             metadata="${NDS_CACHE_BASE%/}/pypi/simple/zizmor/"
@@ -188,6 +197,9 @@ jobs:
             echo "No workflows in this repository."
             exit 0
           fi
+          # The pinned ShellCheck comes first on PATH, so the image's own never decides the stop.
+          [ "$(command -v shellcheck)" = "$RUNNER_TEMP/nddev-ci/bin/shellcheck" ] || { echo "::error::the pinned ShellCheck is not first on PATH"; exit 1; }
+          shellcheck --version | sed -n 2p
           actionlint
           zizmor --no-progress --min-severity high .github
           # poutine's notes, such as an action of our own organisations from an unverified
