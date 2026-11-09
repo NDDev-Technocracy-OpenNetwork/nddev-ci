@@ -302,6 +302,30 @@ GitHub then protects the tag and signs the release, and `gh release verify-asset
 This library releases itself the same way (`.github/workflows/publish.yml`). Callers pin a
 released commit with its version as a comment, so Dependabot proposes each new release.
 
+## Build provenance
+
+A public repository attests what its build jobs produce with `.github/workflows/provenance.yml`,
+called after the job that uploaded the artifact in the same run, outside pull requests:
+
+```yaml
+  provenance:
+    needs: native
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/provenance.yml@<commit> # v<version>
+    permissions:
+      actions: read
+      attestations: write
+      artifact-metadata: write
+      id-token: write
+    with:
+      artifact-name: package-ubuntu-24.04
+```
+
+Anyone then verifies a file with `gh attestation verify <file> --repo <owner>/<repository>`, which
+names the source commit and workflow run that built it. GitHub records attestations of private
+repositories only on Enterprise Cloud, so a private repository relies on its immutable release's
+attestation. Only callers that attest grant these permissions; `check.yml` callers are unaffected.
+A release's container images get their release-time scan by calling `security.yml` with `images`
+on the promotion to `main`, as security.md asks of every release.
 ## Package registries
 
 `.github/workflows/registry.yml` publishes files of an immutable release to crates.io, PyPI or npm

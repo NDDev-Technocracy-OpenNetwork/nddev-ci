@@ -106,3 +106,27 @@ jobs:
           justfile: tests/fixtures/portable.just
           recipe: script-probe
           arguments: '["path with spaces","$(must-stay-literal)","مرحبا-Ә-测试"]'
+  # Proof of provenance.yml on dev: a built file of this run is attested by the reusable workflow.
+  provenance-fixture:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Build a fixture file of this commit
+        run: printf 'nddev-ci provenance fixture %s\n' "$GITHUB_SHA" > provenance-fixture.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: provenance-fixture
+          path: provenance-fixture.txt
+          if-no-files-found: error
+          retention-days: 7
+  provenance:
+    needs: provenance-fixture
+    uses: ./.github/workflows/provenance.yml
+    permissions:
+      actions: read
+      attestations: write
+      artifact-metadata: write
+      id-token: write
+    with:
+      artifact-name: provenance-fixture
