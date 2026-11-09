@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "assets": [
+    {
+      "repository": "casey/just",
+      "asset": 643129724,
+      "size": 2174952,
+      "sha256": "6574cea774ed4cae12e24b6aa11857de33e80dab4667cf628fd5840df96a2a9d",
+      "file": "just-1.59.0-aarch64-apple-darwin.tar.gz",
+      "members": [
+        {
+          "path": "just",
+          "file": "qualified-just",
+          "size": 5171888,
+          "sha256": "dd760b653ab24afb6e11bb4c2de423f75085d2eea751f8e1d51058074052ecdd",
+          "executable": true
+        }
+      ]
+    }
+  ]
+}

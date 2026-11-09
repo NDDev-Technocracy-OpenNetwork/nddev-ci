@@ -58,7 +58,7 @@ try {
     if (!selected) { tools[name] = { available: false }; continue; }
     const file = fs.realpathSync(selected);
     const version = run(selected, args);
-    tools[name] = { available: true, selected, canonical: file, bytes: fs.statSync(file).size, sha256: await sha(file), version_status: version.status, version: version.stdout.slice(0,6000), version_diagnostics: version.stderr.slice(0,1000), provider: localProvider(file) };
+    tools[name] = { available: true, selected, canonical: file, bytes: fs.statSync(file).size, sha256: await sha(file), version_status: version.status, version: version.stdout.slice(0,6000), version_diagnostics: version.stderr.slice(0,1000), native_arm64_status: process.platform === "darwin" ? run("/usr/bin/arch", ["-arm64", selected, ...args]).status : undefined, provider: localProvider(file) };
   }
   assert(tools.git.available && tools.tar.available && tools.curl.available);
   const repo = path.join(root, "git source with spaces"); fs.mkdirSync(repo);
@@ -91,7 +91,11 @@ try {
   const executable = process.platform === "win32" ? "qualified-just.exe" : "qualified-just";
   fs.writeFileSync(manifest, JSON.stringify({ schema_version: 1, assets: [{ repository: pin.repository, asset: selected.asset, size: selected.size, sha256: selected.sha256, file: selected.name, members: [{ path: process.platform === "win32" ? "just.exe" : "just", file: executable, size: selected.binary_size, sha256: selected.binary_sha256, executable: true }] }] }), { flag: "wx" });
   const native = path.join(root, "native assets");
-  const assetEnv = { ...process.env, INPUT_MANIFEST: manifest, INPUT_DIRECTORY: native, "INPUT_ADD-TO-PATH": "false", "INPUT_GITHUB-TOKEN": process.env.GH_TOKEN ?? process.env["INPUT_GITHUB-TOKEN"], GITHUB_OUTPUT: "", GITHUB_PATH: "" };
+  const assetEnv = { ...process.env, INPUT_MANIFEST: manifest, INPUT_DIRECTORY: native, "INPUT_ADD-TO-PATH": "false", "INPUT_GITHUB-TOKEN": "", GITHUB_OUTPUT: "", GITHUB_PATH: "" };
+  fs.mkdirSync(native);
+  const prepared = path.join(process.env.RUNNER_TEMP, "nddev-ci", "native-assets", selected.name);
+  assert(fs.existsSync(prepared), "the workflow must prepare its declared archive before project commands");
+  fs.copyFileSync(prepared, path.join(native, selected.name));
   await assets(assetEnv); await assets(assetEnv);
   assert.equal(run(path.join(native, executable), ["--version"]).stdout.trim(), `just ${pin.version}`);
   checks.library_native_archive_member_hash_execution_and_warm_reuse = true;
@@ -114,7 +118,7 @@ try {
   assert.equal(tls.status, 0, tls.stderr);
   assert.notEqual(run(tools.curl.selected, [...options, `https://www.python.org/native-provider-missing-${randomUUID()}`]).status, 0);
   checks.curl_system_tls_and_http_failure = true;
-  for (const value of Object.values(tools)) if (value.available) assert.equal(await sha(value.canonical), value.sha256);
+  for (const value of Object.values(tools)) if (value.available) { assert.equal(await sha(value.canonical), value.sha256); if (process.platform === "darwin") assert.equal(value.native_arm64_status, 0); }
   const operatingSystem = process.platform === "darwin" ? { version: run("sw_vers",["-productVersion"]).stdout.trim(), build: run("sw_vers",["-buildVersion"]).stdout.trim() } : process.platform === "linux" ? { os_release: fs.readFileSync("/etc/os-release","utf8") } : { version: run("cmd",["/c","ver"]).stdout.trim() };
   console.log(JSON.stringify({ research_only: true, platform: process.platform, architecture: process.arch, node: process.versions.node, image_os: process.env.ImageOS, image_version: process.env.ImageVersion, operatingSystem, tools, checks, provider_bytes_unchanged: true }));
 } catch (error) {
