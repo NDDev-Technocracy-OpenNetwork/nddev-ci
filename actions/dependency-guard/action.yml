@@ -1,0 +1,18 @@
+name: Compare new fixed critical dependencies
+description: Compare exact PR merge inputs with one frozen native vulnerability database.
+inputs:
+  base:
+    description: Exact PR base commit.
+    required: true
+  head:
+    description: Exact PR head commit.
+    required: true
+  merge:
+    description: Checked out merge commit binding that base and head in order.
+    required: true
+  github-token:
+    description: Existing job token used only for official scanner asset reads.
+    default: ${{ github.server_url == 'https://github.com' && github.token || '' }}
+runs:
+  using: node24
+  main: run.mjs

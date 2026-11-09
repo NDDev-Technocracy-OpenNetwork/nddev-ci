@@ -25,6 +25,13 @@ check: (_tools "check")
     node --check actions/release-assets/run.mjs
     node --check lib/release-asset.mjs
     node --check lib/native-member.mjs
+    node --check lib/dependency-report.mjs
+    node --check lib/dependency-source.mjs
+    node --check lib/dependency-scan.mjs
+    node --check actions/dependency-guard/run.mjs
+    node --check tests/dependency-report.test.mjs
+    node --check tests/dependency-source.test.mjs
+    node --check tests/dependency-native.mjs
     node --check tests/portable-recipe.test.mjs
     node --check tests/release-assets.test.mjs
     node --check tests/bootstrap-tools.mjs
@@ -38,6 +45,7 @@ test:
     "{{ tools }}/recipe-routing-tests"
     node --test tests/*.test.mjs
     node --test tests/bootstrap-tools.mjs
+    node --test tests/dependency-native.mjs
 
 # Everything the full check on dev runs.
 verify: check test
