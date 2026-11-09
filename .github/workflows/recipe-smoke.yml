@@ -85,6 +85,10 @@ jobs:
         uses: ./actions/hosted-cache
         with:
           working-directory: tests/fixtures/hosted-cache
+      - name: Hosted dependency caches of a project without lock files
+        uses: ./actions/hosted-cache
+        with:
+          working-directory: tests/fixtures/image
       - name: Check argument and workspace boundaries
         env:
           GH_TOKEN: ${{ github.token }}
