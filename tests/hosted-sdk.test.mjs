@@ -121,3 +121,10 @@ test("the image key comes from ImageOS or from the system's own release", () => 
   assert.throws(() => imageKey({}, "linux", () => "NAME=x\n"), /image is unknown/);
   assert.throws(() => imageKey({}, "freebsd", linux, "14.1"), /image is unknown/);
 });
+
+test("tools are exact name@version entries, each name once", () => {
+  selections({...hosted, SDK_TOOLS: "cargo-nextest@0.9.151,cargo-deny@0.20.2,just@1.59.0"});
+  for (const value of ["cargo-nextest", "cargo-nextest@latest", "cargo-nextest@0.9", "Cargo@1.0.0",
+    "a@1.0.0,a@1.0.1", "a@1.0.0;b@1.0.0", "a@1.0.0, b@1.0.0", "a@01.0.0"])
+    assert.throws(() => selections({...hosted, SDK_TOOLS: value}), value);
+});

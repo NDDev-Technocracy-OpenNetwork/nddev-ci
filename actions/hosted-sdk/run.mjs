@@ -19,6 +19,13 @@ export function selections(environment) {
       throw new ActionError(`The ${name} selection must be an exact stable version.`);
     selected[name] = version;
   }
+  const tools = environment.SDK_TOOLS ?? "";
+  if (tools !== "") {
+    const exact = "[a-z0-9][a-z0-9-]*@(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)";
+    const names = tools.split(",").map((tool) => tool.split("@")[0]);
+    if (tools.length > 1024 || !new RegExp(`^${exact}(,${exact})*$`).test(tools) || new Set(names).size !== names.length)
+      throw new ActionError("Tools must be comma-separated name@exact-version entries, each name once.");
+  }
   for (const name of ["COMPONENTS", "TARGETS"]) {
     const value = environment[`SDK_RUST_${name}`] ?? "";
     if (value === "") continue;

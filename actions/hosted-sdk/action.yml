@@ -28,6 +28,11 @@ inputs:
   flutter-version:
     description: Optional exact stable Flutter version; its Dart SDK comes with it.
     default: ''
+  tools:
+    description: >-
+      Optional comma-separated name@exact-version command-line tools from their official
+      checksummed releases, such as cargo-nextest@0.9.151,cargo-deny@0.20.2.
+    default: ''
   rust-targets:
     description: Optional comma-separated Rust targets for the selected toolchain.
     default: ''
@@ -53,6 +58,7 @@ runs:
         SDK_JAVA_VERSION: ${{ inputs.java-version }}
         SDK_GO_VERSION: ${{ inputs.go-version }}
         SDK_FLUTTER_VERSION: ${{ inputs.flutter-version }}
+        SDK_TOOLS: ${{ inputs.tools }}
       run: node "$GITHUB_ACTION_PATH/run.mjs" validate
     # SDKs that setup actions take from GitHub releases come from the job's cache when a previous
     # job of this repository prepared the same exact versions on the same image.
@@ -128,6 +134,15 @@ runs:
         set -euo pipefail
         flutter config --no-analytics --no-cli-animations
         dart --disable-analytics
+    # install-action verifies each archive against its checksum manifest; nothing is compiled
+    # and no other source is tried.
+    - name: Prepare the declared tools
+      if: inputs.tools != ''
+      uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+      with:
+        tool: ${{ inputs.tools }}
+        checksum: true
+        fallback: none
     - name: Verify selected executables and isolate package preparation
       id: verify
       shell: bash
