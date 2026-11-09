@@ -31,7 +31,7 @@ jobs:
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@d820ff05968f48d22bab103120c709078a04d1b9
 
       - name: Built files
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -46,7 +46,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@d820ff05968f48d22bab103120c709078a04d1b9
         with:
           task: provenance
           task-type: build

@@ -17,6 +17,9 @@ inputs:
   started-file:
     description: A file holding the job's start as Unix seconds; empty measures nothing.
     default: ''
+  queue-seconds:
+    description: Optional measured queue time; otherwise reads NDDEV_CI_QUEUE_SECONDS from the runner.
+    default: ''
 runs:
   using: node24
   main: run.mjs

@@ -18,9 +18,20 @@ test("only exact caller versions can select SDK downloads", () => {
   assert.deepEqual(selections({...hosted, SDK_RUST_VERSION: "1.99.1", SDK_RUST_COMPONENTS: "clippy,rustfmt", SDK_RUST_TARGETS: "aarch64-apple-darwin"}), {rust: "1.99.1"});
 });
 
-test("managed private environments refuse hosted SDK installation", () => {
-  for (const kind of ["self-hosted", "", undefined])
+test("managed private environments verify SDKs without a hosted download cache", () => {
+  const managed = {SDK_RUNNER_ENVIRONMENT: "self-hosted", SDK_NODE_VERSION: process.versions.node};
+  assert.deepEqual(cachePlan(managed), {key: "", paths: []});
+  assert.deepEqual(verify({...process.env, ...managed}).versions, {node: process.versions.node});
+  assert.throws(() => verify({...process.env, ...managed, SDK_NODE_VERSION: "0.0.0"}));
+  for (const kind of ["", undefined])
     assert.throws(() => selections({SDK_RUNNER_ENVIRONMENT: kind, SDK_NODE_VERSION: "26.13.0"}));
+});
+
+test("declared tools are measured before the project runs", () => {
+  const environment = {...process.env, ...hosted, SDK_TOOLS: `node@${process.versions.node}`};
+  assert.deepEqual(verify(environment).tools, {node: process.versions.node});
+  assert.throws(() => verify({...environment, SDK_TOOLS: "node@0.0.0"}), /selected node/);
+  assert.throws(() => verify({...environment, SDK_TOOLS: "missing-ci-tool@1.0.0"}), /selected missing-ci-tool/);
 });
 
 test("the actual executable is measured and a mismatched version refuses a receipt", () => {

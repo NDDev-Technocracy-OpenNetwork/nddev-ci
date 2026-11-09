@@ -29,6 +29,16 @@ callers in [examples/](examples/): `ci.yml` for the checks, `release.yml` for re
 Every workflow names its runners the same way: `runner` is the label of our runners for a private
 repository, `hosted-runner` the GitHub-hosted runner of a public one.
 
+| Managed runner class | Project commands | Linux-only scanners and images |
+| --- | --- | --- |
+| `nddev-linux-standart`, `nddev-linux-small` | Linux x64 | Same class |
+| `nddev-linux-arm64` | Linux ARM64 | Same class |
+| `nddev-macos` | Native macOS ARM64 | `nddev-linux-arm64` |
+
+Managed jobs use their private user account and prepared SDKs without sudo or global installers.
+A requested SDK or command-line tool must already match its exact version; a mismatch fails before
+project preparation. Linux ARM64 rejects Flutter because no official SDK is published for it.
+
 ## Checks
 
 `check.yml` runs the project's own recipes:
@@ -68,7 +78,7 @@ repository, `hosted-runner` the GitHub-hosted runner of a public one.
   `sparse-checkout-cone-mode: false` makes them gitignore-style patterns. Empty keeps the whole tree.
 - A new push to a pull request cancels its older check and merge stops. Every commit of `dev` and
   `main` keeps its own full check.
-- The check runs natively on Linux x64 or ARM64. A public repository may choose its GitHub-hosted
+- The check runs natively on Linux x64 or ARM64, or managed macOS ARM64. A public repository may choose its GitHub-hosted
   runner in `hosted-runner`: `ubuntu-24.04` (the default), `ubuntu-24.04-arm`, `ubuntu-26.04` or
   `ubuntu-26.04-arm`. Each job turns outside telemetry off (`actions/telemetry`) and ends with a
   summary of its runner, architecture, duration and compiler-cache use.
@@ -166,10 +176,12 @@ Each job of the library ends with `actions/job-record`: a summary on the run pag
 line with OpenTelemetry's CI/CD and VCS attribute names, and carries
 `event.name` `nddev_ci.job.completed`, the workflow and run (`cicd.pipeline.*`), the task, its
 type and result (`cicd.pipeline.task.*`, with `success`, `failure` or `cancellation`), the runner
-(`cicd.worker.name`), repository, ref and commit (`vcs.*`), system and architecture, duration and
+(`cicd.worker.name`), repository, ref and commit (`vcs.*`), system and architecture, measured queue time when supplied by the runner, duration and
 compiler-cache counters, and never a secret or command output. When our runner names a file in
 `NDDEV_CI_TELEMETRY_FILE`, the line is appended there and the contour delivers it to its
 observability stack; GitHub's runners keep it in the job log.
+The runner may supply `NDDEV_CI_QUEUE_SECONDS` (or the action's `queue-seconds` input). Missing queue
+time stays unknown; it is never reported as zero.
 
 ## Hosted SDK preparation
 
@@ -192,7 +204,7 @@ Flutter and Dart analytics are turned off.
 `cargo-nextest@0.9.151,cargo-deny@0.20.2,cargo-audit@0.22.2,cargo-shear@1.14.0`, at the
 caller's exact versions. They come from their official releases through `taiki-e/install-action`,
 which verifies each archive against its checksum manifest; nothing is compiled and no other
-source is tried. Private runners keep their managed SDK instead.
+source is tried. Private runners verify their managed SDK instead.
 The Bun setup action receives the native asset's official API redirect for the selected stable
 tag. Its published source identity is recorded, its installed version is still measured and the
 transient signed transport URL is masked. It never selects another provider or architecture
@@ -200,8 +212,8 @@ when the native asset cannot be resolved.
 `rust-components` and `rust-targets` accept comma-separated names alongside a Rust selection.
 The workflows use the same action and pinned upstream setup actions, then measure the actual executables before `just setup` or the selected preparation recipe.
 A missing or different version fails before project preparation. Its `receipt` output
-records the measured versions and native OS/architecture. It runs only on GitHub-hosted
-runners; managed private environments retain their own SDK provider.
+records the measured versions and native OS/architecture. It installs only on GitHub-hosted
+runners; managed private environments retain their SDK provider and verify the selected executables.
 
 ```yaml
 - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@<commit>
@@ -341,6 +353,8 @@ The reusable `check.yml` and `recipe.yml` accept `tool-assets`, the path of this
 caller-owned manifest. On hosted runners the verified executables reach PATH before
 project setup or the selected preparation recipe. A private runner refuses that input
 and retains its managed SDK. Omitting the input prepares no native assets.
+When an artifact registry is selected, each manifest asset also names its exact `tag` and upstream
+`name`; these identify the registry route while `asset`, size and digest remain the byte pins.
 
 `add-to-path: true` exposes the directory only after every declared file has passed;
 it requires at least one explicitly executable file. The `receipt` output records verified

@@ -120,9 +120,10 @@ async function executable(environment) {
     try {
       const archive = path.join(temporary, asset.name);
       await downloadAsset(
-        { ...asset, repository: configuration.repository },
+        { ...asset, repository: configuration.repository, tag: configuration.version },
         archive,
         environment["INPUT_GITHUB-TOKEN"],
+        environment.NDDEV_CI_ARTIFACT_REGISTRY,
       );
       const source = path.join(temporary, path.basename(binary));
       await extract(
@@ -155,14 +156,7 @@ function commandEnvironment(environment) {
   );
 }
 
-export async function main(environment = process.env) {
-  const request = invocation({
-    workspace: environment.GITHUB_WORKSPACE,
-    directory: environment["INPUT_WORKING-DIRECTORY"],
-    justfile: environment.INPUT_JUSTFILE,
-    recipe: environment.INPUT_RECIPE,
-    arguments: environment.INPUT_ARGUMENTS,
-  });
+export async function prepareFrontend(environment = process.env) {
   const just = await executable(environment);
   const version = spawnSync(just, ["--version"], {
     encoding: "utf8",
@@ -178,6 +172,18 @@ export async function main(environment = process.env) {
       environment.GITHUB_OUTPUT,
       `just-version=${configuration.version}\n`,
     );
+  return just;
+}
+
+export async function main(environment = process.env) {
+  const request = invocation({
+    workspace: environment.GITHUB_WORKSPACE,
+    directory: environment["INPUT_WORKING-DIRECTORY"],
+    justfile: environment.INPUT_JUSTFILE,
+    recipe: environment.INPUT_RECIPE,
+    arguments: environment.INPUT_ARGUMENTS,
+  });
+  const just = await prepareFrontend(environment);
   const childEnvironment = commandEnvironment(environment);
   if (path.isAbsolute(just)) {
     const originalPath = environment.PATH ?? environment.Path ?? "";

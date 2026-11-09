@@ -48,7 +48,7 @@ jobs:
   scan:
     name: daily security
     # Public repositories scan on GitHub's runners; an unknown hosted label fails below.
-    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || inputs.runner }}
+    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || inputs.runner) }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
@@ -98,10 +98,10 @@ jobs:
           fetch-depth: 0
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@d820ff05968f48d22bab103120c709078a04d1b9
 
       - name: Artifact registry
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@d820ff05968f48d22bab103120c709078a04d1b9
         with:
           url: ${{ inputs.artifact-registry }}
 
@@ -207,14 +207,14 @@ jobs:
           PY
 
       - name: Dependencies and licences
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-osv@0926e0b0d25c4451fc1a1f549c9875834a601de3 # verified native scanner policy
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-osv@d820ff05968f48d22bab103120c709078a04d1b9 # verified native scanner policy
         with:
           scanner: ${{ runner.temp }}/security/bin/osv-scanner
           output: ${{ runner.temp }}/security/out
           licenses: ${{ steps.licences.outputs.licenses }}
 
       - name: Packages
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-sbom@0926e0b0d25c4451fc1a1f549c9875834a601de3 # verified native SBOM policy
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-sbom@d820ff05968f48d22bab103120c709078a04d1b9 # verified native SBOM policy
         with:
           tools: ${{ runner.temp }}/security/bin
           output: ${{ runner.temp }}/security/out
@@ -314,7 +314,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@0926e0b0d25c4451fc1a1f549c9875834a601de3
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@d820ff05968f48d22bab103120c709078a04d1b9
         with:
           task: daily security
           task-type: test

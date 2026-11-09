@@ -24,6 +24,7 @@ check: (_tools "check")
     rustfmt --edition 2024 --check tests/recipe-routing.rs
     node --check actions/artifact-registry/run.mjs
     node --check tests/artifact-registry.test.mjs
+    node --check actions/frontend/run.mjs
     node --check actions/recipe/run.mjs
     node --check actions/hosted-sdk/run.mjs
     node --check actions/hosted-sdk/bun.mjs
