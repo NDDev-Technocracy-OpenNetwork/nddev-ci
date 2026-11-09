@@ -20,13 +20,15 @@ check: (_tools "check")
     just --fmt --check
     rustfmt --edition 2024 --check tests/recipe-routing.rs
     node --check actions/recipe/run.mjs
+    node --check actions/hosted-sdk/run.mjs
+    node --check tests/hosted-sdk.test.mjs
     node --check actions/release-assets/run.mjs
     node --check lib/release-asset.mjs
     node --check tests/portable-recipe.test.mjs
     node --check tests/release-assets.test.mjs
     node --check tests/bootstrap-tools.mjs
     "{{ actionlint }}" .github/workflows/*.yml
-    "{{ zizmor }}" --min-severity medium .github
+    "{{ zizmor }}" --min-severity medium .github actions
 
 # The documented caller workflow is valid.
 test:

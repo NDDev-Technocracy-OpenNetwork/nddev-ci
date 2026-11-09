@@ -79,6 +79,38 @@ runner can miss cleanup; GitHub's installation-token expiration remains the boun
 Merge stops receive neither credential. The caller keeps the App key in its
 repository secret under its contour's key policy; this library stores no keys.
 
+## Hosted SDK preparation
+
+`actions/hosted-sdk` prepares only the SDKs explicitly selected by the caller:
+`node-version`, `python-version`, `uv-version`, `bun-version` and `rust-version`.
+Each value is an exact stable version; an empty input leaves that SDK unchanged.
+`rust-components` and `rust-targets` accept comma-separated names alongside a Rust selection.
+The action uses pinned upstream setup actions, then measures the actual executables.
+A missing or different version fails before project preparation. Its `receipt` output
+records the measured versions and native OS/architecture. It runs only on GitHub-hosted
+runners; managed private environments retain their own SDK provider.
+
+```yaml
+- uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@<commit>
+  with:
+    node-version: ${{ vars.CI_NODE_VERSION }}
+    bun-version: ${{ vars.CI_BUN_VERSION }}
+    rust-version: ${{ vars.CI_RUST_VERSION }}
+    rust-components: clippy,rustfmt
+```
+
+Projects select their compatible versions and retain dependency locks, browser and native
+prerequisites, and their own setup/check/test recipes. Preparing a language SDK does not
+install all tools for that language. In particular, FFmpeg and ffprobe require an explicit
+qualified binary provider with the needed codecs and filters; neither a Python wrapper nor
+an arbitrary preinstalled executable supplies that contract. Native prerequisite acceptance
+still belongs to the consumer's complete tests. SDK preparation never adds media binaries
+to a product distribution.
+
+The action disables Bun's outside telemetry and isolates uv's cache and project environment
+in the job's temporary directory. A selected Python is also passed to uv. Package caches
+are not implicitly enabled by upstream setup actions.
+
 ## Native recipe steps
 
 Projects with separate native, database, browser or packaging jobs can invoke their
