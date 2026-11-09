@@ -1,0 +1,181 @@
+# Publication of a release to a package registry through trusted publishing (OIDC), with no
+# stored registry token. It publishes the exact files of the immutable GitHub Release, after
+# their SHA256SUMS and GitHub's release attestation agree, and it skips a version the registry
+# already holds with the same bytes. Call it after release.yml with its tag.
+name: registry
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The immutable release whose files are published, such as release.yml's tag output.
+        type: string
+        required: true
+      registry:
+        description: crates, pypi or npm.
+        type: string
+        required: true
+      files:
+        description: >-
+          Release file names to publish, one per line: the .crate file for crates, wheels and the
+          source distribution for pypi, one package .tgz for npm.
+        type: string
+        required: true
+      crate-directory:
+        description: For crates, the package folder whose cargo package must reproduce the released .crate.
+        type: string
+        default: .
+      rust-version:
+        description: For crates, the exact Rust toolchain that packages the crate.
+        type: string
+        default: ""
+      node-version:
+        description: For npm, the exact Node version; npm trusted publishing needs Node 22.14 or newer.
+        type: string
+        default: ""
+      environment:
+        description: The GitHub environment the registry's trusted publisher names, such as pypi.
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  publish:
+    name: publish to ${{ inputs.registry }}
+    # Registries accept trusted publishing from GitHub's runners; npm accepts nothing else.
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: nddev-ci-registry-${{ inputs.registry }}-${{ inputs.tag }}
+      cancel-in-progress: false
+    timeout-minutes: 30
+    permissions:
+      contents: read # read the release and its files
+      id-token: write # exchange the job's identity for a short-lived registry token
+    steps:
+      - name: Outside telemetry off
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@6def09fb42f96700972c38a21141a14b8966ec70
+
+      - name: Released files, verified
+        id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+          REGISTRY: ${{ inputs.registry }}
+          FILES: ${{ inputs.files }}
+        run: |
+          set -euo pipefail
+          case "$REGISTRY" in crates | pypi | npm) ;; *) echo "::error::registry must be crates, pypi or npm"; exit 1 ;; esac
+          [[ "$TAG" =~ ^[A-Za-z][A-Za-z0-9._-]*[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::tag must name a release version"; exit 1; }
+          [[ "$TAG" =~ ([0-9]+\.[0-9]+\.[0-9]+)$ ]] && version=${BASH_REMATCH[1]}
+          [ "$(gh release view "$TAG" --json isImmutable --jq .isImmutable)" = true ] || { echo "::error::$TAG is not an immutable release"; exit 1; }
+          dist="$RUNNER_TEMP/registry-files"
+          mkdir -p "$dist"
+          names=()
+          while IFS= read -r name || [ -n "$name" ]; do
+            name=${name//[[:space:]]/}
+            [ -n "$name" ] || continue
+            [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || { echo "::error::file names are plain release file names"; exit 1; }
+            names+=("$name")
+          done <<< "$FILES"
+          [ "${#names[@]}" -gt 0 ] || { echo "::error::no release file is named"; exit 1; }
+          if [ "$REGISTRY" != pypi ] && [ "${#names[@]}" -ne 1 ]; then echo "::error::$REGISTRY publishes exactly one file"; exit 1; fi
+          gh release download "$TAG" --dir "$dist" --pattern SHA256SUMS "${names[@]/#/--pattern=}"
+          for name in "${names[@]}"; do
+            [ -f "$dist/$name" ] || { echo "::error::$TAG has no file $name"; exit 1; }
+            expected=$(awk -v name="$name" '$2 == name { print $1 }' "$dist/SHA256SUMS")
+            actual=$(sha256sum "$dist/$name" | cut -d' ' -f1)
+            [ -n "$expected" ] && [ "$expected" = "$actual" ] || { echo "::error::$name differs from SHA256SUMS of $TAG"; exit 1; }
+            gh release verify-asset "$TAG" "$dist/$name"
+          done
+          rm "$dist/SHA256SUMS"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dist=$dist" >> "$GITHUB_OUTPUT"
+
+      # crates.io packages from source: the tagged source must reproduce the released .crate exactly.
+      - name: Released source
+        if: inputs.registry == 'crates'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.tag }}
+      - name: Rust for packaging
+        if: inputs.registry == 'crates'
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@6def09fb42f96700972c38a21141a14b8966ec70
+        with:
+          rust-version: ${{ inputs.rust-version }}
+      - name: Reproduce the released crate
+        id: crate
+        if: inputs.registry == 'crates'
+        env:
+          DIRECTORY: ${{ inputs.crate-directory }}
+          DIST: ${{ steps.files.outputs.dist }}
+        run: |
+          set -euo pipefail
+          case "/$DIRECTORY/" in //* | */../*) echo "::error::crate-directory stays inside the repository"; exit 1 ;; esac
+          released=$(find "$DIST" -maxdepth 1 -name '*.crate' -print -quit)
+          [ -n "$released" ] || { echo "::error::the released file is not a .crate"; exit 1; }
+          cd "$DIRECTORY"
+          cargo package --locked --no-verify
+          name=$(basename "$released")
+          cmp "$(cargo metadata --no-deps --format-version 1 | jq -er '.target_directory')/package/$name" "$released"
+          echo "name=${name%-*.crate}" >> "$GITHUB_OUTPUT"
+      - name: Already on crates.io
+        id: crates-existing
+        if: inputs.registry == 'crates'
+        env:
+          NAME: ${{ steps.crate.outputs.name }}
+          VERSION: ${{ steps.files.outputs.version }}
+          DIST: ${{ steps.files.outputs.dist }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          status=$(curl -sS --max-time 30 -A "nddev-ci (https://github.com/$REPOSITORY)" -o "$RUNNER_TEMP/crate.json" -w '%{http_code}' "https://crates.io/api/v1/crates/$NAME/$VERSION")
+          if [ "$status" = 404 ]; then echo "published=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          [ "$status" = 200 ] || { echo "::error::crates.io answered $status"; exit 1; }
+          [ "$(jq -er .version.checksum "$RUNNER_TEMP/crate.json")" = "$(sha256sum "$DIST"/*.crate | cut -d' ' -f1)" ] || { echo "::error::crates.io holds other bytes for $NAME $VERSION"; exit 1; }
+          echo "published=true" >> "$GITHUB_OUTPUT"
+      - name: crates.io token
+        id: crates-auth
+        if: inputs.registry == 'crates' && steps.crates-existing.outputs.published != 'true'
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+      - name: Publish to crates.io
+        if: inputs.registry == 'crates' && steps.crates-existing.outputs.published != 'true'
+        working-directory: ${{ inputs.crate-directory }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+        run: cargo publish --locked --no-verify
+
+      - name: Publish to PyPI
+        if: inputs.registry == 'pypi'
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: ${{ steps.files.outputs.dist }}
+          # A rerun leaves files PyPI already holds; PyPI refuses different bytes under one name.
+          skip-existing: true
+
+      - name: Node for npm
+        if: inputs.registry == 'npm'
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@6def09fb42f96700972c38a21141a14b8966ec70
+        with:
+          node-version: ${{ inputs.node-version }}
+      - name: Publish to npm
+        if: inputs.registry == 'npm'
+        env:
+          DIST: ${{ steps.files.outputs.dist }}
+          VERSION: ${{ steps.files.outputs.version }}
+        run: |
+          set -euo pipefail
+          package=$(find "$DIST" -maxdepth 1 -name '*.tgz' -print -quit)
+          [ -n "$package" ] || { echo "::error::the released file is not an npm .tgz"; exit 1; }
+          name=$(tar -xOzf "$package" package/package.json | jq -er .name)
+          [ "$(tar -xOzf "$package" package/package.json | jq -er .version)" = "$VERSION" ] || { echo "::error::the package version differs from the release"; exit 1; }
+          integrity="sha512-$(openssl dgst -sha512 -binary "$package" | base64 -w0)"
+          if published=$(npm view "$name@$VERSION" dist.integrity 2>/dev/null) && [ -n "$published" ]; then
+            [ "$published" = "$integrity" ] || { echo "::error::npm holds other bytes for $name@$VERSION"; exit 1; }
+            echo "npm already holds $name@$VERSION with these bytes."
+            exit 0
+          fi
+          npm publish "$package" --provenance --access public
