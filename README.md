@@ -322,8 +322,12 @@ holding the image) and passes its name as `sboms`; they are scanned with the res
 - TruffleHog and Kingfisher look for live secrets in the whole history: only secrets their makers'
   services accept count.
 - OSV-Scanner checks every lock file against its offline database. A second, online run asks
-  deps.dev, the one source of a lock file's licences, and lists the dependencies outside
-  licenses.md's list; packages deps.dev knows no licence for are counted.
+  deps.dev, the one source of a lock file's licences, and lists the dependencies outside the
+  licence policy; packages deps.dev knows no licence for are counted. The policy is the `[licenses]
+  allow` list of the caller's `license-policy` file, such as the `deny.toml` cargo-deny reads, so
+  both read one list; a named policy that is missing, malformed or empty fails the run. Without
+  one, the scan uses licenses.md's list for embedded dependencies: MIT, Apache-2.0, BSD-2-Clause,
+  BSD-3-Clause, ISC, Zlib, Unicode-3.0 and CC0-1.0.
   Both reports use the shared policy outside the checkout: local OSV package overrides and
   ignore files cannot hide their findings. Scans do not resolve or execute package code;
   malformed input fails the run instead of publishing a clean report.
