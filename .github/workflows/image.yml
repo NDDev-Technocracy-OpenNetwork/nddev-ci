@@ -56,7 +56,8 @@ jobs:
     # Public repositories build on GitHub's runners; an unknown hosted label fails below.
     runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || inputs.runner }}
     concurrency:
-      group: nddev-ci-image-${{ github.workflow }}-${{ inputs.image }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+      # Each runner of one image has its own group, so x64 and ARM64 builds never cancel each other.
+      group: nddev-ci-image-${{ github.workflow }}-${{ inputs.image }}-${{ inputs.hosted-runner }}-${{ inputs.runner }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     timeout-minutes: 60
     permissions:
