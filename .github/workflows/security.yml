@@ -98,10 +98,10 @@ jobs:
           fetch-depth: 0
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@92f5a4a550ec46781013a4685736ff336b1645bc
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@a20e612d91af50af313e06f0989b14457e0c6cb5
 
       - name: Artifact registry
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@92f5a4a550ec46781013a4685736ff336b1645bc
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@a20e612d91af50af313e06f0989b14457e0c6cb5
         with:
           url: ${{ inputs.artifact-registry }}
 
@@ -207,14 +207,14 @@ jobs:
           PY
 
       - name: Dependencies and licences
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-osv@92f5a4a550ec46781013a4685736ff336b1645bc # verified native scanner policy
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-osv@a20e612d91af50af313e06f0989b14457e0c6cb5 # verified native scanner policy
         with:
           scanner: ${{ runner.temp }}/security/bin/osv-scanner
           output: ${{ runner.temp }}/security/out
           licenses: ${{ steps.licences.outputs.licenses }}
 
       - name: Packages
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-sbom@92f5a4a550ec46781013a4685736ff336b1645bc # verified native SBOM policy
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-sbom@a20e612d91af50af313e06f0989b14457e0c6cb5 # verified native SBOM policy
         with:
           tools: ${{ runner.temp }}/security/bin
           output: ${{ runner.temp }}/security/out
@@ -314,7 +314,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@92f5a4a550ec46781013a4685736ff336b1645bc
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@a20e612d91af50af313e06f0989b14457e0c6cb5
         with:
           task: daily security
           task-type: test
