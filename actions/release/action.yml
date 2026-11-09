@@ -1,0 +1,47 @@
+name: Publish an immutable release
+description: >-
+  Publishes one GitHub Release of the exact commit its full check on the integration branch
+  verified, reusing that check's artifacts, with SHA256SUMS. A rerun completes the same release.
+inputs:
+  check-workflow:
+    description: The workflow file whose push check on the integration branch qualifies the commit.
+    default: ci.yml
+  check-branch:
+    description: The integration branch whose full check is reused.
+    default: dev
+  release-branch:
+    description: The only branch whose commits are released.
+    default: main
+  artifacts:
+    description: Artifact names of the qualifying run, one per line; their top-level files are published.
+    default: ''
+  version:
+    description: A version the owner chose, newer than every release; empty raises the last number.
+    default: ''
+  initial-version:
+    description: The version of the first release when none exists.
+    default: 0.1.0
+  tag-prefix:
+    description: The tag prefix in front of the version.
+    default: v
+  name:
+    description: The release title in front of the version; empty uses the repository name.
+    default: ''
+  wait-minutes:
+    description: How long a still running qualifying check is awaited.
+    default: '30'
+  github-token:
+    description: A token with contents write and actions read.
+    default: ${{ github.token }}
+outputs:
+  version:
+    description: The released version.
+  tag:
+    description: The release tag.
+  url:
+    description: The release page.
+  run-id:
+    description: The qualifying check run.
+runs:
+  using: node24
+  main: run.mjs

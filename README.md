@@ -237,6 +237,43 @@ The diff secret scan uses Betterleaks' built-in detection rules. Repository-loca
 configuration is not loaded automatically. The newer scanner isolates local Git configuration;
 this workflow does not opt out of that boundary.
 
+## Releases
+
+`actions/release` publishes the commit `main` moved forward to as one immutable GitHub Release,
+without building again. It takes the newest push check of that exact commit on `dev` from the
+caller's check workflow: a newer failed, cancelled or unknown run is never replaced by an older
+green one, a running check is awaited up to `wait-minutes`, and a missing one stops the release.
+A commit with the same tree but another identity never borrows a result.
+
+The named `artifacts` of that run are downloaded with their recorded digests, and their top-level
+files become the release files, with `SHA256SUMS`. Folders, links and hidden or repeated names
+stop the release. The version raises the last number of the newest `<tag-prefix><version>` tag;
+the owner chooses a new first or middle number through `version`. The tag is created at the
+commit, never moved, and a draft receives and verifies every file before it is published.
+A rerun finds the same tag and release and completes them once. The job needs `contents: write`
+and `actions: read`; enable immutable releases in the repository settings.
+
+```yaml
+on:
+  push:
+    branches: [main]
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release@<commit>
+        with:
+          check-workflow: ci.yml
+          artifacts: |
+            build
+```
+
+This library releases itself the same way (`.github/workflows/publish.yml`). Callers pin a
+released commit with its version as a comment, so Dependabot proposes each new release.
+
 ## Daily security
 
 `security.yml` is the daily run of security.md, called from a schedule in each repository with
