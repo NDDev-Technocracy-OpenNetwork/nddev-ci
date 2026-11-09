@@ -84,7 +84,7 @@ jobs:
           fetch-depth: ${{ inputs.fetch-depth }}
       - name: Prepare declared hosted SDKs
         if: runner.environment == 'github-hosted'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@9fa3377d5c47f0f548aca5df13c08209bc755a4b
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@9b2857fcb8d69e24a8f0d60d05e3fa682495644d
         with:
           node-version: ${{ inputs.node-version }}
           python-version: ${{ inputs.python-version }}
