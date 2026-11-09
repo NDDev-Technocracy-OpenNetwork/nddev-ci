@@ -43,6 +43,8 @@ check: (_tools "check")
     node --check tests/release-assets.test.mjs
     node --check tests/windows-archive.test.mjs
     node --check tests/bootstrap-tools.mjs
+    node --check tests/dependency-scan.test.mjs
+    node --check tests/telemetry.test.mjs
     "{{ actionlint }}" .github/workflows/*.yml
     "{{ zizmor }}" --min-severity medium .github actions
 

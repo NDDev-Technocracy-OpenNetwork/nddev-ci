@@ -1,0 +1,200 @@
+# The merge stops of security.md for a pull request: a secret in the change (Betterleaks), a
+# dangerous workflow (a broken file, an action not pinned by commit, a high-severity zizmor finding,
+# a poutine finding of warning or error level), a new critical dependency with a known fix, and the
+# change's commit messages, as writing.md and checks.md ask (committed). check.yml calls it; a
+# project whose commands run in its own native jobs calls it beside them, so one implementation
+# applies the same stops everywhere.
+name: merge stops
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: The label of our runners, used by private repositories.
+        type: string
+        default: nddev-linux-standart
+      hosted-runner:
+        description: >-
+          The GitHub-hosted Linux runner of a public repository: ubuntu-24.04, ubuntu-24.04-arm,
+          ubuntu-26.04 or ubuntu-26.04-arm.
+        type: string
+        default: ubuntu-24.04
+
+permissions: {}
+
+jobs:
+  merge-stops:
+    name: merge stops
+    # A new label reruns the stops only when it chooses the runner.
+    if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || startsWith(github.event.label.name, 'runner:'))
+    # Public repositories always run on GitHub's runners; an unknown hosted label fails below.
+    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || contains(github.event.pull_request.labels.*.name, 'runner:github') && 'ubuntu-24.04' || inputs.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      BETTERLEAKS_VERSION: "1.10.0"
+      BETTERLEAKS_SHA256_X64: "9d9ad503cd5d80d18a939352266c3fcca52f10da9b83cd5cfe646989b13940fe"
+      BETTERLEAKS_SHA256_ARM64: "3d7585cbe4f947aef6e31662f65beb5b43b104381a691b6b81b157ebfbb0c02d"
+      POUTINE_VERSION: "1.1.6"
+      POUTINE_SHA256_X64: "abde716599a65608b023a69ed9316e5f083a7bca48612151c2720835883757ea"
+      POUTINE_SHA256_ARM64: "460c90300c6329106b551c150682d12e457365f6436a6cbbd08fe79eb9a98131"
+      POUTINE_DISABLE_VERSION_CHECK: "true"
+      ACTIONLINT_VERSION: "1.7.12"
+      ACTIONLINT_SHA256_X64: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+      ACTIONLINT_SHA256_ARM64: "325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6"
+      ZIZMOR_VERSION: "1.32.0"
+      ZIZMOR_SHA256_X64: "84a6acb975accc13408786a2bd274b572537ca19c933ebbc13e78f3988562071"
+      ZIZMOR_SHA256_ARM64: "0cdd38fca6eb34ceb567548548d706332e3535ea66894b9168c048e03207b68c"
+      COMMITTED_VERSION: "1.1.12"
+      COMMITTED_SHA256_X64: "9a860b0a557bc842df663ce923213ff36f077ae2783f8db3123738823279387f"
+      COMMITTED_SHA256_ARM64: "2077f9fa0157f3e0bfa7273327aa26c793d05b16620e046e499a982dd6fd2e7c"
+      DO_NOT_TRACK: "1"
+    steps:
+      - name: Hosted runner
+        if: ${{ !github.event.repository.private }}
+        env:
+          HOSTED_RUNNER: ${{ inputs.hosted-runner }}
+        run: |
+          case "$HOSTED_RUNNER" in
+            ubuntu-24.04 | ubuntu-24.04-arm | ubuntu-26.04 | ubuntu-26.04-arm) ;;
+            *) echo "::error::hosted-runner must be a GitHub-hosted Linux label of this workflow"; exit 1 ;;
+          esac
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The stops run natively on Linux x64 or ARM64; every archive has its own pinned digest.
+          [ "$RUNNER_OS" = Linux ] || { echo "::error::the merge stops run on Linux runners"; exit 1; }
+          case "$(uname -m)" in
+            x86_64) arch=X64 betterleaks=x64 poutine=x86_64 rust=x86_64 actionlint=amd64 wheel=manylinux_2_28_x86_64 ;;
+            aarch64 | arm64) arch=ARM64 betterleaks=arm64 poutine=arm64 rust=aarch64 actionlint=arm64 wheel=manylinux_2_24_aarch64 ;;
+            *) echo "::error::the merge stops support Linux x64 and ARM64"; exit 1 ;;
+          esac
+          digest() { local name="${1}_SHA256_$arch"; printf '%s' "${!name}"; }
+          bin="$RUNNER_TEMP/nddev-ci/bin"
+          archive="$RUNNER_TEMP/nddev-ci/archive"
+          mkdir -p "$bin"
+          fetch() {
+            source=${1#https://github.com/}
+            repository=${source%%/releases/download/*}
+            release=${source#*/releases/download/}
+            tag=${release%%/*}
+            name=${release#*/}
+            printf 'Fetching check tool %s@%s: %s\n' "$repository" "$tag" "$name"
+            auth=()
+            if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
+            if [ -n "${NDS_CACHE_BASE:-}" ]; then
+              printf 'Using the configured artifact registry.\n'
+              curl -fsSL -o "$archive" "${NDS_CACHE_BASE%/}/github-releases/sha256/$2/$repository/releases/download/$tag/$name"
+            else
+              asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
+                jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
+              curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/$repository/releases/assets/$asset"
+            fi
+            echo "$2  $archive" | sha256sum --check --quiet
+            tar -xzf "$archive" -C "$bin" "$3"
+          }
+          fetch "https://github.com/betterleaks/betterleaks/releases/download/v$BETTERLEAKS_VERSION/betterleaks_${BETTERLEAKS_VERSION}_linux_$betterleaks.tar.gz" \
+            "$(digest BETTERLEAKS)" betterleaks
+          fetch "https://github.com/boostsecurityio/poutine/releases/download/v$POUTINE_VERSION/poutine_Linux_$poutine.tar.gz" \
+            "$(digest POUTINE)" poutine
+          fetch "https://github.com/crate-ci/committed/releases/download/v$COMMITTED_VERSION/committed-v${COMMITTED_VERSION}-$rust-unknown-linux-musl.tar.gz" \
+            "$(digest COMMITTED)" ./committed
+          fetch "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_$actionlint.tar.gz" \
+            "$(digest ACTIONLINT)" actionlint
+          name="zizmor-$ZIZMOR_VERSION-py3-none-$wheel.whl"
+          if [ -n "${NDS_CACHE_BASE:-}" ]; then
+            metadata="${NDS_CACHE_BASE%/}/pypi/simple/zizmor/"
+            origin="${NDS_CACHE_BASE%/}/pypi-files/"
+          else
+            metadata="https://pypi.org/simple/zizmor/"
+            origin="https://files.pythonhosted.org/"
+          fi
+          url=$(curl -fsSL -H 'Accept: application/vnd.pypi.simple.v1+json' "$metadata" |
+            jq -er --arg name "$name" '[.files[] | select(.filename == $name)] | if length == 1 then .[0].url | strings else error("wheel is missing or ambiguous") end')
+          case "$url" in "$origin"*) ;; *) echo "Wheel origin differs from the configured registry" >&2; exit 1 ;; esac
+          curl -fsSL -o "$archive" "$url"
+          echo "$(digest ZIZMOR)  $archive" | sha256sum --check --quiet
+          python3 -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]))' "$archive" "zizmor-$ZIZMOR_VERSION.data/scripts/zizmor" > "$bin/zizmor"
+          chmod 0755 "$bin/zizmor"
+          rm -f "$archive"
+          echo "$bin" >> "$GITHUB_PATH"
+
+      - name: Commit messages
+        # writing.md: a Conventional Commits subject in the imperative, up to 72 characters, lines up
+        # to 100, no fixup or WIP commit. A repository's own committed.toml takes the place of this.
+        # Only the commits the change brings are checked: a merge commit is left out, and so is a
+        # commit another branch already holds, such as main's commits when main is merged into dev.
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          config="$RUNNER_TEMP/nddev-ci/committed.toml"
+          if [ -f committed.toml ]; then
+            config=committed.toml
+          else
+            printf '%s\n' \
+              'style = "conventional"' \
+              'allowed_types = ["feat", "fix", "chore", "docs", "style", "refactor", "perf", "test", "build", "ci", "revert"]' \
+              'subject_length = 72' \
+              'line_length = 100' \
+              'subject_capitalized = false' \
+              'imperative_subject = true' \
+              'no_fixup = true' \
+              'no_wip = true' > "$config"
+          fi
+          failed=0
+          for commit in $(git rev-list --no-merges "$HEAD" "^$BASE" --not \
+            --exclude="origin/$HEAD_REF" --remotes=origin); do
+            git log -1 --format='%h %s' "$commit"
+            committed --config "$config" "$commit^..$commit" || failed=1
+          done
+          exit "$failed"
+
+      - name: No secret in the change
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: betterleaks git --no-banner --redact --log-opts="$BASE..$HEAD" .
+
+      - name: No new fixed critical dependency
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/dependency-guard@11437a00e9f5ff7697f53171601e724b9b4da643
+        with:
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+          merge: ${{ github.sha }}
+
+      - name: No dangerous workflow
+        run: |
+          set -euo pipefail
+          if [ ! -d .github/workflows ]; then
+            echo "No workflows in this repository."
+            exit 0
+          fi
+          actionlint
+          zizmor --no-progress --min-severity high .github
+          # poutine's notes, such as an action of our own organisations from an unverified
+          # creator, are reported; its warnings and errors stop the merge.
+          poutine analyze_local . --quiet --disable-version-check --format json > "$RUNNER_TEMP/poutine.json"
+          python3 - "$RUNNER_TEMP/poutine.json" <<'PY'
+          import json, sys
+          report = json.load(open(sys.argv[1]))
+          levels = {name: rule.get("level", "") for name, rule in (report.get("rules") or {}).items()}
+          stops = 0
+          for finding in report.get("findings") or []:
+              level = levels.get(finding["rule_id"], "")
+              meta = finding.get("meta", {})
+              print(f"{level or 'note'}: {finding['rule_id']} in {meta.get('path')}:{meta.get('line')} {meta.get('details', '')}")
+              stops += level in ("warning", "error")
+          sys.exit(1 if stops else 0)
+          PY

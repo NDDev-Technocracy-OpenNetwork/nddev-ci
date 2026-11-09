@@ -22,3 +22,9 @@ jobs:
       rust-components: clippy,rustfmt
     permissions:
       contents: read
+
+  # The merge stops workflow that specialized callers use beside their own command jobs.
+  merge-stops:
+    uses: ./.github/workflows/merge-stops.yml
+    permissions:
+      contents: read

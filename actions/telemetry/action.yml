@@ -1,0 +1,24 @@
+name: Outside telemetry off
+description: >-
+  Sets the switches that turn outside telemetry and update checks off for every later step of the
+  job, as security.md asks of every runner job. Our private runners already set the contour's list;
+  GitHub-hosted runners get the same switches from switches.env.
+runs:
+  using: composite
+  steps:
+    - name: Outside telemetry off
+      shell: bash
+      # The only write is the library's constant switch list, validated line by line below.
+      run: | # zizmor: ignore[github-env]
+        set -euo pipefail
+        switches="$GITHUB_ACTION_PATH/switches.env"
+        # Each line is NAME=value with a plain name and a value without spaces or quotes. A Windows
+        # checkout may end lines with CR; only the validated, normalized lines are written.
+        lines=()
+        while IFS= read -r line || [ -n "$line" ]; do
+          line=${line%$'\r'}
+          [[ "$line" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9._-]+$ ]] || { echo "::error::malformed telemetry switch"; exit 1; }
+          lines+=("$line")
+        done < "$switches"
+        printf '%s\n' "${lines[@]}" >> "$GITHUB_ENV"
+        echo "Outside telemetry is off for ${#lines[@]} switches."
