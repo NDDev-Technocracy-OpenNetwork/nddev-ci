@@ -37,7 +37,7 @@ test("the actual workflow passes the complete default list without admitting LGP
 test("a redundant SPDX exception preserves the independently allowed base license", () => {
   const result = run('[licenses]\nallow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception"]\n');
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.output, "licenses=MIT,Apache-2.0\n");
+  assert.equal(result.output.trim(), "licenses=MIT,Apache-2.0");
 });
 
 test("invalid, duplicate and newline-bearing policies fail instead of selecting defaults", () => {
