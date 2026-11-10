@@ -210,7 +210,7 @@ jobs:
           PY
 
       - name: Dependencies and licences
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-osv@9795917fc97bf71b2761e609a87adbb189119894 # verified native scanner policy
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-osv@67cffe9da01008435d920b49ea3b7afced3ad126 # verified native scanner policy
         with:
           scanner: ${{ runner.temp }}/security/bin/osv-scanner
           output: ${{ runner.temp }}/security/out

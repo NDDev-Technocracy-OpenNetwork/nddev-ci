@@ -114,10 +114,11 @@ unavailable source fails. Checksums remain mandatory. Its routes are:
 - `/osv/<UTC date>/<ecosystem>/all.zip`, the OSV vulnerability database of an ecosystem as the
   source's copy of that day
 
-With a declared source the dependency comparison of the merge stops takes its vulnerability
-databases from the last route and never from the scanner's own download: it first lets the
-scanner list the packages, then fetches the database of each ecosystem they name. The data is at
-most a day old. Without a declared source the scanner downloads the current databases itself.
+With a declared source the dependency comparison of the merge stops and the daily dependency
+scan take their vulnerability databases from the last route and never from the scanner's own
+download: each first lets the scanner list the packages, then fetches the database of each
+ecosystem they name. The data is at most a day old. Without a declared source the scanner
+downloads the current databases itself. The daily licence report still asks its public source.
 
 `image.yml` gives a build the same mirror, and takes its pinned Buildx binary through the first
 route there. On a managed runner with that variable the build

@@ -1,10 +1,15 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { fetchDatabases, registry } from "../../lib/dependency-scan.mjs";
 import { scannerPolicy } from "../../lib/security-policy.mjs";
 
-export function main(environment = process.env) {
+export function main(
+  environment = process.env,
+  day = new Date().toISOString().slice(0, 10),
+) {
   const source = environment.GITHUB_WORKSPACE;
   const binary = environment.INPUT_SCANNER;
   const output = environment.INPUT_OUTPUT;
@@ -17,6 +22,8 @@ export function main(environment = process.env) {
   if (!environment.INPUT_LICENSES)
     throw new Error("Daily scans require their licence policy.");
   const policy = scannerPolicy(environment, "osv-scanner.toml");
+  const declared = registry(environment);
+  let database;
   try {
     const common = [
       "scan",
@@ -31,14 +38,18 @@ export function main(environment = process.env) {
       "--config",
       policy.config,
     ];
-    const scan = (flags, name) => {
-      const result = spawnSync(binary, [...common, ...flags, source], {
+    const run = (flags) =>
+      spawnSync(binary, [...common, ...flags, source], {
         cwd: source,
-        env: environment,
+        env: database
+          ? { ...environment, OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY: database }
+          : environment,
         encoding: "utf8",
         timeout: 600000,
         maxBuffer: 64 * 1024 * 1024,
       });
+    const scan = (flags, name) => {
+      const result = run(flags);
       if (result.stderr) process.stderr.write(result.stderr);
       if (
         result.error ||
@@ -53,14 +64,31 @@ export function main(environment = process.env) {
         throw new Error(`OSV ${name} scan returned an invalid report.`);
       return result.stdout;
     };
-    const vulnerabilities = scan(
-      [
-        "--offline-vulnerabilities",
-        "--download-offline-databases",
-        "--data-source=native",
-      ],
-      "vulnerability",
-    );
+    let lookup = [
+      "--offline-vulnerabilities",
+      "--download-offline-databases",
+      "--data-source=native",
+    ];
+    if (declared) {
+      // On a runner with a declared registry the databases come from it and not from the
+      // scanner's own download. Without a database the scanner fails this first run and still
+      // names every package's ecosystem, which tells the files to fetch.
+      database = mkdtempSync(
+        path.join(environment.RUNNER_TEMP || tmpdir(), "nddev-ci-osv-"),
+      );
+      const local = ["--offline", "--data-source=native", "--local-db-path", database];
+      const listed = run(["--all-packages", ...local]);
+      let report;
+      try {
+        if (listed.error) throw listed.error;
+        report = JSON.parse(listed.stdout);
+      } catch {
+        throw new Error("OSV could not list the packages to look up.");
+      }
+      fetchDatabases(report, database, declared, environment, day);
+      lookup = local;
+    }
+    const vulnerabilities = scan(lookup, "vulnerability");
     const licenses = scan(
       [`--licenses=${environment.INPUT_LICENSES}`],
       "licence",
@@ -73,6 +101,7 @@ export function main(environment = process.env) {
       mode: 0o600,
     });
   } finally {
+    if (database) rmSync(database, { recursive: true, force: true });
     policy.cleanup();
   }
 }
