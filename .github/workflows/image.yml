@@ -145,10 +145,44 @@ jobs:
             echo "CONFIG"
           } >> "$GITHUB_OUTPUT"
 
+      # Buildx is one pinned release. A managed runner takes its binary through the artifact
+      # registry, which serves a release asset only by its digest, and installs it as the Docker
+      # plugin of this job; the next step then uses it as it is. Elsewhere that step downloads
+      # the same release itself.
+      - name: Buildx of a managed runner
+        id: buildx
+        env:
+          BUILDX_VERSION: v0.38.2
+          BUILDX_SHA256_X64: 7992ec09413b80ff57ba4e081f56fc833d7bac1d5e71143c6c809e7e6065f6d6
+          BUILDX_SHA256_ARM64: 46c0f334772de3cb0b341cc415caf7339fb5cfc8b8438ebcb5a10e7f23800d36
+        run: |
+          set -euo pipefail
+          mirror="${NDDEV_CI_ARTIFACT_REGISTRY:-}"
+          mirror="${mirror%/}"
+          if [ "$RUNNER_ENVIRONMENT" != self-hosted ] || [ -z "$mirror" ]; then
+            echo "version=$BUILDX_VERSION" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$(uname -m)" in
+            x86_64) arch=amd64 digest=$BUILDX_SHA256_X64 ;;
+            aarch64 | arm64) arch=arm64 digest=$BUILDX_SHA256_ARM64 ;;
+            *) echo "::error::image builds on managed runners support Linux x64 and ARM64"; exit 1 ;;
+          esac
+          plugins="${DOCKER_CONFIG:-$HOME/.docker}/cli-plugins"
+          mkdir -p "$plugins"
+          curl -fsSL -o "$plugins/docker-buildx.download" \
+            "$mirror/github-releases/sha256/$digest/docker/buildx/releases/download/$BUILDX_VERSION/buildx-$BUILDX_VERSION.linux-$arch"
+          echo "$digest  $plugins/docker-buildx.download" | sha256sum --check --quiet
+          chmod 0755 "$plugins/docker-buildx.download"
+          mv "$plugins/docker-buildx.download" "$plugins/docker-buildx"
+          docker buildx version
+          # An empty version tells the next step to use the installed plugin.
+          echo "version=" >> "$GITHUB_OUTPUT"
+
       - name: BuildKit
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
-          version: v0.38.2
+          version: ${{ steps.buildx.outputs.version }}
           # The pinned binary is downloaded and verified each time, never restored from a cache
           # a pull request could have written.
           cache-binary: false
