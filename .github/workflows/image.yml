@@ -128,6 +128,11 @@ jobs:
             echo "UV_DEFAULT_INDEX=$mirror/pypi/simple/"
             echo "GOPROXY=$mirror/goproxy"
             echo "PUB_HOSTED_URL=$mirror/pub"
+            # apt takes no mirror by a variable, but it follows the proxy variable for its
+            # plain-HTTP archives, and the mirror answers apt as that proxy. These two are
+            # predefined build arguments, so a Dockerfile declares nothing for them.
+            echo "http_proxy=$mirror"
+            echo "no_proxy=127.0.0.1,localhost"
             echo "ARGUMENTS"
             # The builder pulls base images itself and does not read the Docker daemon's mirrors,
             # so it gets the same mirror for each registry the runner serves.
