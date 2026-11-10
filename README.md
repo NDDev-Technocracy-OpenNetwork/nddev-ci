@@ -122,7 +122,9 @@ the mirror's `/v2/<registry>` routes for Docker Hub, GHCR, GCR and cgr.dev, sinc
 read the Docker daemon's mirrors. A Dockerfile takes the variables it needs by
 declaring them as arguments without a value, such as `ARG NPM_CONFIG_REGISTRY`. On a
 GitHub-hosted runner they stay empty and each tool uses its public source, so the Dockerfile
-names no runner and no address.
+names no runner and no address. apt needs no argument: the workflow passes the mirror as the
+predefined `http_proxy`, and the mirror serves the Debian and Ubuntu archives in that form.
+Any other plain-HTTP address in a `RUN` step is refused there, so such a download uses HTTPS.
 
 Project setup must support its execution environment. Hosted setup uses the explicit
 SDK inputs and cannot require a private installer or private cache variable.
