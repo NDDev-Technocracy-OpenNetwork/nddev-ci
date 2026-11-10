@@ -110,7 +110,13 @@ function comparison() {
   return { root, binary, input, calls };
 }
 
-test("a declared registry provides the day's databases and the scanner downloads nothing", async (t) => {
+// The comparison names its pinned scanner in the result, which exists for native Linux only.
+const linux = {
+  skip:
+    process.platform === "linux" ? false : "the dependency guard is Linux-only",
+};
+
+test("a declared registry provides the day's databases and the scanner downloads nothing", linux, async (t) => {
   const { root, binary, input, calls } = comparison();
   const log = path.join(root, "registry.log");
   const day = "2026-11-10";
@@ -166,7 +172,7 @@ test("a declared registry provides the day's databases and the scanner downloads
   assert.deepEqual(other.calls(), ["offline inputs"]);
 });
 
-test("without a declared registry the scanner downloads its databases once", async (t) => {
+test("without a declared registry the scanner downloads its databases once", linux, async (t) => {
   const { root, binary, input, calls } = comparison();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const environment = { ...process.env };
