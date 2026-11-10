@@ -112,6 +112,16 @@ unavailable source fails. Checksums remain mandatory. Its routes are:
 - `/github-releases/sha256/<digest>/<owner>/<repository>/releases/download/<tag>/<asset>`
 - `/pypi/simple/<project>/` and `/pypi-files/`
 
+`image.yml` gives a build the same mirror. On a managed runner with that variable the build
+runs on the host network, because a `RUN` step cannot reach the runner's loopback otherwise,
+and the workflow passes the mirror under each package manager's own variable name:
+`CARGO_SOURCE_CRATES_IO_REPLACE_WITH` with `CARGO_SOURCE_MIRROR_REGISTRY`,
+`RUSTUP_DIST_SERVER`, `NPM_CONFIG_REGISTRY`, `PIP_INDEX_URL` with `PIP_TRUSTED_HOST`,
+`UV_DEFAULT_INDEX`, `GOPROXY` and `PUB_HOSTED_URL`. A Dockerfile takes the ones it needs by
+declaring them as arguments without a value, such as `ARG NPM_CONFIG_REGISTRY`. On a
+GitHub-hosted runner they stay empty and each tool uses its public source, so the Dockerfile
+names no runner and no address.
+
 Project setup must support its execution environment. Hosted setup uses the explicit
 SDK inputs and cannot require a private installer or private cache variable.
 
