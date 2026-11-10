@@ -26,8 +26,6 @@ check: (_tools "check")
     node --check tests/artifact-registry.test.mjs
     node --check lib/runner-profile.mjs
     node --check tests/runner-profile.test.mjs
-    node --check actions/renovate/run.mjs
-    node --check tests/renovate.test.mjs
     node --check actions/frontend/run.mjs
     node --check actions/recipe/run.mjs
     node --check actions/hosted-sdk/run.mjs
