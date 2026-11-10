@@ -100,6 +100,37 @@ jobs:
       - name: Outside telemetry off
         uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@9795917fc97bf71b2761e609a87adbb189119894
 
+      # A managed runner offers a package mirror on its loopback. A build step reaches it only on
+      # the host network, and each package manager finds it by its own standard variable, which
+      # a Dockerfile takes by declaring that argument. On a GitHub-hosted runner none is set.
+      - name: Package mirror of a managed runner
+        id: mirror
+        run: |
+          set -euo pipefail
+          mirror="${NDDEV_CI_ARTIFACT_REGISTRY:-}"
+          mirror="${mirror%/}"
+          if [ "$RUNNER_ENVIRONMENT" != self-hosted ] || [ -z "$mirror" ]; then
+            exit 0
+          fi
+          [[ "$mirror" =~ ^http://127\.0\.0\.1:[0-9]{2,5}$ ]] || { echo "::error::the runner's package mirror must be a loopback HTTP address"; exit 1; }
+          {
+            echo "network=host"
+            echo "allow=network.host"
+            echo "driver=network=host"
+            echo "flags=--allow-insecure-entitlement network.host"
+            echo "arguments<<ARGUMENTS"
+            echo "CARGO_SOURCE_CRATES_IO_REPLACE_WITH=mirror"
+            echo "CARGO_SOURCE_MIRROR_REGISTRY=sparse+$mirror/crates-index/"
+            echo "RUSTUP_DIST_SERVER=$mirror/rustup"
+            echo "NPM_CONFIG_REGISTRY=$mirror/npm/"
+            echo "PIP_INDEX_URL=$mirror/pypi/simple/"
+            echo "PIP_TRUSTED_HOST=127.0.0.1"
+            echo "UV_DEFAULT_INDEX=$mirror/pypi/simple/"
+            echo "GOPROXY=$mirror/goproxy"
+            echo "PUB_HOSTED_URL=$mirror/pub"
+            echo "ARGUMENTS"
+          } >> "$GITHUB_OUTPUT"
+
       - name: BuildKit
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
@@ -108,7 +139,11 @@ jobs:
           # a pull request could have written.
           cache-binary: false
           driver: docker-container
-          driver-opts: image=moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
+          driver-opts: |
+            image=moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
+            ${{ steps.mirror.outputs.driver }}
+          # The builder allows the host network only where the build uses it for the mirror.
+          buildkitd-flags: ${{ steps.mirror.outputs.flags }}
 
       - name: Container registry
         if: github.event_name != 'pull_request' && inputs.push
@@ -125,7 +160,11 @@ jobs:
           context: ${{ inputs.context }}
           file: ${{ inputs.dockerfile }}
           target: ${{ inputs.target }}
-          build-args: ${{ inputs.build-args }}
+          build-args: |
+            ${{ inputs.build-args }}
+            ${{ steps.mirror.outputs.arguments }}
+          network: ${{ steps.mirror.outputs.network }}
+          allow: ${{ steps.mirror.outputs.allow }}
           platforms: ${{ steps.name.outputs.platform }}
           push: ${{ github.event_name != 'pull_request' && inputs.push }}
           tags: ${{ steps.name.outputs.name }}:sha-${{ github.sha }}
