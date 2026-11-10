@@ -169,8 +169,6 @@ Git histories, loopback HTTP transport and archive bytes; native integration sui
 also download pinned tools. Self-references in reusable workflows pin an existing
 implementation commit and are updated after that implementation is committed.
 
-The next release notes are prepared in [v0.6.29](.github/releases/v0.6.29.md).
-
 ## Credit
 
 Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE). Please credit NDDev and link
