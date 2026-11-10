@@ -117,7 +117,9 @@ runs on the host network, because a `RUN` step cannot reach the runner's loopbac
 and the workflow passes the mirror under each package manager's own variable name:
 `CARGO_SOURCE_CRATES_IO_REPLACE_WITH` with `CARGO_SOURCE_MIRROR_REGISTRY`,
 `RUSTUP_DIST_SERVER`, `NPM_CONFIG_REGISTRY`, `PIP_INDEX_URL` with `PIP_TRUSTED_HOST`,
-`UV_DEFAULT_INDEX`, `GOPROXY` and `PUB_HOSTED_URL`. A Dockerfile takes the ones it needs by
+`UV_DEFAULT_INDEX`, `GOPROXY` and `PUB_HOSTED_URL`. The builder takes its base images from
+the mirror's `/v2/<registry>` routes for Docker Hub, GHCR, GCR and cgr.dev, since it does not
+read the Docker daemon's mirrors. A Dockerfile takes the variables it needs by
 declaring them as arguments without a value, such as `ARG NPM_CONFIG_REGISTRY`. On a
 GitHub-hosted runner they stay empty and each tool uses its public source, so the Dockerfile
 names no runner and no address.

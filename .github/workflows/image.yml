@@ -129,6 +129,15 @@ jobs:
             echo "GOPROXY=$mirror/goproxy"
             echo "PUB_HOSTED_URL=$mirror/pub"
             echo "ARGUMENTS"
+            # The builder pulls base images itself and does not read the Docker daemon's mirrors,
+            # so it gets the same mirror for each registry the runner serves.
+            host="${mirror#http://}"
+            echo "config<<CONFIG"
+            for registry in docker.io ghcr.io gcr.io cgr.dev; do
+              printf '[registry."%s"]\n  mirrors = ["%s/%s"]\n' "$registry" "$host" "$registry"
+            done
+            printf '[registry."%s"]\n  http = true\n' "$host"
+            echo "CONFIG"
           } >> "$GITHUB_OUTPUT"
 
       - name: BuildKit
@@ -144,6 +153,7 @@ jobs:
             ${{ steps.mirror.outputs.driver }}
           # The builder allows the host network only where the build uses it for the mirror.
           buildkitd-flags: ${{ steps.mirror.outputs.flags }}
+          buildkitd-config-inline: ${{ steps.mirror.outputs.config }}
 
       - name: Container registry
         if: github.event_name != 'pull_request' && inputs.push
