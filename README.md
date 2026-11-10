@@ -21,7 +21,6 @@ the linked workflow and action declarations.
 | [registry.yml](.github/workflows/registry.yml) | Publish released files to crates.io or PyPI through trusted publishing |
 | [provenance.yml](.github/workflows/provenance.yml) | Attest artifacts of a public repository's build |
 | [security.yml](.github/workflows/security.yml) | Daily secrets, dependency, licence, SBOM and image scans |
-| [renovate.yml](.github/workflows/renovate.yml) | Scheduled Renovate on an explicitly selected managed runner |
 
 ## Project checks
 
@@ -138,12 +137,6 @@ Reruns reconcile the same release. Deployment stays with the caller.
 `registry.yml` verifies immutable release files before trusted publication. Crates
 must reproduce the released package from tagged source. Public artifact attestations
 use `provenance.yml`; private repositories use release verification.
-
-`renovate.yml` takes an exact prepared Renovate version, an explicit same-organization
-repository list and App credentials from the caller's schedule or manual workflow.
-The scoped token is revoked afterward. Scripts, plugins, post-upgrade commands and
-automerge are disabled; repository configuration owns update grouping and age.
-An optional Docker Hub read credential stays in memory. Temporary state is cleaned.
 
 ## Job records
 

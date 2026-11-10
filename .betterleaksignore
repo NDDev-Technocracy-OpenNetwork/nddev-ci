@@ -1,5 +1,5 @@
 # Findings reviewed and accepted, one fingerprint per line.
 #
-# A fixture value in a published commit, not a credential: the Renovate test compared the Docker
-# host rule with a literal. The test now names the fixture.
+# A fixture value in a published commit, not a credential: the former Renovate test compared the
+# Docker host rule with a literal. The file has left the library; the commit stays in its history.
 71284aefe45304f5099fe0c1149078b0bcce2d60:tests/renovate.test.mjs:generic-password:31
