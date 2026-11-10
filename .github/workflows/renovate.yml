@@ -1,0 +1,98 @@
+name: managed Renovate
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Explicit managed runner label; this automation never selects hosted runners.
+        type: string
+        default: nddev-linux-standart
+      renovate-version:
+        description: Exact managed Renovate version supplied by the caller.
+        type: string
+        required: true
+      repositories:
+        description: Explicit owner/repository names, one per line, in the caller's organization.
+        type: string
+        required: true
+      app-client-id:
+        description: Client ID of the repository-scoped Renovate App.
+        type: string
+        required: true
+      dockerhub-username:
+        description: Optional Docker Hub read user.
+        type: string
+        default: ''
+      timeout-minutes:
+        description: Job bound below the installation token's one-hour lifetime.
+        type: number
+        default: 45
+    secrets:
+      app-private-key:
+        description: App signing key, used only by the installation-token action.
+        required: true
+      dockerhub-token:
+        description: Optional Docker Hub read credential.
+        required: false
+permissions: {}
+jobs:
+  renovate:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    concurrency:
+      group: nddev-ci-renovate-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Start
+        run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
+      - name: Outside telemetry off
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@9795917fc97bf71b2761e609a87adbb189119894
+      - name: Validate managed Renovate and explicit scope
+        id: prepare
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/renovate@9795917fc97bf71b2761e609a87adbb189119894
+        with:
+          mode: prepare
+          version: ${{ inputs.renovate-version }}
+          repositories: ${{ inputs.repositories }}
+          timeout-minutes: ${{ inputs.timeout-minutes }}
+      - name: Scoped Renovate installation token
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.prepare.outputs.repository-names }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+          permission-checks: read
+          permission-statuses: read
+      - name: Run Renovate
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/renovate@9795917fc97bf71b2761e609a87adbb189119894
+        with:
+          mode: run
+          version: ${{ inputs.renovate-version }}
+          repositories: ${{ inputs.repositories }}
+          directory: ${{ steps.prepare.outputs.directory }}
+          timeout-minutes: ${{ inputs.timeout-minutes }}
+          github-token: ${{ steps.app.outputs.token }}
+          dockerhub-username: ${{ inputs.dockerhub-username }}
+          dockerhub-token: ${{ secrets.dockerhub-token }}
+      - name: Remove Renovate workspace and local credentials
+        if: always() && steps.prepare.outputs.directory != ''
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/renovate@9795917fc97bf71b2761e609a87adbb189119894
+        with:
+          mode: cleanup
+          version: ${{ inputs.renovate-version }}
+          repositories: ${{ inputs.repositories }}
+          directory: ${{ steps.prepare.outputs.directory }}
+      - name: Job record
+        if: always()
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@9795917fc97bf71b2761e609a87adbb189119894
+        with:
+          task: managed Renovate
+          status: ${{ job.status }}
+          started-file: ${{ runner.temp }}/nddev-ci-started

@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { client, downloadArtifact, qualify, receipt, recheck, selectArtifacts, transferArtifacts } from "../lib/qualification.mjs";
 
 const where = {repository: "fixture/project", sha: "a".repeat(40), workflowPath: ".github/workflows/ci.yml", branch: "dev", event: "push"};
@@ -138,5 +140,90 @@ test("actual ZIP bytes transfer atomically; tampering, unsafe members and newer 
     assert.equal(existsSync(path.join(root, "newer")), false);
     assert.ok(readdirSync(root).every((name) => !name.startsWith(".checked-artifacts-")));
     await assert.rejects(downloadArtifact(github, where.repository, {...metadata(), digest: `sha256:${"0".repeat(64)}`}, path.join(root, "tampered")), /differ/);
+  } finally { await close(api.server); rmSync(root, {recursive: true, force: true}); }
+});
+
+test("the actual release entrypoint never prints unexpected error details", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "release-error-boundary-"));
+  const privatePath = path.join(root, "private-credential-fixture");
+  writeFileSync(privatePath, "a regular file cannot hold the release workspace");
+  let reads = 0;
+  const api = await listen((req, res) => {
+    if (req.method !== "GET" || !req.url.includes("/workflows/ci.yml/runs?")) { res.writeHead(405); res.end(); return; }
+    reads++; res.setHeader("content-type", "application/json"); res.end(JSON.stringify(inventory()));
+  });
+  try {
+    const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
+      stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...process.env,
+        GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: privatePath,
+        GITHUB_API_URL: api.url, GITHUB_SERVER_URL: "https://github.com", "INPUT_API-URL": api.url,
+        "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", "INPUT_WAIT-MINUTES": "0", INPUT_ARTIFACTS: "",
+        "INPUT_CHECK-WORKFLOW": "ci.yml"},
+    });
+    let output = "";
+    child.stdout.on("data", (bytes) => {output += bytes;}); child.stderr.on("data", (bytes) => {output += bytes;});
+    const [code] = await once(child, "close");
+    assert.equal(code, 1); assert.equal(reads, 1);
+    assert.match(output, /Release failed before completion\./);
+    assert.doesNotMatch(output, /private-credential-fixture|opaque-credential-fixture/);
+  } finally { await close(api.server); rmSync(root, {recursive: true, force: true}); }
+});
+
+test("the release entrypoint publishes qualified files and checksums and reconciles a rerun", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "release-publish-"));
+  const zip = path.join(root, "build.zip"), binary = Buffer.from("checked native binary");
+  execFileSync("python3", ["-I", "-c", "import sys,stat,zipfile; z=zipfile.ZipFile(sys.argv[1],'w'); i=zipfile.ZipInfo('program.bin'); i.external_attr=(stat.S_IFREG|0o755)<<16; z.writestr(i,b'checked native binary'); z.close()", zip]);
+  const bytes = readFileSync(zip), uploads = new Map();
+  const digest = (value) => createHash("sha256").update(value).digest("hex");
+  const tags = [{ref: "refs/tags/v1.0.0", object: {type: "commit", sha: "b".repeat(40)}}];
+  let release = null, mutations = 0, checks = 0;
+  const api = await listen(async (req, res) => {
+    const chunks = []; for await (const chunk of req) chunks.push(chunk);
+    const body = Buffer.concat(chunks), route = req.url;
+    const json = (value, status = 200) => { res.writeHead(status, {"content-type": "application/json"}); res.end(JSON.stringify(value)); };
+    if (req.method !== "GET") mutations++;
+    if (route.includes("/workflows/")) { checks++; json(inventory()); }
+    else if (route.endsWith("/artifacts?per_page=100")) json(artifacts(artifact({size_in_bytes: bytes.length, digest: `sha256:${digest(bytes)}`})));
+    else if (route.endsWith("/artifacts/9/zip")) res.end(bytes);
+    else if (route.endsWith("/matching-refs/tags/v")) json(tags);
+    else if (route.endsWith("/git/ref/tags/v1.0.1")) json(tags[1] ?? {}, tags[1] ? 200 : 404);
+    else if (route.endsWith("/git/refs")) {
+      assert.deepEqual(JSON.parse(body), {ref: "refs/tags/v1.0.1", sha: where.sha});
+      tags.push({ref: "refs/tags/v1.0.1", object: {type: "commit", sha: where.sha}}); json(tags[1]);
+    } else if (route.endsWith("/releases/tags/v1.0.1")) json(release ?? {}, release ? 200 : 404);
+    else if (route.endsWith("/releases?per_page=100")) json([]);
+    else if (route.endsWith("/releases/generate-notes")) json({body: "Fixture changes"});
+    else if (route.endsWith("/releases") && req.method === "POST") {
+      release = {...JSON.parse(body), id: 11, assets: [], upload_url: `${api.url}/upload{?name}`, html_url: "https://github.com/fixture/project/releases/tag/v1.0.1"};
+      assert.equal(release.draft, true); assert.equal(release.name, "project 1.0.1"); json(release);
+    } else if (route.startsWith("/upload?")) {
+      const name = new URL(route, api.url).searchParams.get("name");
+      uploads.set(name, body); const asset = {name, size: body.length, digest: `sha256:${digest(body)}`};
+      release.assets.push(asset); json(asset);
+    } else if (route.endsWith("/releases/11") && req.method === "PATCH") {
+      Object.assign(release, JSON.parse(body)); json(release);
+    } else { res.writeHead(404); res.end(); }
+  });
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const temp = mkdtempSync(path.join(root, "attempt-"));
+      const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
+        stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...process.env,
+          GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: temp,
+          GITHUB_API_URL: api.url, GITHUB_SERVER_URL: "https://github.com", "INPUT_API-URL": api.url,
+          "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", "INPUT_WAIT-MINUTES": "0", INPUT_ARTIFACTS: "build",
+          GITHUB_OUTPUT: path.join(temp, "outputs"), GITHUB_STEP_SUMMARY: path.join(temp, "summary")},
+      });
+      let output = "";
+      child.stdout.on("data", (chunk) => {output += chunk;}); child.stderr.on("data", (chunk) => {output += chunk;});
+      const before = mutations, [code] = await once(child, "close");
+      assert.equal(code, 0, output); assert.equal(release.draft, false);
+      assert.match(readFileSync(path.join(temp, "outputs"), "utf8"), /version=1\.0\.1\ntag=v1\.0\.1/);
+      if (attempt) assert.equal(mutations, before, "a published exact release needs no second mutation");
+    }
+    assert.deepEqual([...uploads.keys()], ["program.bin", "SHA256SUMS"]);
+    assert.deepEqual(uploads.get("program.bin"), binary);
+    assert.equal(uploads.get("SHA256SUMS").toString(), `${digest(binary)}  program.bin\n`);
+    assert.ok(checks >= 8, "each attempt rechecks qualification around transfer and publication");
   } finally { await close(api.server); rmSync(root, {recursive: true, force: true}); }
 });

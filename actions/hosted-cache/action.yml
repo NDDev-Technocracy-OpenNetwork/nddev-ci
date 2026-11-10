@@ -1,10 +1,13 @@
 name: Hosted dependency caches
 description: >-
-  Restores the dependency caches of a job on a GitHub-hosted runner, keyed by the project's lock
+  Restores the dependency caches of a job on an external bootstrap runner, keyed by the project's lock
   files: Cargo through rust-cache, and the Bun, npm, pnpm and uv package stores. As with the
   contour's network cache, only dev and main write; every other job only reads, so a pull request
   never writes what a release build reads. Our runners keep their own network cache instead.
 inputs:
+  managed:
+    description: Optional explicit SDK ownership; external providers may use hosted caches even when registered as self-hosted.
+    default: ''
   working-directory:
     description: The project folder whose lock files key the caches.
     default: '.'
@@ -17,11 +20,15 @@ runs:
       env:
         PROJECT: ${{ inputs.working-directory }}
         RUNNER_KIND: ${{ runner.environment }}
+        MANAGED: ${{ inputs.managed }}
         EVENT: ${{ github.event_name }}
         REF: ${{ github.ref }}
       run: |
         set -euo pipefail
-        [ "$RUNNER_KIND" = github-hosted ] || { echo "::error::hosted caches serve GitHub-hosted runners only"; exit 1; }
+        case "$RUNNER_KIND:$MANAGED" in
+          github-hosted: | github-hosted:false | self-hosted:false) ;;
+          *) echo "::error::hosted caches serve explicit external bootstrap profiles only"; exit 1 ;;
+        esac
         case "/$PROJECT/" in //* | */../* | *\\*) echo "::error::working-directory must stay inside the workspace"; exit 1 ;; esac
         cd "$PROJECT"
         write=false

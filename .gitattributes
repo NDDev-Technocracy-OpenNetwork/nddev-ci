@@ -1,2 +1,4 @@
 # Plain-text inputs the library reads byte for byte keep LF line ends on every system.
 actions/telemetry/switches.env text eol=lf
+# The tests read the workflows and actions the same way, to run the scripts they carry.
+*.yml text eol=lf

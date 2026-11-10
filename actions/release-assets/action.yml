@@ -1,6 +1,9 @@
 name: Prepare pinned release assets
 description: Prepare exact public tool bytes in a disposable hosted runner directory.
 inputs:
+  managed:
+    description: Optional explicit SDK ownership; managed runners keep their own native provider.
+    default: ''
   manifest:
     description: JSON manifest inside the checkout, containing schema_version 1 and an assets array.
     required: true

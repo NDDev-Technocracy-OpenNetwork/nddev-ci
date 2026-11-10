@@ -20,7 +20,7 @@ jobs:
     permissions:
       contents: read
       issues: write
-    # The configured-policy path, with the default allowlist.
+    # Exercises a caller-owned policy including an SPDX exception.
     with:
       license-policy: tests/fixtures/license-policy/deny.toml
       hosted-runner: ${{ inputs.hosted-runner || 'ubuntu-24.04' }}

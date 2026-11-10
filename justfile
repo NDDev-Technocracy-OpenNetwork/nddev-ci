@@ -24,6 +24,10 @@ check: (_tools "check")
     rustfmt --edition 2024 --check tests/recipe-routing.rs
     node --check actions/artifact-registry/run.mjs
     node --check tests/artifact-registry.test.mjs
+    node --check lib/runner-profile.mjs
+    node --check tests/runner-profile.test.mjs
+    node --check actions/renovate/run.mjs
+    node --check tests/renovate.test.mjs
     node --check actions/frontend/run.mjs
     node --check actions/recipe/run.mjs
     node --check actions/hosted-sdk/run.mjs
@@ -31,6 +35,7 @@ check: (_tools "check")
     node --check actions/hosted-sdk/flutter.mjs
     node --check tests/bun-source.test.mjs
     node --check tests/hosted-sdk.test.mjs
+    node --check tests/sdk-runtime.test.mjs
     node --check actions/release-assets/run.mjs
     node --check lib/release-asset.mjs
     node --check lib/native-member.mjs
@@ -46,6 +51,7 @@ check: (_tools "check")
     node --check actions/daily-sbom/run.mjs
     node --check tests/daily-sbom-native.mjs
     node --check lib/security-policy.mjs
+    node --check tests/license-policy.test.mjs
     node --check tests/portable-recipe.test.mjs
     node --check tests/release-assets.test.mjs
     node --check tests/windows-archive.test.mjs

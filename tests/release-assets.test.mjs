@@ -14,6 +14,7 @@ import {
   appendFileSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { downloadAsset } from "../lib/release-asset.mjs";
@@ -58,7 +59,113 @@ test("authenticates only the official API and verifies streamed bytes", async (t
   }
 });
 
-for (const variant of ["redirect", "size", "digest", "forbidden"]) {
+test("a failed storage socket cannot leave the API redirect as the download result", {timeout: 20000}, async (t) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "release-redirect-transport-"));
+  const nativeFetch = globalThis.fetch, requests = [], apiCredentials = [], storageCredentials = [];
+  const listen = async (handler) => {
+    const server = createServer(handler);
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    return {server, url: `http://127.0.0.1:${server.address().port}`};
+  };
+  const api = await listen((req, res) => {
+    apiCredentials.push(req.headers.authorization);
+    res.writeHead(302, {location: "https://release-assets.githubusercontent.com/asset?signature=fixture-private"});
+    res.end();
+  });
+  const storage = await listen((req) => {
+    storageCredentials.push(req.headers.authorization);
+    req.socket.destroy();
+  });
+  t.mock.method(globalThis, "fetch", (url, options) => {
+    const value = String(url), source = value.startsWith("https://api.github.com/");
+    requests.push({url: value, source, options});
+    // Keep the actual origin checks, but exercise the fetch rejection with a real local socket.
+    return nativeFetch(source ? api.url : storage.url, options);
+  });
+  try {
+    const target = path.join(directory, "tool");
+    await assert.rejects(downloadAsset(asset, target, "test-read-token"), (error) => {
+      assert.match(error.message, /Pinned release asset transport did not complete/);
+      assert.doesNotMatch(error.message, /HTTP 302|fixture-private|test-read-token/);
+      return true;
+    });
+    assert.equal(requests.filter((r) => r.source).length, 4);
+    assert.equal(requests.filter((r) => !r.source).length, 4);
+    assert.ok(requests.filter((r) => r.source).every((r) => r.url === "https://api.github.com/repos/example/tool/releases/assets/123"));
+    assert.ok(requests.filter((r) => !r.source).every((r) => r.options.redirect === "error" && r.options.headers.Authorization === undefined));
+    assert.ok(apiCredentials.every((value) => value === "Bearer test-read-token"));
+    assert.ok(storageCredentials.length > 0 && storageCredentials.every((value) => value === undefined));
+    assert.equal(existsSync(target), false);
+  } finally {
+    for (const {server} of [api, storage]) {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+    }
+    rmSync(directory, {recursive: true, force: true});
+  }
+});
+
+for (const failure of ["socket", "timeout"]) {
+  test(`partial storage body ${failure} preserves the transfer boundary`, {timeout: 20000}, async (t) => {
+    const directory = mkdtempSync(path.join(tmpdir(), "release-body-transport-"));
+    const target = path.join(directory, "tool"), requests = [], credentials = [];
+    const nativeFetch = globalThis.fetch, nativeTimeout = AbortSignal.timeout;
+    const server = createServer((req, res) => {
+      credentials.push({source: req.url === "/api", authorization: req.headers.authorization});
+      assert.equal(existsSync(target), false, "partial bytes must be removed before another request");
+      if (req.url === "/api") {
+        res.writeHead(302, {location: "https://release-assets.githubusercontent.com/body?signature=fixture-private"});
+        res.end();
+      } else {
+        const attempt = credentials.filter((entry) => !entry.source).length;
+        res.writeHead(200, {"content-length": bytes.length});
+        if (failure === "socket" && attempt === 2) res.end(bytes);
+        else {
+          res.write(bytes.subarray(0, 3));
+          if (failure === "socket") setTimeout(() => res.destroy(), 30);
+          // The timeout variant leaves an actual response body open until its signal aborts.
+        }
+      }
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    if (failure === "timeout") t.mock.method(AbortSignal, "timeout", (milliseconds) => {
+      assert.equal(milliseconds, 30000, "the production transfer deadline must stay unchanged");
+      return nativeTimeout(150);
+    });
+    t.mock.method(globalThis, "fetch", (url, options) => {
+      const source = String(url).startsWith("https://api.github.com/");
+      requests.push({url: String(url), source, options});
+      return nativeFetch(`http://127.0.0.1:${server.address().port}/${source ? "api" : "body"}`, options);
+    });
+    try {
+      if (failure === "socket") {
+        await downloadAsset(asset, target, "test-read-token");
+        assert.deepEqual(readFileSync(target), bytes, "a retry must reset its file, size and digest");
+        assert.deepEqual(readdirSync(directory), ["tool"]);
+      } else {
+        await assert.rejects(downloadAsset(asset, target, "test-read-token"), (error) => {
+          assert.match(error.message, /Pinned release asset transport did not complete/);
+          assert.doesNotMatch(error.message, /operation was aborted|fixture-private|test-read-token/);
+          return true;
+        });
+        assert.deepEqual(readdirSync(directory), [], "an exhausted transfer must leave no partial file");
+      }
+      const attempts = failure === "socket" ? 2 : 4;
+      assert.equal(requests.filter((entry) => entry.source).length, attempts);
+      assert.equal(requests.filter((entry) => !entry.source).length, attempts);
+      assert.ok(requests.filter((entry) => entry.source).every((entry) => entry.url === "https://api.github.com/repos/example/tool/releases/assets/123"));
+      assert.ok(requests.filter((entry) => !entry.source).every((entry) => entry.options.redirect === "error" && entry.options.headers.Authorization === undefined));
+      assert.ok(credentials.filter((entry) => entry.source).every((entry) => entry.authorization === "Bearer test-read-token"));
+      assert.ok(credentials.filter((entry) => !entry.source).every((entry) => entry.authorization === undefined));
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+      rmSync(directory, {recursive: true, force: true});
+    }
+  });
+}
+
+for (const variant of ["redirect", "size", "incomplete", "digest", "forbidden", "missing body"]) {
   test(`refuses ${variant} failures without retrying or changing source`, async (t) => {
     const directory = mkdtempSync(path.join(tmpdir(), "release-refusal-"));
     let requests = 0;
@@ -70,6 +177,8 @@ for (const variant of ["redirect", "size", "digest", "forbidden"]) {
           headers: { location: "https://example.net/tool" },
         });
       if (variant === "forbidden") return new Response(null, { status: 403 });
+      if (variant === "missing body") return new Response(null);
+      if (variant === "incomplete") return new Response(bytes.subarray(0, 3));
       return new Response(
         variant === "size"
           ? Buffer.concat([bytes, bytes])
@@ -81,11 +190,26 @@ for (const variant of ["redirect", "size", "digest", "forbidden"]) {
         downloadAsset(asset, path.join(directory, "tool"), "test-read-token"),
       );
       assert.equal(requests, 1);
+      assert.deepEqual(readdirSync(directory), []);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
   });
 }
+
+test("download failures never delete or replace a pre-existing destination", async (t) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "release-existing-"));
+  const target = path.join(directory, "tool");
+  writeFileSync(target, "keep existing bytes");
+  let requests = 0;
+  t.mock.method(globalThis, "fetch", async () => { requests += 1; return new Response(bytes); });
+  try {
+    await assert.rejects(downloadAsset(asset, target, ""), {code: "EEXIST"});
+    assert.equal(requests, 1);
+    assert.equal(readFileSync(target, "utf8"), "keep existing bytes");
+    assert.deepEqual(readdirSync(directory), ["tool"]);
+  } finally { rmSync(directory, {recursive: true, force: true}); }
+});
 
 test("declared registries receive no GitHub token and cannot switch sources", async (t) => {
   const directory = mkdtempSync(path.join(tmpdir(), "registry-asset-"));
@@ -133,6 +257,7 @@ test("valid warm assets need no download and unsafe destinations create nothing"
     await assert.rejects(
       main({ ...environment, RUNNER_ENVIRONMENT: "self-hosted" }),
     );
+    await main({...environment, RUNNER_ENVIRONMENT: "self-hosted", INPUT_MANAGED: "false"});
     symlinkSync(
       outside,
       path.join(workspace, "escape"),

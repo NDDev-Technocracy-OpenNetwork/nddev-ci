@@ -12,13 +12,13 @@ on:
         type: string
         required: true
       registry:
-        description: crates, pypi or npm.
+        description: crates or pypi.
         type: string
         required: true
       files:
         description: >-
           Release file names to publish, one per line: the .crate file for crates, wheels and the
-          source distribution for pypi, one package .tgz for npm.
+          source distribution for pypi.
         type: string
         required: true
       crate-directory:
@@ -27,10 +27,6 @@ on:
         default: .
       rust-version:
         description: For crates, the exact Rust toolchain that packages the crate.
-        type: string
-        default: ""
-      node-version:
-        description: For npm, the exact Node version; npm trusted publishing needs Node 22.14 or newer.
         type: string
         default: ""
       environment:
@@ -43,7 +39,7 @@ permissions: {}
 jobs:
   publish:
     name: publish to ${{ inputs.registry }}
-    # Registries accept trusted publishing from GitHub's runners; npm accepts nothing else.
+    # Trusted publication runs on GitHub's runners.
     runs-on: ubuntu-24.04
     environment: ${{ inputs.environment }}
     concurrency:
@@ -58,7 +54,7 @@ jobs:
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@570141705191fa3d636d9fe7af3e6bea1957d2dd
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@9795917fc97bf71b2761e609a87adbb189119894
 
       - name: Released files, verified
         id: files
@@ -70,7 +66,7 @@ jobs:
           FILES: ${{ inputs.files }}
         run: |
           set -euo pipefail
-          case "$REGISTRY" in crates | pypi | npm) ;; *) echo "::error::registry must be crates, pypi or npm"; exit 1 ;; esac
+          case "$REGISTRY" in crates | pypi) ;; *) echo "::error::registry must be crates or pypi"; exit 1 ;; esac
           [[ "$TAG" =~ ^[A-Za-z][A-Za-z0-9._-]*[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::tag must name a release version"; exit 1; }
           [[ "$TAG" =~ ([0-9]+\.[0-9]+\.[0-9]+)$ ]] && version=${BASH_REMATCH[1]}
           [ "$(gh release view "$TAG" --json isImmutable --jq .isImmutable)" = true ] || { echo "::error::$TAG is not an immutable release"; exit 1; }
@@ -109,7 +105,7 @@ jobs:
           ref: ${{ inputs.tag }}
       - name: Rust for packaging
         if: inputs.registry == 'crates'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@570141705191fa3d636d9fe7af3e6bea1957d2dd
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@9795917fc97bf71b2761e609a87adbb189119894
         with:
           rust-version: ${{ inputs.rust-version }}
       - name: Reproduce the released crate
@@ -162,33 +158,9 @@ jobs:
           # A rerun leaves files PyPI already holds; PyPI refuses different bytes under one name.
           skip-existing: true
 
-      - name: Node for npm
-        if: inputs.registry == 'npm'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@570141705191fa3d636d9fe7af3e6bea1957d2dd
-        with:
-          node-version: ${{ inputs.node-version }}
-      - name: Publish to npm
-        if: inputs.registry == 'npm'
-        env:
-          DIST: ${{ steps.files.outputs.dist }}
-          VERSION: ${{ steps.files.outputs.version }}
-        run: |
-          set -euo pipefail
-          package=$(find "$DIST" -maxdepth 1 -name '*.tgz' -print -quit)
-          [ -n "$package" ] || { echo "::error::the released file is not an npm .tgz"; exit 1; }
-          name=$(tar -xOzf "$package" package/package.json | jq -er .name)
-          [ "$(tar -xOzf "$package" package/package.json | jq -er .version)" = "$VERSION" ] || { echo "::error::the package version differs from the release"; exit 1; }
-          integrity="sha512-$(openssl dgst -sha512 -binary "$package" | base64 -w0)"
-          if published=$(npm view "$name@$VERSION" dist.integrity 2>/dev/null) && [ -n "$published" ]; then
-            [ "$published" = "$integrity" ] || { echo "::error::npm holds other bytes for $name@$VERSION"; exit 1; }
-            echo "npm already holds $name@$VERSION with these bytes."
-            exit 0
-          fi
-          npm publish "$package" --provenance --access public
-
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@570141705191fa3d636d9fe7af3e6bea1957d2dd
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@9795917fc97bf71b2761e609a87adbb189119894
         with:
           task: publish to ${{ inputs.registry }}
           task-type: deploy
