@@ -119,7 +119,8 @@ databases from the last route and never from the scanner's own download: it firs
 scanner list the packages, then fetches the database of each ecosystem they name. The data is at
 most a day old. Without a declared source the scanner downloads the current databases itself.
 
-`image.yml` gives a build the same mirror. On a managed runner with that variable the build
+`image.yml` gives a build the same mirror, and takes its pinned Buildx binary through the first
+route there. On a managed runner with that variable the build
 runs on the host network, because a `RUN` step cannot reach the runner's loopback otherwise,
 and the workflow passes the mirror under each package manager's own variable name:
 `CARGO_SOURCE_CRATES_IO_REPLACE_WITH` with `CARGO_SOURCE_MIRROR_REGISTRY`,
