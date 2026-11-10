@@ -111,6 +111,13 @@ unavailable source fails. Checksums remain mandatory. Its routes are:
 
 - `/github-releases/sha256/<digest>/<owner>/<repository>/releases/download/<tag>/<asset>`
 - `/pypi/simple/<project>/` and `/pypi-files/`
+- `/osv/<UTC date>/<ecosystem>/all.zip`, the OSV vulnerability database of an ecosystem as the
+  source's copy of that day
+
+With a declared source the dependency comparison of the merge stops takes its vulnerability
+databases from the last route and never from the scanner's own download: it first lets the
+scanner list the packages, then fetches the database of each ecosystem they name. The data is at
+most a day old. Without a declared source the scanner downloads the current databases itself.
 
 `image.yml` gives a build the same mirror. On a managed runner with that variable the build
 runs on the host network, because a `RUN` step cannot reach the runner's loopback otherwise,
