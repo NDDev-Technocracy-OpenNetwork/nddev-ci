@@ -25,9 +25,10 @@ test("Renovate uses prepared binaries and cannot enable repository scripts or au
   assert.deepEqual(config.allowedCommands, []); assert.equal(config.exposeAllEnv, false);
   assert.equal(config.force.automerge, false); assert.equal(config.requireConfig, "required");
   assert.equal(config.dryRun, undefined);
-  const authenticated = {...base, "INPUT_DOCKERHUB-USERNAME": "read-user", "INPUT_DOCKERHUB-TOKEN": "fixture-read-token"};
+  const readToken = "fixture-read-token";
+  const authenticated = {...base, "INPUT_DOCKERHUB-USERNAME": "read-user", "INPUT_DOCKERHUB-TOKEN": readToken};
   const configured = configuration(authenticated, selections(authenticated), "/owned/workspace");
-  assert.deepEqual(configured.hostRules, [{hostType: "docker", matchHost: "docker.io", username: "read-user", password: "fixture-read-token"}]);
+  assert.deepEqual(configured.hostRules, [{hostType: "docker", matchHost: "docker.io", username: "read-user", password: readToken}]);
   assert.throws(() => configuration({...base, "INPUT_DOCKERHUB-TOKEN": "fixture"}, selections(base), "/owned/workspace"));
 });
 
