@@ -78,11 +78,10 @@ Public projects use the selected GitHub-hosted runner. Private projects use `run
 The jobs of the last column are light by their nature, so they leave the standard class to a
 project's own builds and tests.
 
-Only the explicit PR labels `runner:blacksmith` and `runner:github` move a private
-check and its merge stops to an external provider. Other labels do not rerun them.
-A caller may also select `runner: github` explicitly for a manual full check; its
-`workflow_dispatch` choice list uses `ours` and `github`. Blacksmith uses its PR label.
-A waiting job stays on its selected provider. Native public macOS and Windows
+Only the explicit PR label `runner:github` moves a private check and its merge stops
+to GitHub's runners. Other labels do not rerun them. A caller may also select
+`runner: github` explicitly for a manual full check; its `workflow_dispatch` choice list
+uses `ours` and `github`. A waiting job stays where it was sent. Native public macOS and Windows
 matrices use `recipe.yml`; supported hosted labels are in its declaration.
 
 [hosted-sdk](actions/hosted-sdk/action.yml) prepares only selected exact Node, Python,
