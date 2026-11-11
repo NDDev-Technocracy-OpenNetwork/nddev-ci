@@ -195,7 +195,7 @@ jobs:
         run: betterleaks git --no-banner --redact --log-opts="$BASE..$HEAD" .
 
       - name: No new fixed critical dependency
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/dependency-guard@aa09d9c206ed1d19621edcedccb906d002e39621
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/dependency-guard@e6261b61e24c34e89ac026cb8938e22f1723189a
         with:
           base: ${{ github.event.pull_request.base.sha }}
           head: ${{ github.event.pull_request.head.sha }}
