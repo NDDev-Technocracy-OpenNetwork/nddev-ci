@@ -32,7 +32,8 @@ jobs:
     # A new label reruns the stops only when it chooses the runner.
     if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || contains(fromJSON('["runner:blacksmith","runner:github"]'), github.event.label.name))
     # Public repositories always run on GitHub's runners; an unknown hosted label fails below.
-    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || contains(github.event.pull_request.labels.*.name, 'runner:github') && 'ubuntu-24.04' || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || inputs.runner) }}
+    # A light job: on managed runners it takes the light Linux x64 class whichever one the caller names.
+    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || contains(github.event.pull_request.labels.*.name, 'runner:blacksmith') && 'blacksmith-2vcpu-ubuntu-2404' || contains(github.event.pull_request.labels.*.name, 'runner:github') && 'ubuntu-24.04' || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || inputs.runner == 'nddev-linux-standart' && 'nddev-linux-small' || inputs.runner) }}
     # A new push to the pull request cancels its older stops of the same workflow and runner.
     concurrency:
       group: nddev-ci-merge-stops-${{ github.workflow }}-pr-${{ github.event.pull_request.number }}-${{ inputs.hosted-runner }}

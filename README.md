@@ -61,11 +61,15 @@ uploaded only after successful non-PR checks.
 
 Public projects use the selected GitHub-hosted runner. Private projects use `runner`:
 
-| Managed class | Project commands | Linux-only scanners and images |
-| --- | --- | --- |
-| `nddev-linux-standart`, `nddev-linux-small` | Linux x64 | Same class |
-| `nddev-linux-arm64` | Linux ARM64 | Same class |
-| `nddev-macos` | Native macOS ARM64 | `nddev-linux-arm64` |
+| Managed class | Project commands | Image builds | Merge stops, image tags, daily scans |
+| --- | --- | --- | --- |
+| `nddev-linux-standart` | Linux x64 | Same class | `nddev-linux-small` |
+| `nddev-linux-small` | Linux x64 | Same class | Same class |
+| `nddev-linux-arm64` | Linux ARM64 | Same class | Same class |
+| `nddev-macos` | Native macOS ARM64 | `nddev-linux-arm64` | `nddev-linux-arm64` |
+
+The jobs of the last column are light by their nature, so they leave the standard class to a
+project's own builds and tests.
 
 Only the explicit PR labels `runner:blacksmith` and `runner:github` move a private
 check and its merge stops to an external provider. Other labels do not rerun them.

@@ -48,7 +48,8 @@ jobs:
   scan:
     name: daily security
     # Public repositories scan on GitHub's runners; an unknown hosted label fails below.
-    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || inputs.runner) }}
+    # A light job: on managed runners it takes the light Linux x64 class whichever one the caller names.
+    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || inputs.runner == 'nddev-linux-standart' && 'nddev-linux-small' || inputs.runner) }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
