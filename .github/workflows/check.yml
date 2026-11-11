@@ -480,7 +480,7 @@ jobs:
   merge-stops:
     # The merge stops, the same workflow a project with its own command jobs calls.
     if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || contains(fromJSON('["runner:blacksmith","runner:github"]'), github.event.label.name))
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@9722775f2c34df53c0663c61538f85d02f384a35
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@f055e0210973a365f6a5233c225b835a3ff93d0a
     with:
       runner: ${{ inputs.runner }}
       artifact-registry: ${{ inputs.artifact-registry }}
