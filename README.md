@@ -42,7 +42,9 @@ The PR merge stops scan secrets in the changed commits, dangerous workflows,
 commit messages and newly introduced fixed critical dependency vulnerabilities.
 Dependency comparison reads the exact proposed merge and its own base from Git,
 runs no project installers, and scans both against the same vulnerability data.
-Existing findings remain diagnostics. Malformed inputs or unavailable scanners fail.
+Existing findings remain diagnostics. Native source packages without a registry version stay
+counted and appear explicitly in the receipt; matched advisories are checked normally.
+Missing or malformed metadata and unavailable scanners still fail.
 The stops check out the history without file contents and fetch the contents of the change
 alone, so a large repository costs them no more than a small one.
 The message rules leave out a commit whose author is exactly Dependabot: it writes one long line
