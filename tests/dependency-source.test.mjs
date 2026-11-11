@@ -159,6 +159,54 @@ test("Git renames preserve a finding's lock scope", () =>
 			"new/Cargo.lock",
 		);
 	}));
+test("a link that is another name of a tracked input is left out, and any other link is refused", () =>
+	fixture(({ root, git, write, commit }) => {
+		write("pubspec.yaml", "name: fixture\n");
+		write("pubspec.lock", "packages: {}\n");
+		write("notes/other.yaml", "name: other\n");
+		const base = commit();
+		// The links exist in Git only: nothing follows them in the working tree.
+		const link = (name, target) => {
+			const oid = spawnSync("git", ["hash-object", "-w", "--stdin"], {
+				cwd: root,
+				input: target,
+				encoding: "utf8",
+			}).stdout.trim();
+			git("update-index", "--add", "--cacheinfo", `120000,${oid},${name}`);
+		};
+		const merged = () => {
+			const tree = git("write-tree");
+			const head = git("commit-tree", tree, "-p", base, "-m", "fixture link");
+			const id = git(
+				"commit-tree",
+				tree,
+				"-p",
+				base,
+				"-p",
+				head,
+				"-m",
+				"fixture merge",
+			);
+			git("update-ref", "HEAD", id);
+			return { base, head, merge: id };
+		};
+		link("ios/ci_scripts/pubspec.yaml", "../../pubspec.yaml");
+		const accepted = sources(root, merged());
+		assert.deepEqual(
+			accepted.head.map((entry) => entry.path),
+			["pubspec.lock"],
+		);
+		for (const [name, target] of [
+			["tools/pubspec.yaml", "../../outside/pubspec.yaml"],
+			["tools/pubspec.yaml", "/etc/pubspec.yaml"],
+			["tools/pubspec.yaml", "../missing/pubspec.yaml"],
+			["tools/pubspec.yaml", "../notes/other.yaml"],
+			["tools/pubspec.yaml", "../ios/ci_scripts/pubspec.yaml"],
+		]) {
+			link(name, target);
+			assert.throws(() => sources(root, merged()), /regular tracked/, target);
+		}
+	}));
 test("a lockfile symlink is refused from Git metadata without following its target", () =>
 	fixture(({ root, git, write, commit, merge }) => {
 		write("package-lock.json", "external target");
