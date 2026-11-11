@@ -43,6 +43,8 @@ commit messages and newly introduced fixed critical dependency vulnerabilities.
 Dependency comparison reads the exact proposed merge and its own base from Git,
 runs no project installers, and scans both against the same vulnerability data.
 Existing findings remain diagnostics. Malformed inputs or unavailable scanners fail.
+The stops check out the history without file contents and fetch the contents of the change
+alone, so a large repository costs them no more than a small one.
 Daily security findings update a report issue; scanner execution errors fail the run.
 The default licence list is declared in `security.yml`; a caller's `license-policy`
 can supply its own `[licenses].allow`. OSV accepts identifiers, so a `WITH` entry

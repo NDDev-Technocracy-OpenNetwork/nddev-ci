@@ -76,10 +76,21 @@ jobs:
           fi
           date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
+      # The stops read every commit of every branch and the contents of the change alone, so the
+      # checkout takes the whole history without file contents and the next step fetches the
+      # contents the stops read. A repository's size does not decide the time of its stops.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
+          filter: blob:none
+
+      - name: File contents of the change
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/change-objects@c4117c8fea28a3e8dda96737cb2db5fffbc97e8c
+        with:
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+          merge: ${{ github.sha }}
 
       - name: Outside telemetry off
         uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@9795917fc97bf71b2761e609a87adbb189119894
