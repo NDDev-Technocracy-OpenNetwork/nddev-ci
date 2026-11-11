@@ -134,3 +134,30 @@ test("clean packages still count and deleting a vulnerable dependency introduces
 	assert.equal(value.findings.length, 0);
 	assert.equal(compareReports(parse(report()), value).introduced.length, 0);
 });
+
+test("native source packages without a registry version stay counted and disclosed", () => {
+	const raw = report({ name: "@fixture/local", version: "", file: "/head/bun.lock" });
+	delete raw.results[0].packages[0].vulnerabilities;
+	delete raw.results[0].packages[0].groups;
+	const value = parse(raw, "/head", "bun.lock");
+	assert.equal(value.packages, 1);
+	assert.deepEqual(value.findings, []);
+	assert.deepEqual(value.unversioned, [{ source: "bun.lock", name: "@fixture/local", ecosystem: "npm" }]);
+	const comparison = compareReports(empty(), value);
+	assert.deepEqual(comparison.unversioned, { base: [], head: value.unversioned });
+	assert.equal(comparison.introduced.length, 0);
+});
+test("an unversioned package cannot conceal an introduced fixed critical advisory", () => {
+	const value = compareReports(empty(), parse(report({ version: "" })));
+	assert.equal(value.introduced.length, 1);
+	assert.deepEqual(value.introduced[0].fixed, ["2.0.0"]);
+	assert.equal(value.introduced[0].version, "");
+	assert.equal(value.unversioned.head.length, 1);
+});
+test("missing, nonstring and control-character versions still refuse the report", () => {
+	for (const version of [undefined, null, 1, {}, "1.0.0\n"]) {
+		const value = report();
+		value.results[0].packages[0].package.version = version;
+		assert.throws(() => parse(value), /Invalid package version/);
+	}
+});

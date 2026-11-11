@@ -139,6 +139,13 @@ test(
 			lock("");
 			const base = commit();
 			lock("new project/", true);
+			write("local/bun.lock", JSON.stringify({
+				lockfileVersion: 1,
+				workspaces: {},
+				packages: {
+					"@fixture/local": ["@fixture/local@../local.tgz", {}],
+				},
+			}));
 			write(
 				"osv-scanner.toml",
 				'[[PackageOverrides]]\nname="vm2"\necosystem="npm"\nignore=true\n',
@@ -168,7 +175,11 @@ test(
 			);
 			assert(receipt.diagnostics.preexisting > 0);
 			assert.equal(receipt.basePackages, 1);
-			assert.equal(receipt.headPackages, 3);
+			assert.equal(receipt.headPackages, 4);
+			assert.deepEqual(receipt.unversioned.head, [{
+				source: "local/bun.lock", name: "@fixture/local", ecosystem: "npm",
+			}]);
+			assert.equal(receipt.omittedUnversioned.head, 0);
 			assert(
 				receipt.databases.some(
 					(entry) =>

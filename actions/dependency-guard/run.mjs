@@ -54,6 +54,14 @@ export async function main(environment = process.env) {
 			...receipt,
 			introduced: result.introduced.slice(0, 50),
 			omittedIntroduced: Math.max(0, result.introduced.length - 50),
+			unversioned: {
+				base: result.unversioned.base.slice(0, 50),
+				head: result.unversioned.head.slice(0, 50),
+			},
+			omittedUnversioned: {
+				base: Math.max(0, result.unversioned.base.length - 50),
+				head: Math.max(0, result.unversioned.head.length - 50),
+			},
 		};
 		const rendered = JSON.stringify(visible)
 			.replace(/</g, "\\u003c")
