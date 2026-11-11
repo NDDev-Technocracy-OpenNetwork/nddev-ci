@@ -9,9 +9,28 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { registry } from "../../lib/dependency-scan.mjs";
 import { scannerPolicy } from "../../lib/security-policy.mjs";
 
-export function main(environment = process.env) {
+// Where Grype and Trivy take their vulnerability databases when the runner declares a registry:
+// Grype's listing and archive as the registry's copy of the day, Trivy's databases through the
+// registry's route to their container registry. Without a declared registry each scanner keeps
+// its public source.
+export function databases(environment, day) {
+  const declared = registry(environment);
+  if (!declared) return {};
+  const images = `${new URL(declared).host}/ghcr.io/aquasecurity`;
+  return {
+    GRYPE_DB_UPDATE_URL: `${declared}/grype/${day}`,
+    TRIVY_DB_REPOSITORY: `${images}/trivy-db:2`,
+    TRIVY_JAVA_DB_REPOSITORY: `${images}/trivy-java-db:1`,
+  };
+}
+
+export function main(
+  environment = process.env,
+  day = new Date().toISOString().slice(0, 10),
+) {
   const source = environment.GITHUB_WORKSPACE;
   const tools = environment.INPUT_TOOLS;
   const output = environment.INPUT_OUTPUT;
@@ -39,6 +58,7 @@ export function main(environment = process.env) {
   }
   mkdirSync(output, { recursive: true, mode: 0o700 });
   const policy = scannerPolicy(environment, "scanners.yaml");
+  const scanners = { ...environment, ...databases(environment, day) };
   try {
     const run = (tool, args, report) => {
       console.log(`Running ${tool} for ${path.basename(report)}`);
@@ -47,7 +67,7 @@ export function main(environment = process.env) {
         ["--config", policy.config, ...args],
         {
           cwd: source,
-          env: environment,
+          env: scanners,
           encoding: "utf8",
           timeout: 600000,
           maxBuffer: 64 * 1024 * 1024,

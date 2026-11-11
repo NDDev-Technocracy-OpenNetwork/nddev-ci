@@ -52,6 +52,7 @@ check: (_tools "check")
     node --check tests/daily-osv.test.mjs
     node --check actions/daily-sbom/run.mjs
     node --check tests/daily-sbom-native.mjs
+    node --check tests/daily-sbom.test.mjs
     node --check lib/security-policy.mjs
     node --check tests/license-policy.test.mjs
     node --check tests/portable-recipe.test.mjs

@@ -122,12 +122,21 @@ unavailable source fails. Checksums remain mandatory. Its routes are:
 - `/pypi/simple/<project>/` and `/pypi-files/`
 - `/osv/<UTC date>/<ecosystem>/all.zip`, the OSV vulnerability database of an ecosystem as the
   source's copy of that day
+- `/grype/<UTC date>/v6/latest.json` and the archive it names, Grype's vulnerability database
+  as the source's copy of that day
+- `/v2/ghcr.io/aquasecurity/trivy-db` and `trivy-java-db`, Trivy's databases through the source's
+  container registry route
 
 With a declared source the dependency comparison of the merge stops and the daily dependency
 scan take their vulnerability databases from the last route and never from the scanner's own
 download: each first lets the scanner list the packages, then fetches the database of each
 ecosystem they name. The data is at most a day old. Without a declared source the scanner
 downloads the current databases itself. The daily licence report still asks its public source.
+
+The daily package scan gives Grype and Trivy the declared source as well: Grype's database as
+the source's copy of the day, `/grype/<UTC date>/v6/`, and Trivy's databases through the
+source's route to their container registry, `/v2/ghcr.io/aquasecurity/`. Every repository's
+scan of a day then reads one copy.
 
 `image.yml` gives a build the same mirror, and takes its pinned Buildx binary through the first
 route there. On a managed runner with that variable the build
