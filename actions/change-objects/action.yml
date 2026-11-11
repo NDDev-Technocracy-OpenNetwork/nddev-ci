@@ -1,0 +1,20 @@
+name: Fetch the file contents of a change
+description: >-
+  After a checkout without file contents (filter blob:none), fetch in one request what the merge
+  stops read: both sides of every change of the pull request's commits and of the proposed merge.
+inputs:
+  base:
+    description: Exact PR base commit.
+    required: true
+  head:
+    description: Exact PR head commit.
+    required: true
+  merge:
+    description: Checked out merge commit.
+    required: true
+  github-token:
+    description: Existing job token, used for this one read of the repository.
+    default: ${{ github.token }}
+runs:
+  using: node24
+  main: run.mjs
