@@ -43,6 +43,9 @@ check: (_tools "check")
     node --check actions/dependency-guard/run.mjs
     node --check tests/dependency-report.test.mjs
     node --check tests/dependency-source.test.mjs
+    node --check lib/change-objects.mjs
+    node --check actions/change-objects/run.mjs
+    node --check tests/change-objects.test.mjs
     node --check tests/dependency-native.mjs
     node --check actions/daily-osv/run.mjs
     node --check tests/daily-osv-native.mjs
