@@ -45,6 +45,9 @@ runs no project installers, and scans both against the same vulnerability data.
 Existing findings remain diagnostics. Malformed inputs or unavailable scanners fail.
 The stops check out the history without file contents and fetch the contents of the change
 alone, so a large repository costs them no more than a small one.
+The message rules leave out a commit whose author is exactly Dependabot: it writes one long line
+for a grouped update and offers no setting for it. A repository's own `committed.toml` replaces
+the default rules whole.
 Daily security findings update a report issue; scanner execution errors fail the run.
 The default licence list is declared in `security.yml`; a caller's `license-policy`
 can supply its own `[licenses].allow`. OSV accepts identifiers, so a `WITH` entry

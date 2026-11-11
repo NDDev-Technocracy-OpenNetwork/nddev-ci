@@ -171,6 +171,9 @@ jobs:
         # to 100, no fixup or WIP commit. A repository's own committed.toml takes the place of this.
         # Only the commits the change brings are checked: a merge commit is left out, and so is a
         # commit another branch already holds, such as main's commits when main is merged into dev.
+        # Dependabot writes its own messages, with one long line for a grouped update, and nobody
+        # can change them: a commit by exactly its author is left out. A person's commit on its
+        # branch keeps every rule.
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
@@ -189,7 +192,8 @@ jobs:
               'subject_capitalized = false' \
               'imperative_subject = true' \
               'no_fixup = true' \
-              'no_wip = true' > "$config"
+              'no_wip = true' \
+              'ignore_author_re = "^dependabot\\[bot\\] <49699333\\+dependabot\\[bot\\]@users\\.noreply\\.github\\.com>$"' > "$config"
           fi
           failed=0
           for commit in $(git rev-list --no-merges "$HEAD" "^$BASE" --not \
