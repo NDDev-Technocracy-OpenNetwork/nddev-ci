@@ -216,6 +216,14 @@ jobs:
         with:
           url: ${{ inputs.artifact-registry }}
 
+      - name: The job's own read token for the project commands
+        # Opt-in: the job's token reads only this repository's contents, and nothing else.
+        if: inputs.repository-token
+        env:
+          TOKEN: ${{ github.token }}
+        shell: bash
+        run: echo "GITHUB_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
       - name: Read keys
         # GitHub accepts a deploy key for its one repository, and ssh stops at the first key that
         # gets in, so each repository gets a host alias of its own with only its key, and git
@@ -405,14 +413,6 @@ jobs:
             done
           done < <(printf '%s\n' "$READ_REPOSITORIES" | tr -s '[:space:]' '\n')
           echo "GIT_CONFIG_COUNT=$count" >> "$GITHUB_ENV"
-
-      - name: The job's own read token for the project commands
-        # Opt-in: the job's token reads only this repository's contents, and nothing else.
-        if: inputs.repository-token
-        env:
-          TOKEN: ${{ github.token }}
-        shell: bash
-        run: echo "GITHUB_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
       - name: Native task runner
         uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/frontend@9795917fc97bf71b2761e609a87adbb189119894
