@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { cachePlan, imageKey, main, selections, supported, verify } from "../actions/hosted-sdk/run.mjs";
+import { cachePlan, imageKey, main, managedPython, selections, supported, verify } from "../actions/hosted-sdk/run.mjs";
 import { selectRelease } from "../actions/hosted-sdk/flutter.mjs";
 
 const hosted = {SDK_RUNNER_ENVIRONMENT: "github-hosted"};
@@ -68,6 +68,40 @@ test("the action exposes measured versions and persistent opt-out without instal
     assert.match(variables, /^DO_NOT_TRACK=1$/m);
     assert.doesNotMatch(variables, /UV_/);
     assert.throws(() => main("unknown", environment));
+  } finally { rmSync(root, {recursive: true, force: true}); }
+});
+
+test("a managed runner selects the exact Python line from its uv installations", {skip: process.platform === "win32"}, () => {
+  const root = mkdtempSync(path.join(tmpdir(), "hosted-sdk-"));
+  try {
+    const installs = path.join(root, "uv-python");
+    const folder = path.join(installs, "cpython-3.15.2-linux-x86_64-gnu");
+    mkdirSync(path.join(folder, "bin"), {recursive: true});
+    writeFileSync(path.join(folder, "bin", "python"), "#!/bin/sh\necho 'Python 3.15.2'\n");
+    chmodSync(path.join(folder, "bin", "python"), 0o755);
+    writeFileSync(path.join(installs, "cpython-3.15.2-linux-x86_64-gnu.complete"), "");
+    mkdirSync(path.join(installs, "cpython-3.15.20-linux-x86_64-gnu", "bin"), {recursive: true});
+    mkdirSync(path.join(installs, "cpython-3.14.10-linux-x86_64-gnu", "bin"), {recursive: true});
+    const managed = {...process.env, SDK_RUNNER_ENVIRONMENT: "self-hosted", SDK_MANAGED: "", SDK_PYTHON_VERSION: "3.15.2",
+      UV_PYTHON_INSTALL_DIR: installs, PATH: path.join(root, "empty"),
+      GITHUB_ENV: path.join(root, "environment"), GITHUB_OUTPUT: path.join(root, "output"),
+      GITHUB_PATH: path.join(root, "path")};
+    const bin = path.join(folder, "bin");
+    assert.deepEqual(managedPython(managed), {bin, executable: path.join(bin, "python")});
+    assert.throws(() => verify(managed), /selected python/);
+    main("verify", managed);
+    const receipt = JSON.parse(readFileSync(managed.GITHUB_OUTPUT, "utf8").trim().slice("receipt=".length));
+    assert.deepEqual(receipt.versions, {python: "3.15.2"});
+    assert.equal(readFileSync(managed.GITHUB_PATH, "utf8"), `${bin}\n`);
+    assert.match(readFileSync(managed.GITHUB_ENV, "utf8"), new RegExp(`^UV_PYTHON=${path.join(bin, "python")}$`, "m"));
+    assert.equal(managedPython({...managed, SDK_RUNNER_ENVIRONMENT: "github-hosted"}), null);
+    assert.equal(managedPython({...managed, UV_PYTHON_INSTALL_DIR: ""}), null);
+    assert.equal(managedPython({...managed, SDK_PYTHON_VERSION: ""}), null);
+    assert.equal(managedPython({...managed, SDK_PYTHON_VERSION: "3.13.18"}), null);
+    assert.throws(() => main("verify", {...managed, SDK_PYTHON_VERSION: "3.13.18"}), /selected python/);
+    assert.throws(() => managedPython({...managed, UV_PYTHON_INSTALL_DIR: "uv-python"}), /absolute/);
+    mkdirSync(path.join(installs, "cpython-3.15.2-linux-x86_64_v3-gnu"));
+    assert.throws(() => managedPython(managed), /more than one Python 3.15.2/);
   } finally { rmSync(root, {recursive: true, force: true}); }
 });
 
