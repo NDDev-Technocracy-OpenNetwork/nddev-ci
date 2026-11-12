@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -116,6 +116,31 @@ function measure(name, environment) {
   return {[name]: text.match(expression)?.[1]};
 }
 
+// A managed SDK keeps every Python line of the registry where uv finds its own installations,
+// UV_PYTHON_INSTALL_DIR, one folder per version named cpython-<version>-<system>, and puts none of
+// them on PATH. The selected line's folder becomes the first PATH entry and uv's interpreter.
+export function managedPython(environment, platform = process.platform, list = readdirSync) {
+  const version = environment.SDK_PYTHON_VERSION ?? "";
+  const root = environment.UV_PYTHON_INSTALL_DIR ?? "";
+  if (version === "" || root === "" ||
+      !managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) return null;
+  if (!path.isAbsolute(root) || /[\r\n]/.test(root))
+    throw new ActionError("The managed UV_PYTHON_INSTALL_DIR must be an absolute path.");
+  const prefix = `cpython-${version}-`;
+  let folders;
+  try {
+    folders = list(root, {withFileTypes: true})
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith(prefix) &&
+        /^[a-z0-9_]+(-[a-z0-9_]+)+$/.test(entry.name.slice(prefix.length)))
+      .map((entry) => entry.name);
+  } catch { folders = []; }
+  if (folders.length !== 1)
+    throw new ActionError(`The managed SDK provides no single Python ${version}; the runner's SDK must list that registry line.`);
+  const folder = path.join(root, folders[0]);
+  const bin = platform === "win32" ? folder : path.join(folder, "bin");
+  return {bin, executable: path.join(bin, platform === "win32" ? "python.exe" : "python")};
+}
+
 export function verify(environment) {
   const selected = selections(environment);
   supported(selected);
@@ -150,8 +175,16 @@ export function main(mode, environment = process.env) {
     return;
   }
   if (mode !== "verify") throw new ActionError("Unknown hosted SDK command.");
-  const receipt = verify(environment);
+  selections(environment);
+  const python = managedPython(environment);
+  const receipt = verify(python
+    ? {...environment, PATH: [python.bin, environment.PATH].filter(Boolean).join(path.delimiter)}
+    : environment);
   const variables = {BUN_DO_NOT_TRACK: "1", DO_NOT_TRACK: "1"};
+  if (python) {
+    variables.UV_PYTHON = python.executable;
+    if (environment.GITHUB_PATH) appendFileSync(environment.GITHUB_PATH, `${python.bin}\n`);
+  }
   if (receipt.versions.uv && !managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) {
     if (!environment.RUNNER_TEMP || /[\r\n]/.test(environment.RUNNER_TEMP))
       throw new ActionError("A runner temporary directory is required.");

@@ -89,7 +89,9 @@ matrices use `recipe.yml`; supported hosted labels are in its declaration.
 [hosted-sdk](actions/hosted-sdk/action.yml) prepares only selected exact Node, Python,
 uv, Bun, Rust, Temurin Java, Go or stable Flutter versions and selected
 `name@version` command-line tools. Managed runners verify those selections against
-their prepared SDK, without sudo or global installation. External runners bootstrap
+their prepared SDK, without sudo or global installation. A managed SDK keeps every Python
+line in uv's `UV_PYTHON_INSTALL_DIR`; the selected line goes first on `PATH` and becomes
+`UV_PYTHON`, and a line the SDK lacks fails the job. External runners bootstrap
 them through the pinned upstream actions. Preparation uses the embedded action
 runtime, so it requires no preinstalled Node SDK.
 
