@@ -59,6 +59,15 @@ on:
           fails, such as test reports. Only what is named here is kept.
         type: string
         default: ""
+      reports:
+        description: >-
+          Workspace-relative reports, one per line, that the job keeps whether it passes or fails,
+          such as JUnit, image scans and SBOMs, for 14 days, apart from deployment artifacts. A
+          missing one fails the job. The paths follow the diagnostics rule: no absolute path, parent
+          or hidden name, so a project that writes reports into a hidden folder copies them to a
+          visible one.
+        type: string
+        default: ""
       setup:
         description: >-
           Runs `just setup` before the checks, so `just check` finds the project's dependencies and
@@ -160,6 +169,7 @@ jobs:
           PRIVATE: ${{ github.event.repository.private }}
           HOSTED_RUNNER: ${{ inputs.hosted-runner }}
           DIAGNOSTICS: ${{ inputs.diagnostics }}
+          REPORTS: ${{ inputs.reports }}
         run: |
           set -euo pipefail
           if [ "$PRIVATE" != true ]; then
@@ -175,6 +185,12 @@ jobs:
               //* | /~* | */../* | */./* | */.[!.]* | *\\*) echo "::error::diagnostics names a path outside the workspace or a hidden name: $line"; exit 1 ;;
             esac
           done <<< "$DIAGNOSTICS"
+          while IFS= read -r line || [ -n "$line" ]; do
+            [ -n "$line" ] || continue
+            case "/$line/" in
+              //* | /~* | */../* | */./* | */.[!.]* | *\\*) echo "::error::reports names a path outside the workspace or a hidden name: $line"; exit 1 ;;
+            esac
+          done <<< "$REPORTS"
           date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -446,6 +462,18 @@ jobs:
           path: ${{ inputs.artifact }}
           if-no-files-found: error
           retention-days: ${{ inputs.artifact-days }}
+
+      - name: Reports
+        # The caller's named evidence, kept whether the check passed or failed, never as a
+        # deployment artifact.
+        if: ${{ !cancelled() && inputs.reports != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reports-${{ github.job }}-${{ github.run_attempt }}
+          path: ${{ inputs.reports }}
+          if-no-files-found: error
+          include-hidden-files: false
+          retention-days: 14
 
       - name: Diagnostics of the failed check
         # Only the caller's named reports are kept, never a release artifact of a failed check.

@@ -65,6 +65,10 @@ not infer these use and distribution conditions.
 Checkout inputs support projects that read history or omit generated trees.
 `diagnostics` keeps only named workspace reports on failure; release artifacts are
 uploaded only after successful non-PR checks.
+`reports` keeps named workspace reports whether the job passes or fails, pull requests included,
+for 14 days and apart from release artifacts; a missing report fails the job. Both lists refuse
+absolute, parent and hidden paths, so a project that writes reports to a hidden folder copies
+them to a visible one.
 
 ## Runners and SDKs
 
@@ -157,6 +161,19 @@ GitHub-hosted runner they stay empty and each tool uses its public source, so th
 names no runner and no address. apt needs no argument: the workflow passes the mirror as the
 predefined `http_proxy`, and the mirror serves the Debian and Ubuntu archives in that form.
 Any other plain-HTTP address in a `RUN` step is refused there, so such a download uses HTTPS.
+
+[image-builder](actions/image-builder/action.yml) prepares the same builder inside a job that
+builds images to test and scan them there, such as a native recipe that builds several images,
+runs its own tests against them and keeps their SBOMs. It applies `image.yml`'s policy: on a
+managed runner the pinned Buildx from the first route, the registry mirrors for the builder and
+the host network. It exports `NDDEV_CI_IMAGE_BUILD_FLAGS`, the network and the mirror's build
+arguments, so a recipe builds with `docker buildx build $NDDEV_CI_IMAGE_BUILD_FLAGS --load`, and
+the database variables of the daily package scan, `TRIVY_DB_REPOSITORY`,
+`TRIVY_JAVA_DB_REPOSITORY` and `GRYPE_DB_UPDATE_URL`, so the job's scans read the same copies. On
+a GitHub-hosted runner the flags and variables stay empty and each tool uses its public source.
+`recipe.yml` runs it before the recipe when the caller sets `images: true`. That is the way for a
+private project whose tests need their own images or services: its workflow file then names no
+runner label, which Poutine's merge stop would refuse.
 
 Project setup must support its execution environment. Hosted setup uses the explicit
 SDK inputs and cannot require a private installer or private cache variable.
