@@ -355,17 +355,29 @@ jobs:
         if: steps.read-app-token.outputs.token != ''
         env:
           READ_TOKEN: ${{ steps.read-app-token.outputs.token }}
+          READ_REPOSITORIES: ${{ inputs.read-repositories }}
         run: |
           set -euo pipefail
           printf '%s\n' "NDDEV_CI_READ_TOKEN=$READ_TOKEN" >> "$GITHUB_ENV"
           cat >> "$GITHUB_ENV" <<'GIT'
           GIT_TERMINAL_PROMPT=0
-          GIT_CONFIG_COUNT=2
           GIT_CONFIG_KEY_0=credential.https://github.com.helper
           GIT_CONFIG_VALUE_0=
           GIT_CONFIG_KEY_1=credential.https://github.com.helper
           GIT_CONFIG_VALUE_1=!f() { if [ "$1" = get ]; then printf "%s\n" "username=x-access-token" "password=$NDDEV_CI_READ_TOKEN"; fi; }; f
           GIT
+          count=2
+          while IFS= read -r repository; do
+            [ -n "$repository" ] || continue
+            for address in "git@github.com:$repository" "ssh://git@github.com/$repository"; do
+              {
+                echo "GIT_CONFIG_KEY_$count=url.https://github.com/$repository.insteadOf"
+                echo "GIT_CONFIG_VALUE_$count=$address"
+              } >> "$GITHUB_ENV"
+              count=$((count + 1))
+            done
+          done < <(printf '%s\n' "$READ_REPOSITORIES" | tr -s '[:space:]' '\n')
+          echo "GIT_CONFIG_COUNT=$count" >> "$GITHUB_ENV"
 
       - name: Native task runner
         uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/frontend@9795917fc97bf71b2761e609a87adbb189119894
