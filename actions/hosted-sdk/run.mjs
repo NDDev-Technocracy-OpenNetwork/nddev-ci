@@ -118,7 +118,8 @@ function measure(name, environment) {
 
 // A managed SDK keeps every Python line of the registry where uv finds its own installations,
 // UV_PYTHON_INSTALL_DIR, one folder per version named cpython-<version>-<system>, and puts none of
-// them on PATH. The selected line's folder becomes the first PATH entry and uv's interpreter.
+// them on PATH. The selected line's folder becomes the first PATH entry and uv's interpreter. A
+// folder without that line leaves PATH as it is, and the measurement below decides.
 export function managedPython(environment, platform = process.platform, list = readdirSync) {
   const version = environment.SDK_PYTHON_VERSION ?? "";
   const root = environment.UV_PYTHON_INSTALL_DIR ?? "";
@@ -134,8 +135,9 @@ export function managedPython(environment, platform = process.platform, list = r
         /^[a-z0-9_]+(-[a-z0-9_]+)+$/.test(entry.name.slice(prefix.length)))
       .map((entry) => entry.name);
   } catch { folders = []; }
-  if (folders.length !== 1)
-    throw new ActionError(`The managed SDK provides no single Python ${version}; the runner's SDK must list that registry line.`);
+  if (!folders.length) return null;
+  if (folders.length > 1)
+    throw new ActionError(`The managed SDK holds more than one Python ${version}: ${folders.join(", ")}.`);
   const folder = path.join(root, folders[0]);
   const bin = platform === "win32" ? folder : path.join(folder, "bin");
   return {bin, executable: path.join(bin, platform === "win32" ? "python.exe" : "python")};

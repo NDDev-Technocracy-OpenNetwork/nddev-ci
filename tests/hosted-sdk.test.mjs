@@ -97,10 +97,11 @@ test("a managed runner selects the exact Python line from its uv installations",
     assert.equal(managedPython({...managed, SDK_RUNNER_ENVIRONMENT: "github-hosted"}), null);
     assert.equal(managedPython({...managed, UV_PYTHON_INSTALL_DIR: ""}), null);
     assert.equal(managedPython({...managed, SDK_PYTHON_VERSION: ""}), null);
-    assert.throws(() => managedPython({...managed, SDK_PYTHON_VERSION: "3.13.18"}), /no single Python 3.13.18/);
+    assert.equal(managedPython({...managed, SDK_PYTHON_VERSION: "3.13.18"}), null);
+    assert.throws(() => main("verify", {...managed, SDK_PYTHON_VERSION: "3.13.18"}), /selected python/);
     assert.throws(() => managedPython({...managed, UV_PYTHON_INSTALL_DIR: "uv-python"}), /absolute/);
     mkdirSync(path.join(installs, "cpython-3.15.2-linux-x86_64_v3-gnu"));
-    assert.throws(() => managedPython(managed), /no single Python 3.15.2/);
+    assert.throws(() => managedPython(managed), /more than one Python 3.15.2/);
   } finally { rmSync(root, {recursive: true, force: true}); }
 });
 
