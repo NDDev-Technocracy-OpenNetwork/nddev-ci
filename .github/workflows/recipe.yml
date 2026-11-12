@@ -94,6 +94,10 @@ on:
         description: The name the artifact is kept under; a matrix gives each platform its own.
         type: string
         default: build
+      artifact-days:
+        description: How many days the artifact is kept; a deployment that takes an older build sets more.
+        type: number
+        default: 14
       diagnostics:
         description: >-
           Workspace-relative report files or folders, one per line, kept for 14 days when the
@@ -213,7 +217,7 @@ jobs:
           name: ${{ inputs.artifact-name }}
           path: ${{ inputs.artifact }}
           if-no-files-found: error
-          retention-days: 90
+          retention-days: ${{ inputs.artifact-days }}
 
       - name: Diagnostics of the failed recipe
         if: failure() && inputs.diagnostics != ''

@@ -33,6 +33,10 @@ on:
         description: The name the artifact is kept under.
         type: string
         default: build
+      artifact-days:
+        description: How many days the artifact is kept; a deployment that takes an older build sets more.
+        type: number
+        default: 14
       fetch-depth:
         description: How many commits the checkout fetches; 0 fetches the whole history.
         type: number
@@ -441,7 +445,7 @@ jobs:
           name: ${{ inputs.artifact-name }}
           path: ${{ inputs.artifact }}
           if-no-files-found: error
-          retention-days: 90
+          retention-days: ${{ inputs.artifact-days }}
 
       - name: Diagnostics of the failed check
         # Only the caller's named reports are kept, never a release artifact of a failed check.
