@@ -377,7 +377,7 @@ jobs:
           managed: ${{ env.SDK_MANAGED }}
 
       - name: Prepare or verify declared SDKs
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@bc5afcf9d32bd6016ffff74e1703d0293234da62
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@f5f6e0ab92b4f81a681f76926a4781840be8ec4d
         with:
           managed: ${{ env.SDK_MANAGED }}
           node-version: ${{ inputs.node-version }}
