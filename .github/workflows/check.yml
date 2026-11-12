@@ -400,7 +400,7 @@ jobs:
           echo "GIT_CONFIG_COUNT=$count" >> "$GITHUB_ENV"
 
       - name: Native task runner
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/frontend@9795917fc97bf71b2761e609a87adbb189119894
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/frontend@95d237113eccd5e1aafe7d924d7aad44cd4450b5
         with:
           managed: ${{ env.SDK_MANAGED }}
 
