@@ -105,7 +105,7 @@ jobs:
           ref: ${{ inputs.tag }}
       - name: Rust for packaging
         if: inputs.registry == 'crates'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@9795917fc97bf71b2761e609a87adbb189119894
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@bc5afcf9d32bd6016ffff74e1703d0293234da62
         with:
           rust-version: ${{ inputs.rust-version }}
       - name: Reproduce the released crate
