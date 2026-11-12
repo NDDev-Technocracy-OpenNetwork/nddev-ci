@@ -218,7 +218,7 @@ jobs:
           licenses: ${{ steps.licences.outputs.licenses }}
 
       - name: Packages
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-sbom@c69abc7fb68742ff4e1d00506465ea701a2b3d4c
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-sbom@6846ef72884d0cc19f8d2ebe93455dafcb251e33
         with:
           tools: ${{ runner.temp }}/security/bin
           output: ${{ runner.temp }}/security/out
