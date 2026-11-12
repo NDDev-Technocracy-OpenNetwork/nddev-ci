@@ -111,6 +111,15 @@ on:
           recipe fails. Only what is named here is kept.
         type: string
         default: ''
+      reports:
+        description: >-
+          Workspace-relative reports, one per line, that the job keeps whether it passes or fails,
+          such as JUnit, image scans and SBOMs, for 14 days, apart from deployment artifacts. A
+          missing one fails the job. The paths follow the diagnostics rule: no absolute path, parent
+          or hidden name, so a project that writes reports into a hidden folder copies them to a
+          visible one.
+        type: string
+        default: ''
       sparse-checkout:
         description: Patterns the checkout keeps, one per line; empty keeps the whole tree.
         type: string
@@ -138,6 +147,7 @@ jobs:
       - name: Diagnostics stay inside the workspace
         env:
           DIAGNOSTICS: ${{ inputs.diagnostics }}
+          REPORTS: ${{ inputs.reports }}
         shell: bash
         run: |
           set -euo pipefail
@@ -148,6 +158,12 @@ jobs:
               //* | /~* | */../* | */./* | */.[!.]* | *\\*) echo "::error::diagnostics names a path outside the workspace or a hidden name: $line"; exit 1 ;;
             esac
           done <<< "$DIAGNOSTICS"
+          while IFS= read -r line || [ -n "$line" ]; do
+            [ -n "$line" ] || continue
+            case "/$line/" in
+              //* | /~* | */../* | */./* | */.[!.]* | *\\*) echo "::error::reports names a path outside the workspace or a hidden name: $line"; exit 1 ;;
+            esac
+          done <<< "$REPORTS"
           date +%s > "$RUNNER_TEMP/nddev-ci-started"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -229,6 +245,18 @@ jobs:
           path: ${{ inputs.artifact }}
           if-no-files-found: error
           retention-days: ${{ inputs.artifact-days }}
+
+      - name: Reports
+        # The caller's named evidence, kept whether the recipe passed or failed, never as a
+        # deployment artifact.
+        if: ${{ !cancelled() && inputs.reports != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reports-${{ inputs.recipe }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_attempt }}
+          path: ${{ inputs.reports }}
+          if-no-files-found: error
+          include-hidden-files: false
+          retention-days: 14
 
       - name: Diagnostics of the failed recipe
         if: failure() && inputs.diagnostics != ''
