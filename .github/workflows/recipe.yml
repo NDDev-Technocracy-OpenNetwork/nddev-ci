@@ -94,6 +94,13 @@ on:
         description: The name the artifact is kept under; a matrix gives each platform its own.
         type: string
         default: build
+      images:
+        description: >-
+          Prepare the job to build, test and scan its own images: BuildKit with the runner's
+          registry mirrors and package mirror, and the scanners' database routes, as image.yml has.
+          The recipe then builds with `docker buildx build $NDDEV_CI_IMAGE_BUILD_FLAGS --load`.
+        type: boolean
+        default: false
       artifact-days:
         description: How many days the artifact is kept; a deployment that takes an older build sets more.
         type: number
@@ -191,6 +198,10 @@ jobs:
         with:
           managed: ${{ env.SDK_MANAGED }}
           working-directory: ${{ inputs.working-directory }}
+
+      - name: Prepare in-job image builds
+        if: inputs.images
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/image-builder@8e5d0c687a0a9a04d8d8f275d8c26ad32220f0d1
 
       - name: Prepare only the declared dependencies
         if: inputs.prepare != ''

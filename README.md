@@ -165,6 +165,9 @@ arguments, so a recipe builds with `docker buildx build $NDDEV_CI_IMAGE_BUILD_FL
 the database variables of the daily package scan, `TRIVY_DB_REPOSITORY`,
 `TRIVY_JAVA_DB_REPOSITORY` and `GRYPE_DB_UPDATE_URL`, so the job's scans read the same copies. On
 a GitHub-hosted runner the flags and variables stay empty and each tool uses its public source.
+`recipe.yml` runs it before the recipe when the caller sets `images: true`. That is the way for a
+private project whose tests need their own images or services: its workflow file then names no
+runner label, which Poutine's merge stop would refuse.
 
 Project setup must support its execution environment. Hosted setup uses the explicit
 SDK inputs and cannot require a private installer or private cache variable.
