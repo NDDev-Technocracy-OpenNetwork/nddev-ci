@@ -82,7 +82,7 @@ test("a managed runner selects the exact Python line from its uv installations",
     writeFileSync(path.join(installs, "cpython-3.15.2-linux-x86_64-gnu.complete"), "");
     mkdirSync(path.join(installs, "cpython-3.15.20-linux-x86_64-gnu", "bin"), {recursive: true});
     mkdirSync(path.join(installs, "cpython-3.14.10-linux-x86_64-gnu", "bin"), {recursive: true});
-    const managed = {...process.env, SDK_RUNNER_ENVIRONMENT: "self-hosted", SDK_PYTHON_VERSION: "3.15.2",
+    const managed = {...process.env, SDK_RUNNER_ENVIRONMENT: "self-hosted", SDK_MANAGED: "", SDK_PYTHON_VERSION: "3.15.2",
       UV_PYTHON_INSTALL_DIR: installs, PATH: path.join(root, "empty"),
       GITHUB_ENV: path.join(root, "environment"), GITHUB_OUTPUT: path.join(root, "output"),
       GITHUB_PATH: path.join(root, "path")};
