@@ -282,7 +282,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s globstar
+          # macOS's bash 3.2 has no globstar: there ** matches one level, as *.
+          shopt -s globstar 2>/dev/null || true
           missing=0
           while IFS= read -r line || [ -n "$line" ]; do
             [ -n "$line" ] || continue
