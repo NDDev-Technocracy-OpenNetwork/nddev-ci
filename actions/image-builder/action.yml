@@ -1,0 +1,137 @@
+name: Prepare in-job image builds
+description: >-
+  Prepare BuildKit for a job that builds images to test and scan them in the same job, with the
+  image workflow's mirror policy: on a managed runner the package mirror, the registry mirrors
+  and the pinned Buildx come from the runner's artifact registry. Build with
+  `docker buildx build $NDDEV_CI_IMAGE_BUILD_FLAGS --load`.
+outputs:
+  arguments:
+    description: The mirror's build arguments, one `NAME=value` a line; empty elsewhere.
+    value: ${{ steps.mirror.outputs.arguments }}
+  network:
+    description: The build network, `host` on a managed runner; empty elsewhere.
+    value: ${{ steps.mirror.outputs.network }}
+  builder:
+    description: The prepared BuildKit builder, made the job's default.
+    value: ${{ steps.buildkit.outputs.name }}
+runs:
+  using: composite
+  steps:
+    # The same policy as image.yml: a build step reaches the runner's loopback mirror only on the
+    # host network, and each package manager finds it by its own standard variable.
+    - name: Package mirror of a managed runner
+      id: mirror
+      shell: bash
+      run: |
+        set -euo pipefail
+        mirror="${NDDEV_CI_ARTIFACT_REGISTRY:-}"
+        mirror="${mirror%/}"
+        if [ "$RUNNER_ENVIRONMENT" != self-hosted ] || [ -z "$mirror" ]; then
+          exit 0
+        fi
+        [[ "$mirror" =~ ^http://127\.0\.0\.1:[0-9]{2,5}$ ]] || { echo "::error::the runner's package mirror must be a loopback HTTP address"; exit 1; }
+        {
+          echo "network=host"
+          echo "driver=network=host"
+          echo "flags=--allow-insecure-entitlement network.host"
+          echo "arguments<<ARGUMENTS"
+          echo "CARGO_SOURCE_CRATES_IO_REPLACE_WITH=mirror"
+          echo "CARGO_SOURCE_MIRROR_REGISTRY=sparse+$mirror/crates-index/"
+          echo "RUSTUP_DIST_SERVER=$mirror/rustup"
+          echo "NPM_CONFIG_REGISTRY=$mirror/npm/"
+          echo "PIP_INDEX_URL=$mirror/pypi/simple/"
+          echo "PIP_TRUSTED_HOST=127.0.0.1"
+          echo "UV_DEFAULT_INDEX=$mirror/pypi/simple/"
+          echo "GOPROXY=$mirror/goproxy"
+          echo "PUB_HOSTED_URL=$mirror/pub"
+          echo "http_proxy=$mirror"
+          echo "no_proxy=127.0.0.1,localhost"
+          echo "ARGUMENTS"
+          host="${mirror#http://}"
+          echo "config<<CONFIG"
+          for registry in docker.io ghcr.io gcr.io cgr.dev; do
+            printf '[registry."%s"]\n  mirrors = ["%s/%s"]\n' "$registry" "$host" "$registry"
+          done
+          printf '[registry."%s"]\n  http = true\n' "$host"
+          echo "CONFIG"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Buildx of a managed runner
+      id: buildx
+      shell: bash
+      env:
+        BUILDX_VERSION: v0.38.2
+        BUILDX_SHA256_X64: 7992ec09413b80ff57ba4e081f56fc833d7bac1d5e71143c6c809e7e6065f6d6
+        BUILDX_SHA256_ARM64: 46c0f334772de3cb0b341cc415caf7339fb5cfc8b8438ebcb5a10e7f23800d36
+      run: |
+        set -euo pipefail
+        mirror="${NDDEV_CI_ARTIFACT_REGISTRY:-}"
+        mirror="${mirror%/}"
+        if [ "$RUNNER_ENVIRONMENT" != self-hosted ] || [ -z "$mirror" ]; then
+          echo "version=$BUILDX_VERSION" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        case "$(uname -m)" in
+          x86_64) arch=amd64 digest=$BUILDX_SHA256_X64 ;;
+          aarch64 | arm64) arch=arm64 digest=$BUILDX_SHA256_ARM64 ;;
+          *) echo "::error::image builds on managed runners support Linux x64 and ARM64"; exit 1 ;;
+        esac
+        plugins="${DOCKER_CONFIG:-$HOME/.docker}/cli-plugins"
+        mkdir -p "$plugins"
+        curl -fsSL -o "$plugins/docker-buildx.download" \
+          "$mirror/github-releases/sha256/$digest/docker/buildx/releases/download/$BUILDX_VERSION/buildx-$BUILDX_VERSION.linux-$arch"
+        echo "$digest  $plugins/docker-buildx.download" | sha256sum --check --quiet
+        chmod 0755 "$plugins/docker-buildx.download"
+        mv "$plugins/docker-buildx.download" "$plugins/docker-buildx"
+        docker buildx version
+        echo "version=" >> "$GITHUB_OUTPUT"
+
+    - name: BuildKit
+      id: buildkit
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      with:
+        version: ${{ steps.buildx.outputs.version }}
+        cache-binary: false
+        driver: docker-container
+        driver-opts: |
+          image=moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
+          ${{ steps.mirror.outputs.driver }}
+        buildkitd-flags: ${{ steps.mirror.outputs.flags }}
+        buildkitd-config-inline: ${{ steps.mirror.outputs.config }}
+        use: true
+
+    # A later step builds with these flags and scans with the same database routes as the daily
+    # package scan; on a GitHub-hosted runner the flags stay empty and scanners use their own
+    # sources.
+    - name: Build flags and scanner databases
+      shell: bash
+      env:
+        ARGUMENTS: ${{ steps.mirror.outputs.arguments }}
+        NETWORK: ${{ steps.mirror.outputs.network }}
+      # The only writes are the flags and routes derived above from the validated loopback
+      # mirror, each checked to be one line of plain characters before it is written.
+      run: | # zizmor: ignore[github-env]
+        set -euo pipefail
+        flags=()
+        if [ -n "$NETWORK" ]; then
+          flags+=(--network "$NETWORK" --allow network.host)
+        fi
+        while IFS= read -r argument; do
+          [ -n "$argument" ] && flags+=(--build-arg "$argument")
+        done <<< "$ARGUMENTS"
+        lines=("NDDEV_CI_IMAGE_BUILD_FLAGS=${flags[*]}")
+        mirror="${NDDEV_CI_ARTIFACT_REGISTRY:-}"
+        mirror="${mirror%/}"
+        if [ "$RUNNER_ENVIRONMENT" = self-hosted ] && [ -n "$mirror" ]; then
+          [[ "$mirror" =~ ^http://127\.0\.0\.1:[0-9]{2,5}$ ]] || { echo "::error::the runner's package mirror must be a loopback HTTP address"; exit 1; }
+          host="${mirror#http://}"
+          lines+=(
+            "TRIVY_DB_REPOSITORY=$host/ghcr.io/aquasecurity/trivy-db:2"
+            "TRIVY_JAVA_DB_REPOSITORY=$host/ghcr.io/aquasecurity/trivy-java-db:1"
+            "GRYPE_DB_UPDATE_URL=$mirror/grype/$(date -u +%F)"
+          )
+        fi
+        for line in "${lines[@]}"; do
+          [[ "$line" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9.:/_,=+\ -]*$ ]] || { echo "::error::malformed build setting"; exit 1; }
+        done
+        printf '%s\n' "${lines[@]}" >> "$GITHUB_ENV"
