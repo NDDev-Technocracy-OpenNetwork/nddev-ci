@@ -36,7 +36,9 @@ superseded checks. Each `dev` commit keeps its full check.
 Use `check.yml` for this standard path. A project with existing command jobs calls
 `merge-stops.yml` beside them. Use `recipe.yml` for a native matrix, with a declared
 recipe, optional preparation recipe and literal arguments as a JSON string array.
-Each matrix platform gives its artifact a distinct name.
+Each matrix platform gives its artifact a distinct name. An artifact is kept for
+`artifact-days`, 14 by default: long enough for `main` to release the checked `dev`
+commit. A deployment that takes an older build sets more.
 
 The PR merge stops scan secrets in the changed commits, dangerous workflows,
 commit messages and newly introduced fixed critical dependency vulnerabilities.
