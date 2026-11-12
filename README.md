@@ -115,8 +115,10 @@ Managed runners retain their SDK instead.
 Private source reads use either `read-keys` deploy keys or a scoped GitHub App,
 never both. The App grants contents-read access only to the explicit same-organization
 repositories. Keys stay in the job's temporary directory; App tokens are revoked in
-cleanup. Merge stops receive neither credential. See [check.yml](.github/workflows/check.yml)
-for the inputs and optional secrets.
+cleanup. Merge stops receive neither credential. [check.yml](.github/workflows/check.yml) and
+[recipe.yml](.github/workflows/recipe.yml) take the same inputs and optional secrets and run the
+same steps, so one job can read a superproject's modules and also build and test its images with
+`images: true` and keep `reports`.
 
 ## Caches
 
