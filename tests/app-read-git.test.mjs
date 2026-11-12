@@ -26,7 +26,7 @@ function prepared(t) {
     READ_TOKEN: "synthetic-read-token",
     READ_REPOSITORIES: "Example/private-one\nExample/private-two\n",
   };
-  const result = spawnSync("bash", ["-euo", "pipefail", "-c", script], { env, encoding: "utf8" });
+  const result = spawnSync("bash", ["--noprofile", "--norc", "-euo", "pipefail", "-c", script], { env, encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "");
   assert.equal(result.stderr, "");
