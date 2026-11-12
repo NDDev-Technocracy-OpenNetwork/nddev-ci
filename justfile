@@ -62,6 +62,7 @@ check: (_tools "check")
     node --check tests/dependency-scan.test.mjs
     node --check tests/telemetry.test.mjs
     node --check tests/app-read-git.test.mjs
+    node --check tests/pr-text.test.mjs
     node --check tests/reports-kept.test.mjs
     node --check tests/read-access.test.mjs
     node --check actions/job-record/run.mjs
