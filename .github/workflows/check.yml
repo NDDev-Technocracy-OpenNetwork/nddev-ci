@@ -408,7 +408,7 @@ jobs:
 
       - name: Hosted dependency caches
         if: env.SDK_MANAGED == 'false'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@9795917fc97bf71b2761e609a87adbb189119894
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@6846ef72884d0cc19f8d2ebe93455dafcb251e33
         with:
           managed: ${{ env.SDK_MANAGED }}
 
