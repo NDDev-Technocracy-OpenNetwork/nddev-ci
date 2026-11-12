@@ -66,9 +66,15 @@ Checkout inputs support projects that read history or omit generated trees.
 `diagnostics` keeps only named workspace reports on failure; release artifacts are
 uploaded only after successful non-PR checks.
 `reports` keeps named workspace reports whether the job passes or fails, pull requests included,
-for 14 days and apart from release artifacts; a missing report fails the job. Both lists refuse
-absolute, parent and hidden paths, so a project that writes reports to a hidden folder copies
-them to a visible one.
+for 14 days and apart from release artifacts. Each named path must hold a file the job left: the
+ones that exist are kept, and any missing one then fails the job, even when another matched. Both
+lists refuse absolute, parent and hidden paths, so a project that writes reports to a hidden folder
+copies them to a visible one.
+
+`repository-token: true` gives the project's commands the job's own token as `GITHUB_TOKEN`, for
+checks of the project's own private repository, such as a link check of its README. The token
+reads only that repository's contents; GitHub masks it in logs, and the project keeps it out of
+its reports.
 
 ## Runners and SDKs
 

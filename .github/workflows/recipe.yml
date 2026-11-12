@@ -120,6 +120,13 @@ on:
           visible one.
         type: string
         default: ''
+      repository-token:
+        description: >-
+          Give the project command the job's own token as GITHUB_TOKEN. It reads only this
+          repository's contents, such as links into the project's own private repository in a
+          link check. GitHub masks it in logs; the project keeps it out of its reports.
+        type: boolean
+        default: false
       sparse-checkout:
         description: Patterns the checkout keeps, one per line; empty keeps the whole tree.
         type: string
@@ -219,6 +226,14 @@ jobs:
         if: inputs.images
         uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/image-builder@8e5d0c687a0a9a04d8d8f275d8c26ad32220f0d1
 
+      - name: The job's own read token for the project command
+        # Opt-in: the job's token reads only this repository's contents, and nothing else.
+        if: inputs.repository-token
+        env:
+          TOKEN: ${{ github.token }}
+        shell: bash
+        run: echo "GITHUB_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
       - name: Prepare only the declared dependencies
         if: inputs.prepare != ''
         uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@9795917fc97bf71b2761e609a87adbb189119894
@@ -257,6 +272,33 @@ jobs:
           if-no-files-found: error
           include-hidden-files: false
           retention-days: 14
+
+      - name: Every named report is kept
+        # The upload fails only when nothing at all matched; a report the job did not leave fails
+        # here, after the ones it did leave are kept.
+        if: ${{ !cancelled() && inputs.reports != '' }}
+        env:
+          REPORTS: ${{ inputs.reports }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s globstar
+          missing=0
+          while IFS= read -r line || [ -n "$line" ]; do
+            [ -n "$line" ] || continue
+            found=false
+            while IFS= read -r match; do
+              if [ -f "$match" ] || { [ -d "$match" ] && [ -n "$(find "$match" -type f ! -path '*/.*' -print -quit)" ]; }; then
+                found=true
+                break
+              fi
+            done < <(compgen -G "$line" || true)
+            if ! $found; then
+              echo "::error::reports names $line, and the job left nothing there"
+              missing=$((missing + 1))
+            fi
+          done <<< "$REPORTS"
+          [ "$missing" = 0 ]
 
       - name: Diagnostics of the failed recipe
         if: failure() && inputs.diagnostics != ''
