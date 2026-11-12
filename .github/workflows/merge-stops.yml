@@ -86,7 +86,7 @@ jobs:
           filter: blob:none
 
       - name: File contents of the change
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/change-objects@c4117c8fea28a3e8dda96737cb2db5fffbc97e8c
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/change-objects@6846ef72884d0cc19f8d2ebe93455dafcb251e33
         with:
           base: ${{ github.event.pull_request.base.sha }}
           head: ${{ github.event.pull_request.head.sha }}
