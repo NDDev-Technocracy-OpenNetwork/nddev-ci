@@ -450,6 +450,7 @@ jobs:
         run: echo "GITHUB_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
       - name: Prepare only the declared dependencies
+        id: prepare
         if: inputs.prepare != ''
         uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@9795917fc97bf71b2761e609a87adbb189119894
         with:
@@ -458,6 +459,7 @@ jobs:
           working-directory: ${{ inputs.working-directory }}
           justfile: ${{ inputs.justfile }}
       - name: Run the project command
+        id: project
         uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/recipe@9795917fc97bf71b2761e609a87adbb189119894
         with:
           managed: ${{ env.SDK_MANAGED }}
@@ -489,6 +491,7 @@ jobs:
           retention-days: 14
 
       - name: Every named report is kept
+        id: reports-kept
         # The upload fails only when nothing at all matched; a report the job did not leave fails
         # here, after the ones it did leave are kept.
         if: ${{ !cancelled() && inputs.reports != '' }}
@@ -542,9 +545,11 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@9795917fc97bf71b2761e609a87adbb189119894
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@f3bc504f35197fdc6cb875474b151112e5484168
         with:
           task: just ${{ inputs.recipe }}
           task-type: ${{ inputs.artifact != '' && 'build' || 'test' }}
           status: ${{ job.status }}
+          # The project's recipes or reports, or the steps around them (nddev_ci.failure.layer).
+          failure-layer: ${{ job.status == 'failure' && ((steps.prepare.outcome == 'failure' || steps.project.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && 'project' || 'library') || '' }}
           started-file: ${{ runner.temp }}/nddev-ci-started
