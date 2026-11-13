@@ -16,6 +16,7 @@ the linked workflow and action declarations.
 | [merge-stops.yml](.github/workflows/merge-stops.yml) | The same stops beside a project's existing jobs |
 | [recipe.yml](.github/workflows/recipe.yml) | One project recipe in a native platform matrix |
 | [image.yml](.github/workflows/image.yml) | Build a native container image and push it by source commit |
+| [promote.yml](.github/workflows/promote.yml) | Move `main` forward to the newest `dev` commit whose full check passed, then start the release |
 | [release.yml](.github/workflows/release.yml) | Publish the exact verified commit and its files as an immutable GitHub Release |
 | [image-tag.yml](.github/workflows/image-tag.yml) | Give the checked image digest its release tag without rebuilding |
 | [registry.yml](.github/workflows/registry.yml) | Publish released files to crates.io or PyPI through trusted publishing |
@@ -236,6 +237,19 @@ provide `NDDEV_CI_QUEUE_SECONDS` and `NDDEV_CI_TELEMETRY_FILE`; hosted jobs keep
 record in the job log. The execution controller owns the SDK, device and generation
 provenance added at collection. [telemetry](actions/telemetry/action.yml) disables
 outside telemetry in every job.
+
+## Promotion
+
+[promote.yml](.github/workflows/promote.yml) moves `main` forward to the newest `dev` commit whose
+newest full check on a push passed, and starts the caller's release workflow on `main`. A newer
+commit whose check failed or still runs waits for the next promotion. It never moves `main`
+backward or sideways: when `main` holds a commit `dev` lacks, it stops.
+
+GitHub's job token cannot move a branch onto commits that change workflow files, so the move
+pushes with a deploy key that has write access. The caller keeps it as `PROMOTION_KEY` in an
+environment, `promotion` by default, that only its `dev` branch may use, and calls the workflow
+with `secrets: inherit`. The library promotes itself this way once a day, so it publishes at most
+one release a day.
 
 ## Developing the library
 

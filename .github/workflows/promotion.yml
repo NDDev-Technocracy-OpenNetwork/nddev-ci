@@ -1,0 +1,21 @@
+# The library releases at most once a day: main moves to the newest dev commit whose full check
+# passed, and publish.yml releases it. A manual run serves a fix a caller needs before then.
+name: promotion
+
+on:
+  schedule:
+    - cron: "0 20 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  promote:
+    uses: ./.github/workflows/promote.yml
+    with:
+      release-workflow: publish.yml
+    # The deploy key lives in the promotion environment, which only dev may use.
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    permissions:
+      actions: write
+      contents: read

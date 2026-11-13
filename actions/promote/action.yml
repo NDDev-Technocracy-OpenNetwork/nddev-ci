@@ -1,0 +1,25 @@
+name: Choose the commit to promote
+description: >-
+  Finds the newest commit of the source branch, ahead of the target, whose newest full check on a
+  push passed. It moves nothing; the promote workflow does.
+inputs:
+  check-workflow:
+    description: The workflow file whose push check on the source branch qualifies a commit.
+    default: ci.yml
+  source-branch:
+    description: The branch the target moves forward to.
+    default: dev
+  target-branch:
+    description: The branch that moves.
+    default: main
+  github-token:
+    description: A token that reads contents and actions.
+    default: ${{ github.token }}
+outputs:
+  state:
+    description: ready, current (nothing new) or unchecked (no new commit passed yet).
+  sha:
+    description: The commit to promote when the state is ready.
+runs:
+  using: node24
+  main: run.mjs

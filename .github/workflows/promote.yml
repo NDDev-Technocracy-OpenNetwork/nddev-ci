@@ -1,0 +1,120 @@
+# Moves main forward to the newest dev commit whose full check passed, then starts the release
+# workflow on main. Promotion only moves forward: main must be an ancestor of dev. GitHub's job
+# token cannot move a branch onto commits that change workflow files, so the move pushes with a
+# deploy key with write access: the caller keeps it as PROMOTION_KEY in an environment limited to
+# its dev branch and calls this workflow with `secrets: inherit`, since GitHub resolves an
+# environment's secrets only in the job that names the environment.
+name: promote
+
+on:
+  workflow_call:
+    inputs:
+      check-workflow:
+        description: The caller's workflow file whose push check on dev qualifies a commit.
+        type: string
+        default: ci.yml
+      release-workflow:
+        description: The caller's workflow file started on main after the move; empty starts none.
+        type: string
+        default: ""
+      environment:
+        description: The caller's environment holding PROMOTION_KEY, limited to its dev branch.
+        type: string
+        default: promotion
+      runner:
+        description: The label of our runners, used by private repositories.
+        type: string
+        default: nddev-linux-small
+    outputs:
+      state:
+        description: ready when main moved, current when nothing was new, unchecked when no new commit passed yet.
+        value: ${{ jobs.promote.outputs.state }}
+      sha:
+        description: The commit main moved to.
+        value: ${{ jobs.promote.outputs.sha }}
+
+permissions: {}
+
+jobs:
+  promote:
+    name: promote
+    # Public repositories promote on GitHub's runners, private ones on ours.
+    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || inputs.runner }}
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: nddev-ci-promote-${{ github.repository }}
+      cancel-in-progress: false
+    timeout-minutes: 15
+    permissions:
+      actions: write # read the checks and start the release workflow
+      contents: read # compare the branches
+    outputs:
+      state: ${{ steps.choose.outputs.state }}
+      sha: ${{ steps.choose.outputs.sha }}
+    steps:
+      - name: Start
+        run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
+
+      - name: Outside telemetry off
+        uses: $/actions/telemetry
+
+      - name: Choose the commit
+        id: choose
+        uses: $/actions/promote
+        with:
+          check-workflow: ${{ inputs.check-workflow }}
+
+      - name: Move main forward
+        if: steps.choose.outputs.state == 'ready'
+        env:
+          KEY: ${{ secrets.PROMOTION_KEY }}
+          SHA: ${{ steps.choose.outputs.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          folder="$RUNNER_TEMP/nddev-ci-promote"
+          mkdir -p "$folder"
+          chmod 0700 "$folder"
+          trap 'rm -rf "$folder"' EXIT
+          case "$KEY" in
+            *"-----END OPENSSH PRIVATE KEY-----"*) ;;
+            *) echo "::error::PROMOTION_KEY holds no OpenSSH private key"; exit 1 ;;
+          esac
+          (umask 077 && printf '%s\n' "$KEY" > "$folder/key")
+          # GitHub's published host keys, the same on github.com and on ssh.github.com:443.
+          cat > "$folder/known_hosts" <<'KEYS'
+          github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+          github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+          github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+          KEYS
+          export GIT_SSH_COMMAND="ssh -i $folder/key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$folder/known_hosts -o HostKeyAlias=github.com -p 443"
+          git init -q "$folder/repository"
+          cd "$folder/repository"
+          git remote add origin "git@ssh.github.com:$REPOSITORY.git"
+          git fetch -q --depth 1 origin "$SHA"
+          # No force: GitHub refuses the push unless it moves main forward.
+          git push -q origin "$SHA:refs/heads/main"
+          echo "main is at $SHA."
+
+      - name: Start the release on main
+        if: steps.choose.outputs.state == 'ready' && inputs.release-workflow != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release-workflow }}
+          API: ${{ github.api_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$ ]] || { echo "::error::release-workflow must be a workflow file name"; exit 1; }
+          curl -fsS --proto =https -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$API/repos/$REPOSITORY/actions/workflows/$RELEASE/dispatches" -d '{"ref":"main"}'
+          echo "Started $RELEASE on main."
+
+      - name: Job record
+        if: always()
+        uses: $/actions/job-record
+        with:
+          task: promotion
+          task-type: deploy
+          status: ${{ job.status }}
+          started-file: ${{ runner.temp }}/nddev-ci-started
