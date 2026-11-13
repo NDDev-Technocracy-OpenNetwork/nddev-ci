@@ -37,13 +37,13 @@ jobs:
         with:
           persist-credentials: false
       - name: Outside telemetry off
-        uses: ./actions/telemetry
+        uses: $/actions/telemetry
       - name: Require the telemetry switches on this system
         run: >-
           node -e "for(const [n,v] of Object.entries({DO_NOT_TRACK:'1',BUN_DO_NOT_TRACK:'1',TRIVY_DISABLE_TELEMETRY:'true'}))if(process.env[n]!==v)throw Error('telemetry switch missing: '+n)"
       - name: Prepare declared native SDKs
         id: sdk
-        uses: ./actions/hosted-sdk
+        uses: $/actions/hosted-sdk
         with:
           node-version: '26.13.0'
           python-version: '3.15.2'
@@ -70,7 +70,7 @@ jobs:
         run: cargo nextest --version
       - name: Prepare the same SDKs again from the tool cache
         id: sdk-again
-        uses: ./actions/hosted-sdk
+        uses: $/actions/hosted-sdk
         with:
           node-version: '26.13.0'
           python-version: '3.15.2'
@@ -82,11 +82,11 @@ jobs:
           node -e "const r=JSON.parse(process.env.SDK_RECEIPT);
           for(const [name,version] of Object.entries({node:'26.13.0',python:'3.15.2',uv:'0.13.7'}))if(r.versions[name]!==version)throw Error('repeated SDK mismatch: '+name)"
       - name: Hosted dependency caches of a Cargo and npm fixture
-        uses: ./actions/hosted-cache
+        uses: $/actions/hosted-cache
         with:
           working-directory: tests/fixtures/hosted-cache
       - name: Hosted dependency caches of a project without lock files
-        uses: ./actions/hosted-cache
+        uses: $/actions/hosted-cache
         with:
           working-directory: tests/fixtures/image
       - name: Check argument and workspace boundaries
@@ -99,7 +99,7 @@ jobs:
           fs.writeFileSync('native-assets.json',JSON.stringify({schema_version:1,assets:[{repository:p.repository,asset:a.asset,size:a.size,sha256:a.sha256,file:a.name,members:[{path:process.platform==='win32'?'just.exe':'just',file:process.platform==='win32'?'prepared-just.exe':'prepared-just',size:a.binary_size,sha256:a.binary_sha256,executable:true}]}]}))"
       - name: Prepare the exact public asset bytes
         id: native-assets
-        uses: ./actions/release-assets
+        uses: $/actions/release-assets
         with:
           manifest: native-assets.json
           directory: ${{ runner.temp }}/native-assets
@@ -112,13 +112,13 @@ jobs:
           if(r.assets[0].files.length!==2)throw Error('missing native receipt');
           if(execFileSync('prepared-just',['--version'],{encoding:'utf8'}).trim()!=='just '+p.version)throw Error('native tool version mismatch')"
       - name: Verify and reuse the warm public asset
-        uses: ./actions/release-assets
+        uses: $/actions/release-assets
         with:
           manifest: native-assets.json
           directory: ${{ runner.temp }}/native-assets
       - name: Run the real pinned native task runner
         id: probe
-        uses: ./actions/recipe
+        uses: $/actions/recipe
         with:
           justfile: tests/fixtures/portable.just
           recipe: probe
@@ -144,14 +144,14 @@ jobs:
           node --input-type=module -e "import {main} from './actions/hosted-sdk/run.mjs';
           const env={...process.env,RUNNER_TOOL_CACHE:''}; main('validate',env); main('verify',env)"
       - name: Run a script recipe and its nested task runner
-        uses: ./actions/recipe
+        uses: $/actions/recipe
         with:
           justfile: tests/fixtures/portable.just
           recipe: script-probe
           arguments: '["path with spaces","$(must-stay-literal)","مرحبا-Ә-测试"]'
       - name: The job's record reaches the runner's telemetry file
         if: always()
-        uses: ./actions/job-record
+        uses: $/actions/job-record
         env:
           NDDEV_CI_TELEMETRY_FILE: ${{ runner.temp }}/ci-telemetry.jsonl
         with:

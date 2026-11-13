@@ -98,7 +98,7 @@ jobs:
           persist-credentials: false
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@9795917fc97bf71b2761e609a87adbb189119894
+        uses: $/actions/telemetry
 
       # A managed runner offers a package mirror on its loopback. A build step reaches it only on
       # the host network, and each package manager finds it by its own standard variable, which
@@ -245,7 +245,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@9795917fc97bf71b2761e609a87adbb189119894
+        uses: $/actions/job-record
         with:
           task: image ${{ inputs.image }}
           task-type: build

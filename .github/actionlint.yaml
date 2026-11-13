@@ -1,0 +1,8 @@
+# actionlint 1.7.12 predates GitHub's self-repository syntax `uses: $/...` (July 2026) and reports
+# it as a malformed reference (rhysd/actionlint#711). Only that message is ignored, matched
+# exactly; remove these lines with the first actionlint release that parses the syntax.
+paths:
+  .github/workflows/*.yml:
+    ignore:
+      - 'specifying action "\$/actions/[a-z0-9-]+" in invalid format because ref is missing'
+      - 'reusable workflow call "\$/\.github/workflows/[a-z0-9-]+\.yml" at "uses" is not following the format'

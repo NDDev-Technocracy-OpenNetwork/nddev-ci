@@ -54,7 +54,7 @@ jobs:
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@9795917fc97bf71b2761e609a87adbb189119894
+        uses: $/actions/telemetry
 
       - name: Released files, verified
         id: files
@@ -105,7 +105,7 @@ jobs:
           ref: ${{ inputs.tag }}
       - name: Rust for packaging
         if: inputs.registry == 'crates'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@f5f6e0ab92b4f81a681f76926a4781840be8ec4d
+        uses: $/actions/hosted-sdk
         with:
           rust-version: ${{ inputs.rust-version }}
       - name: Reproduce the released crate
@@ -160,7 +160,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@9795917fc97bf71b2761e609a87adbb189119894
+        uses: $/actions/job-record
         with:
           task: publish to ${{ inputs.registry }}
           task-type: deploy
