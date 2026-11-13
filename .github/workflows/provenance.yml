@@ -19,7 +19,7 @@ jobs:
   attest:
     name: provenance
     if: ${{ !github.event.repository.private && github.event_name != 'pull_request' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       actions: read # read the artifact of this run
