@@ -4,7 +4,10 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
+  renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -25,6 +28,83 @@ export function databases(environment, day) {
     TRIVY_DB_REPOSITORY: `${images}/trivy-db:2`,
     TRIVY_JAVA_DB_REPOSITORY: `${images}/trivy-java-db:1`,
   };
+}
+
+// Grype's database, imported once per release of it into the runner's persistent build cache.
+// The import turns the 200 MB archive into a 3.4 GB indexed database, which every daily job wrote
+// again before. The folder is named by the archive's digest from the provider's listing; Grype
+// checks the database against its own digest at every start, and a database that fails that is
+// imported anew. Runners without a persistent cache keep the per-job download.
+export function grypeCache(environment, day, tools) {
+  const declared = registry(environment);
+  const root = environment.NDDEV_BUILD_CACHE_ROOT;
+  if (!declared || !root || !path.isAbsolute(root) || !existsSync(root)) return {};
+  const fetch = (url, output) => {
+    const result = spawnSync(
+      "curl",
+      ["--fail", "--silent", "--show-error", "--max-time", "600", "--max-filesize", String(1 << 30),
+        ...(output ? ["--output", output] : []), url],
+      { env: environment, encoding: output ? undefined : "utf8", timeout: 610000, maxBuffer: 1 << 20 },
+    );
+    if (result.error || result.status !== 0)
+      throw new Error("The declared registry could not provide Grype's database.");
+    return result.stdout;
+  };
+  const base = `${declared}/grype/${day}/v6`;
+  let listing;
+  try {
+    listing = JSON.parse(fetch(`${base}/latest.json`));
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new Error("Grype's database listing is not JSON.");
+    throw error;
+  }
+  const digest = /^sha256:([0-9a-f]{64})$/.exec(listing?.checksum ?? "")?.[1];
+  if (!digest || !/^[A-Za-z0-9._:-]{1,200}\.tar\.zst$/.test(listing?.path ?? ""))
+    throw new Error("Grype's database listing names no archive and digest.");
+  const cache = path.join(root, "nddev-ci", "grype");
+  const database = path.join(cache, digest);
+  const variables = {
+    GRYPE_DB_CACHE_DIR: database,
+    GRYPE_DB_AUTO_UPDATE: "false",
+    GRYPE_DB_VALIDATE_BY_HASH_ON_START: "true",
+    GRYPE_CHECK_FOR_APP_UPDATE: "false",
+  };
+  const grype = (args) =>
+    spawnSync(path.join(tools, "grype"), args, {
+      env: { ...environment, ...variables },
+      encoding: "utf8",
+      timeout: 600000,
+      maxBuffer: 1 << 20,
+    });
+  const status = grype(["db", "status"]);
+  if (status.status === 0 && /^Status:\s+valid$/m.test(status.stdout)) return variables;
+  // Missing, partial, outdated or altered: import this release again from its checked archive.
+  mkdirSync(cache, { recursive: true, mode: 0o700 });
+  for (const name of readdirSync(cache)) rmSync(path.join(cache, name), { recursive: true, force: true });
+  const download = mkdtempSync(path.join(environment.RUNNER_TEMP || cache, "nddev-ci-grype-"));
+  try {
+    const archive = path.join(download, "database.tar.zst");
+    fetch(`${base}/${listing.path}`, archive);
+    const sum = spawnSync("sha256sum", [archive], { encoding: "utf8" });
+    if (sum.status !== 0 || sum.stdout.slice(0, 64) !== digest)
+      throw new Error("Grype's database archive differs from its listing.");
+    const partial = `${database}.partial`;
+    const imported = spawnSync(path.join(tools, "grype"), ["db", "import", archive], {
+      env: { ...environment, ...variables, GRYPE_DB_CACHE_DIR: partial },
+      encoding: "utf8",
+      timeout: 600000,
+      maxBuffer: 1 << 20,
+    });
+    if (imported.error || imported.status !== 0)
+      throw new Error("Grype could not import its database.");
+    renameSync(partial, database);
+  } finally {
+    rmSync(download, { recursive: true, force: true });
+  }
+  const checked = grype(["db", "status"]);
+  if (checked.status !== 0 || !/^Status:\s+valid$/m.test(checked.stdout))
+    throw new Error("Grype's imported database is not valid.");
+  return variables;
 }
 
 export function main(
@@ -58,7 +138,11 @@ export function main(
   }
   mkdirSync(output, { recursive: true, mode: 0o700 });
   const policy = scannerPolicy(environment, "scanners.yaml");
-  const scanners = { ...environment, ...databases(environment, day) };
+  const scanners = {
+    ...environment,
+    ...databases(environment, day),
+    ...grypeCache(environment, day, tools),
+  };
   try {
     const run = (tool, args, report) => {
       console.log(`Running ${tool} for ${path.basename(report)}`);
