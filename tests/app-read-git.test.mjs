@@ -5,13 +5,13 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-const workflow = readFileSync(new URL("../.github/workflows/check.yml", import.meta.url), "utf8");
-const start = workflow.indexOf("      - name: App Git credentials\n");
+const action = readFileSync(new URL("../actions/prepare/action.yml", import.meta.url), "utf8");
+const start = action.indexOf("    - name: App Git credentials\n");
 assert.notEqual(start, -1);
-const end = workflow.indexOf("      - name: Native task runner\n", start);
+const end = action.indexOf("    - name: Native task runner\n", start);
 assert.notEqual(end, -1);
-const script = workflow.slice(start, end).split("        run: |\n")[1]
-  .split("\n").filter((line) => line.startsWith("          ")).map((line) => line.slice(10)).join("\n");
+const script = action.slice(start, end).split(/      run: \|[^\n]*\n/)[1]
+  .split("\n").filter((line) => line.startsWith("        ")).map((line) => line.slice(8)).join("\n");
 
 function prepared(t) {
   const root = mkdtempSync(join(tmpdir(), "nddev-ci-app-git-"));

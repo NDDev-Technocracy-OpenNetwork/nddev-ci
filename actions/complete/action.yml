@@ -1,0 +1,134 @@
+name: Complete a job
+description: >-
+  Ends a job that prepare began, whatever its result: the deployment artifact of a passed non-PR
+  run, the named reports and the check that each was left, the diagnostics of a failed run, the
+  revocation of the scoped read token and one job record with the job's result. The result is
+  failure when the project's command or its reports failed and error when a step of the library
+  did.
+inputs:
+  status:
+    description: The job's status before this action, normally job.status.
+    required: true
+  project-outcome:
+    description: The outcome of the project's own command steps, success or failure.
+    default: ''
+  task:
+    description: The task's name in the job record, such as short check or just test.
+    required: true
+  task-type:
+    description: build, test or deploy.
+    default: test
+  name:
+    description: A name that keeps this job's report and diagnostics uploads apart from the run's other jobs.
+    required: true
+  artifact:
+    description: A file or folder a passed non-PR run keeps for deployment; empty keeps nothing.
+    default: ''
+  artifact-name:
+    description: The name the artifact is kept under.
+    default: build
+  artifact-days:
+    description: How many days the artifact is kept.
+    default: '14'
+  reports:
+    description: Workspace-relative reports, one per line, kept whatever the result; a missing one fails the job.
+    default: ''
+  diagnostics:
+    description: Workspace-relative reports, one per line, kept when the job fails.
+    default: ''
+  read-token:
+    description: The scoped App read token prepare minted; empty when there is none.
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Artifact
+      id: artifact
+      # A passed full run keeps what the project deploys, so a deployment takes the exact build of a
+      # checked commit instead of building again.
+      if: inputs.status == 'success' && github.event_name != 'pull_request' && inputs.artifact != ''
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.artifact }}
+        if-no-files-found: error
+        retention-days: ${{ inputs.artifact-days }}
+
+    - name: Reports
+      id: reports
+      # The caller's named evidence, kept whether the job passed or failed, never as a deployment
+      # artifact.
+      if: ${{ !cancelled() && inputs.status != 'cancelled' && inputs.reports != '' }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: reports-${{ inputs.name }}-${{ github.run_attempt }}
+        path: ${{ inputs.reports }}
+        if-no-files-found: error
+        include-hidden-files: false
+        retention-days: 14
+
+    - name: Every named report is kept
+      id: reports-kept
+      # The upload fails only when nothing at all matched; a report the job did not leave fails
+      # here, after the ones it did leave are kept.
+      if: ${{ !cancelled() && inputs.status != 'cancelled' && inputs.reports != '' }}
+      env:
+        REPORTS: ${{ inputs.reports }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        # macOS's bash 3.2 has no globstar: there ** matches one level, as *.
+        shopt -s globstar 2>/dev/null || true
+        missing=0
+        while IFS= read -r line || [ -n "$line" ]; do
+          [ -n "$line" ] || continue
+          found=false
+          while IFS= read -r match; do
+            if [ -f "$match" ] || { [ -d "$match" ] && [ -n "$(find "$match" -type f ! -path '*/.*' -print -quit)" ]; }; then
+              found=true
+              break
+            fi
+          done < <(compgen -G "$line" || true)
+          if ! $found; then
+            echo "::error::reports names $line, and the job left nothing there"
+            missing=$((missing + 1))
+          fi
+        done <<< "$REPORTS"
+        [ "$missing" = 0 ]
+
+    - name: Diagnostics of the failed job
+      # Only the caller's named reports are kept, never a release artifact of a failed job.
+      if: ${{ !cancelled() && inputs.diagnostics != '' && (inputs.status == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: diagnostics-${{ inputs.name }}-${{ github.run_attempt }}
+        path: ${{ inputs.diagnostics }}
+        if-no-files-found: warn
+        include-hidden-files: false
+        retention-days: 14
+
+    - name: Revoke App read token
+      if: always() && inputs.read-token != ''
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      with:
+        github-token: ${{ inputs.read-token }}
+        script: |
+          try {
+            await github.request('DELETE /installation/token');
+            core.info('Scoped App read token revoked.');
+          } catch (error) {
+            if (error.status !== 401) throw error;
+            core.info('Scoped App read token is already expired or revoked.');
+          }
+
+    - name: Job record
+      if: always()
+      uses: $/actions/job-record
+      with:
+        task: ${{ inputs.task }}
+        task-type: ${{ inputs.task-type }}
+        # A passed job whose own artifact or reports then failed has failed.
+        status: ${{ (inputs.status == 'success' && (steps.artifact.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure')) && 'failure' || inputs.status }}
+        # The project's commands or reports, or the steps around them (nddev_ci.failure.layer).
+        failure-layer: ${{ (inputs.status == 'failure' || steps.artifact.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && ((inputs.project-outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && 'project' || 'library') || '' }}
+        started-file: ${{ runner.temp }}/nddev-ci-started

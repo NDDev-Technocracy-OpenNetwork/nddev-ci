@@ -1,0 +1,387 @@
+name: Prepare a job
+description: >-
+  Prepares a job of the library before the project's command: workspace path checks, checkout,
+  outside telemetry off, the artifact registry, private reads, the task runner, SDKs, native tool
+  assets, caches and in-job image builds. complete ends the same job.
+inputs:
+  managed:
+    description: >-
+      'true' when the runner keeps its own SDK, as our private runners do; 'false' on GitHub's runners.
+    default: ''
+  artifact-registry:
+    description: Optional tool-download registry; empty uses the runner setting or official upstream sources.
+    default: ''
+  diagnostics:
+    description: Report paths kept when the job fails, one per line, checked here to stay inside the workspace.
+    default: ''
+  reports:
+    description: Report paths kept whatever the result, one per line, checked here to stay inside the workspace.
+    default: ''
+  fetch-depth:
+    description: How many commits the checkout fetches; 0 fetches the whole history.
+    default: '1'
+  filter:
+    description: A partial clone filter for the checkout, such as blob:none.
+    default: ''
+  sparse-checkout:
+    description: Patterns the checkout keeps, one per line; empty keeps the whole tree.
+    default: ''
+  sparse-checkout-cone-mode:
+    description: Reads sparse-checkout as cone directories; false reads gitignore-style patterns.
+    default: 'true'
+  repository-token:
+    description: >-
+      'true' gives the project's commands the job's own token as GITHUB_TOKEN, reading only this repository.
+    default: 'false'
+  read-keys:
+    description: >-
+      Read-only deploy keys of other private repositories: for each a line owner/repository, then its OpenSSH private key.
+    default: ''
+  read-app-client-id:
+    description: The GitHub App client ID used for scoped private module reads.
+    default: ''
+  read-app-installation-id:
+    description: The App installation in the caller's organization.
+    default: ''
+  read-repositories:
+    description: Explicit owner/repository names, one per line, granted contents-read access.
+    default: ''
+  read-app-private-key:
+    description: The App PEM key, used only while minting a scoped installation token.
+    default: ''
+  node-version:
+    description: Optional exact Node version.
+    default: ''
+  python-version:
+    description: Optional exact Python version.
+    default: ''
+  uv-version:
+    description: Optional exact uv version.
+    default: ''
+  bun-version:
+    description: Optional exact Bun version.
+    default: ''
+  rust-version:
+    description: Optional exact Rust version.
+    default: ''
+  rust-components:
+    description: Optional comma-separated components for the selected Rust toolchain.
+    default: ''
+  rust-targets:
+    description: Optional comma-separated targets for the selected Rust toolchain.
+    default: ''
+  java-version:
+    description: Optional exact Temurin JDK version.
+    default: ''
+  go-version:
+    description: Optional exact Go version.
+    default: ''
+  flutter-version:
+    description: Optional exact stable Flutter version for hosted runners, with its Dart SDK.
+    default: ''
+  tools:
+    description: Optional comma-separated name@exact-version command-line tools for hosted runners.
+    default: ''
+  tool-assets:
+    description: Caller-owned exact public asset/member manifest for hosted runners; private runners use their managed SDK.
+    default: ''
+  working-directory:
+    description: The project's directory inside the workspace, for its dependency caches.
+    default: '.'
+  images:
+    description: >-
+      'true' prepares the image builder for images the job builds and tests itself.
+    default: 'false'
+outputs:
+  read-token:
+    description: The scoped App read token, for complete to revoke; empty without one.
+    value: ${{ steps.read-app-token.outputs.token }}
+runs:
+  using: composite
+  steps:
+    - name: Report paths stay inside the workspace
+      env:
+        DIAGNOSTICS: ${{ inputs.diagnostics }}
+        REPORTS: ${{ inputs.reports }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        # No absolute path, home, parent or hidden name. macOS runs bash 3.2.
+        inside() {
+          while IFS= read -r line || [ -n "$line" ]; do
+            [ -n "$line" ] || continue
+            case "/$line/" in
+              //* | /~* | */../* | */./* | */.[!.]* | *\\*) echo "::error::$1 names a path outside the workspace or a hidden name: $line"; exit 1 ;;
+            esac
+          done
+        }
+        inside diagnostics <<< "$DIAGNOSTICS"
+        inside reports <<< "$REPORTS"
+        date +%s > "$RUNNER_TEMP/nddev-ci-started"
+
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+        fetch-depth: ${{ inputs.fetch-depth }}
+        filter: ${{ inputs.filter }}
+        sparse-checkout: ${{ inputs.sparse-checkout }}
+        sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
+
+    - name: Outside telemetry off
+      uses: $/actions/telemetry
+
+    - name: Artifact registry
+      uses: $/actions/artifact-registry
+      with:
+        url: ${{ inputs.artifact-registry }}
+
+    - name: The job's own read token for the project commands
+      # Opt-in: the job's token reads only this repository's contents, and nothing else.
+      if: inputs.repository-token == 'true'
+      env:
+        TOKEN: ${{ github.token }}
+      shell: bash
+      # The only write is the job's own token, which GitHub issues; no input reaches it.
+      run: echo "GITHUB_TOKEN=$TOKEN" >> "$GITHUB_ENV" # zizmor: ignore[github-env]
+
+    - name: Read keys
+      # GitHub accepts a deploy key for its one repository, and ssh stops at the first key that
+      # gets in, so each repository gets a host alias of its own with only its key, and git
+      # rewrites that repository's addresses to the alias. The keys stay in the job's temporary
+      # folder and are never printed.
+      env:
+        READ_KEYS: ${{ inputs.read-keys }}
+        READ_APP_CLIENT_ID: ${{ inputs.read-app-client-id }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -n "$READ_KEYS" ] && [ -n "$READ_APP_CLIENT_ID" ]; then
+          echo "::error::choose one private source read profile: deploy keys or GitHub App"
+          exit 1
+        fi
+        if [ -z "$READ_KEYS" ]; then
+          exit 0
+        fi
+        folder="$RUNNER_TEMP/nddev-ci/ssh"
+        mkdir -p "$folder"
+        chmod 0700 "$folder"
+        # GitHub's published host keys, the same on github.com and on ssh.github.com:443.
+        cat > "$folder/known_hosts" <<'KEYS'
+        github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+        github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+        github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+        KEYS
+        config="$folder/config"
+        : > "$config"
+        count=0
+        repository=""
+        key=""
+        add() {
+          [ -n "$repository" ] || return 0
+          case "$key" in
+            *"-----END OPENSSH PRIVATE KEY-----"*) ;;
+            *) echo "::error::read-keys has no OpenSSH private key for $repository"; exit 1 ;;
+          esac
+          alias="read-${repository//\//-}"
+          (umask 077 && printf '%s' "$key" > "$folder/$alias")
+          printf 'Host %s\n  HostName ssh.github.com\n  Port 443\n  User git\n  HostKeyAlias github.com\n  UserKnownHostsFile %s\n  StrictHostKeyChecking yes\n  IdentityFile %s\n  IdentitiesOnly yes\n' \
+            "$alias" "$folder/known_hosts" "$folder/$alias" >> "$config"
+          for address in "git@github.com:$repository" "ssh://git@github.com/$repository" "https://github.com/$repository"; do
+            {
+              echo "GIT_CONFIG_KEY_$count=url.$alias:$repository.insteadOf"
+              echo "GIT_CONFIG_VALUE_$count=$address"
+            } >> "$GITHUB_ENV"
+            count=$((count + 1))
+          done
+        }
+        # A key runs from its BEGIN line to its END line; outside a key, a line names a repository.
+        inside=false
+        while IFS= read -r line || [ -n "$line" ]; do
+          line=${line%$'\r'}
+          if $inside; then
+            key+="$line"$'\n'
+            [[ "$line" != -----END* ]] || inside=false
+          elif [[ "$line" == -----BEGIN* ]]; then
+            if [ -z "$repository" ] || [ -n "$key" ]; then
+              echo "::error::each key in read-keys follows its own line owner/repository"
+              exit 1
+            fi
+            key="$line"$'\n'
+            inside=true
+          elif [[ "$line" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            add
+            repository=$line
+            key=""
+          elif [ -n "$line" ]; then
+            echo "::error::read-keys holds a line that is neither owner/repository nor part of a key"
+            exit 1
+          fi
+        done < <(printf '%s\n' "$READ_KEYS")
+        add
+        {
+          echo "GIT_CONFIG_COUNT=$count"
+          echo "GIT_SSH_COMMAND=ssh -F $config"
+        } >> "$GITHUB_ENV"
+        echo "Read keys for $((count / 3)) repositories."
+
+    - name: Scoped App read token
+      id: read-app-token
+      if: inputs.read-app-client-id != ''
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        READ_APP_CLIENT_ID: ${{ inputs.read-app-client-id }}
+        READ_APP_INSTALLATION_ID: ${{ inputs.read-app-installation-id }}
+        READ_REPOSITORIES: ${{ inputs.read-repositories }}
+        READ_APP_PRIVATE_KEY: ${{ inputs.read-app-private-key }}
+      with:
+        script: |
+          const crypto = require('node:crypto');
+          const installation = Number(process.env.READ_APP_INSTALLATION_ID);
+          const requested = process.env.READ_REPOSITORIES.split(/\s+/).filter(Boolean);
+          const owner = context.repo.owner.toLowerCase();
+          if (!Number.isSafeInteger(installation) || installation <= 0 || requested.length === 0) {
+            throw new Error('App installation and explicit read repositories are required');
+          }
+          const names = requested.map(fullName => {
+            const parts = fullName.split('/');
+            if (parts.length !== 2 || parts[0].toLowerCase() !== owner || !/^[a-zA-Z0-9_.-]+$/.test(parts[1])) {
+              throw new Error('Every read repository must belong to the caller organization');
+            }
+            return parts[1];
+          });
+          const expected = new Set(names.map(name => name.toLowerCase()));
+          if (expected.size !== names.length) throw new Error('Duplicate read repositories');
+          const key = crypto.createPrivateKey(process.env.READ_APP_PRIVATE_KEY);
+          delete process.env.READ_APP_PRIVATE_KEY;
+          if (key.asymmetricKeyType !== 'rsa') throw new Error('The App key must be RSA');
+          const now = Math.floor(Date.now() / 1000);
+          const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+          const unsigned = encode({alg: 'RS256', typ: 'JWT'}) + '.' + encode({
+            iat: now - 60, exp: now + 540, iss: process.env.READ_APP_CLIENT_ID
+          });
+          const jwt = unsigned + '.' + crypto.sign('sha256', Buffer.from(unsigned), key).toString('base64url');
+          core.setSecret(jwt);
+          async function api(path, token, method = 'GET', body) {
+            const response = await fetch(process.env.GITHUB_API_URL + path, {
+              method, redirect: 'error', signal: AbortSignal.timeout(30000),
+              headers: {
+                'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json',
+                'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28'
+              },
+              body: body === undefined ? undefined : JSON.stringify(body)
+            });
+            if (!response.ok) throw new Error('GitHub App request failed with status ' + response.status);
+            return response.status === 204 ? undefined : response.json();
+          }
+          const installed = await api('/app/installations/' + installation, jwt);
+          if (installed.account.login.toLowerCase() !== owner) {
+            throw new Error('The App installation belongs to another organization');
+          }
+          const granted = await api('/app/installations/' + installation + '/access_tokens', jwt, 'POST', {
+            repositories: names, permissions: {contents: 'read'}
+          });
+          core.setSecret(granted.token);
+          try {
+            if (granted.permissions.contents !== 'read' || Object.entries(granted.permissions).some(
+              ([name, access]) => !['contents', 'metadata'].includes(name) || access !== 'read'
+            )) throw new Error('The granted token is not contents-read only');
+            const actual = new Set();
+            for (let page = 1; actual.size < expected.size; page++) {
+              const scope = await api('/installation/repositories?per_page=100&page=' + page, granted.token);
+              if (scope.total_count !== expected.size || scope.repositories.length === 0) {
+                throw new Error('The granted repository scope differs from the explicit request');
+              }
+              const previous = actual.size;
+              for (const repo of scope.repositories) {
+                if (repo.owner.login.toLowerCase() !== owner || !expected.has(repo.name.toLowerCase())) {
+                  throw new Error('The token can read an unrequested repository');
+                }
+                actual.add(repo.name.toLowerCase());
+              }
+              if (actual.size === previous) throw new Error('Repository scope pagination did not advance');
+            }
+            core.setOutput('token', granted.token);
+            core.info('Scoped contents-read token verified for ' + actual.size + ' repositories.');
+          } catch (error) {
+            await api('/installation/token', granted.token, 'DELETE');
+            throw error;
+          }
+
+    - name: App Git credentials
+      if: steps.read-app-token.outputs.token != ''
+      env:
+        READ_TOKEN: ${{ steps.read-app-token.outputs.token }}
+        READ_REPOSITORIES: ${{ inputs.read-repositories }}
+      shell: bash
+      # The writes are the minted token, constant Git settings and repository names that the App
+      # step already verified as this organization's owner/name pairs.
+      run: | # zizmor: ignore[github-env]
+        set -euo pipefail
+        printf '%s\n' "NDDEV_CI_READ_TOKEN=$READ_TOKEN" >> "$GITHUB_ENV"
+        cat >> "$GITHUB_ENV" <<'GIT'
+        GIT_TERMINAL_PROMPT=0
+        GIT_CONFIG_KEY_0=credential.https://github.com.helper
+        GIT_CONFIG_VALUE_0=
+        GIT_CONFIG_KEY_1=credential.https://github.com.helper
+        GIT_CONFIG_VALUE_1=!f() { if [ "$1" = get ]; then printf "%s\n" "username=x-access-token" "password=$NDDEV_CI_READ_TOKEN"; fi; }; f
+        GIT
+        count=2
+        while IFS= read -r repository; do
+          [ -n "$repository" ] || continue
+          for address in "git@github.com:$repository" "ssh://git@github.com/$repository"; do
+            {
+              echo "GIT_CONFIG_KEY_$count=url.https://github.com/$repository.insteadOf"
+              echo "GIT_CONFIG_VALUE_$count=$address"
+            } >> "$GITHUB_ENV"
+            count=$((count + 1))
+          done
+        done < <(printf '%s\n' "$READ_REPOSITORIES" | tr -s '[:space:]' '\n')
+        echo "GIT_CONFIG_COUNT=$count" >> "$GITHUB_ENV"
+
+    - name: Native task runner
+      uses: $/actions/frontend
+      with:
+        managed: ${{ inputs.managed }}
+
+    - name: Prepare or verify declared SDKs
+      uses: $/actions/hosted-sdk
+      with:
+        managed: ${{ inputs.managed }}
+        node-version: ${{ inputs.node-version }}
+        python-version: ${{ inputs.python-version }}
+        uv-version: ${{ inputs.uv-version }}
+        bun-version: ${{ inputs.bun-version }}
+        rust-version: ${{ inputs.rust-version }}
+        rust-components: ${{ inputs.rust-components }}
+        rust-targets: ${{ inputs.rust-targets }}
+        java-version: ${{ inputs.java-version }}
+        go-version: ${{ inputs.go-version }}
+        flutter-version: ${{ inputs.flutter-version }}
+        tools: ${{ inputs.tools }}
+
+    - name: Require the managed private native tool profile
+      if: inputs.tool-assets != '' && inputs.managed == 'true'
+      shell: bash
+      run: |
+        echo "::error::Native asset bootstrap serves external profiles; managed runners keep their SDK."
+        exit 1
+
+    - name: Prepare declared native tool assets
+      if: inputs.tool-assets != '' && inputs.managed == 'false'
+      uses: $/actions/release-assets
+      with:
+        managed: ${{ inputs.managed }}
+        manifest: ${{ inputs.tool-assets }}
+        directory: ${{ runner.temp }}/nddev-ci/native-tools
+        add-to-path: true
+
+    - name: Hosted dependency caches
+      if: inputs.managed == 'false'
+      uses: $/actions/hosted-cache
+      with:
+        managed: ${{ inputs.managed }}
+        working-directory: ${{ inputs.working-directory }}
+
+    - name: Prepare in-job image builds
+      if: inputs.images == 'true'
+      uses: $/actions/image-builder

@@ -65,6 +65,7 @@ check: (_tools "check")
     node --check tests/pr-text.test.mjs
     node --check tests/reports-kept.test.mjs
     node --check tests/read-access.test.mjs
+    node --check tests/action-contract.test.mjs
     node --check actions/job-record/run.mjs
     node --check tests/job-record.test.mjs
     node --check lib/qualification.mjs
@@ -75,7 +76,7 @@ check: (_tools "check")
     node --check actions/release/run.mjs
     node --check tests/release.test.mjs
     PATH="{{ shellcheck }}:$PATH" "{{ actionlint }}" .github/workflows/*.yml
-    "{{ zizmor }}" --min-severity medium .github actions
+    "{{ zizmor }}" --strict-collection --min-severity medium .github actions
 
 # The documented caller workflow is valid.
 test:
