@@ -32,15 +32,15 @@ async function tools(directory) {
     [
       "syft",
       "anchore/syft",
-      714762081,
-      31424471,
+      727815727,
+      31432061,
       `syft_${value("SYFT_VERSION")}_linux_amd64.tar.gz`,
     ],
     [
       "grype",
       "anchore/grype",
-      714864298,
-      32668934,
+      727934779,
+      32643999,
       `grype_${value("GRYPE_VERSION")}_linux_amd64.tar.gz`,
     ],
     [
