@@ -22,6 +22,22 @@ the linked workflow and action declarations.
 | [provenance.yml](.github/workflows/provenance.yml) | Attest artifacts of a public repository's build |
 | [security.yml](.github/workflows/security.yml) | Daily secrets, dependency, licence, SBOM and image scans |
 
+## Building blocks
+
+Every job of `check.yml` and `recipe.yml` is the same frame around the project's command:
+
+1. [prepare](actions/prepare/action.yml): report path checks, checkout, outside telemetry off,
+   the artifact registry, private reads, the task runner, SDKs, native tool assets, caches and
+   in-job image builds.
+2. The project's own `just` command.
+3. [complete](actions/complete/action.yml), whatever the result: the deployment artifact, reports
+   and the check that each was left, failure diagnostics, the read-token revocation and the job
+   record.
+
+A project job that cannot use an entry point yet takes the same two actions, so it is prepared
+and recorded like the rest. `complete` takes the job's status and the outcome of the project's
+own steps, and records a later failure of its own artifact or reports as the job's.
+
 ## Project checks
 
 | Event | Commands |

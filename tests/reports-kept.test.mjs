@@ -5,21 +5,12 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-// The step that refuses a named report the job did not leave, as both reusable workflows run it.
-function step(workflow) {
-  const text = readFileSync(new URL(`../.github/workflows/${workflow}`, import.meta.url), "utf8");
-  const start = text.indexOf("      - name: Every named report is kept\n");
-  assert.notEqual(start, -1, workflow);
-  const end = text.indexOf("\n      - name: ", start + 1);
-  return text.slice(start, end).split("        run: |\n")[1]
-    .split("\n").filter((line) => line.startsWith("          ")).map((line) => line.slice(10)).join("\n");
-}
-
-const scripts = ["recipe.yml", "check.yml"].map((workflow) => [workflow, step(workflow)]);
-
-test("both workflows run the same report check", () => {
-  assert.equal(scripts[0][1], scripts[1][1]);
-});
+// The step of complete that refuses a named report the job did not leave.
+const action = readFileSync(new URL("../actions/complete/action.yml", import.meta.url), "utf8");
+const start = action.indexOf("    - name: Every named report is kept\n");
+assert.notEqual(start, -1);
+const script = action.slice(start, action.indexOf("\n    - name: ", start + 1)).split("      run: |\n")[1]
+  .split("\n").filter((line) => line.startsWith("        ")).map((line) => line.slice(8)).join("\n");
 
 function workspace(t) {
   const root = mkdtempSync(join(tmpdir(), "nddev-ci-reports-"));
@@ -34,7 +25,7 @@ function workspace(t) {
 }
 
 function run(root, reports) {
-  return spawnSync("bash", ["--noprofile", "--norc", "-c", scripts[0][1]], {
+  return spawnSync("bash", ["--noprofile", "--norc", "-c", script], {
     cwd: root,
     env: { PATH: process.env.PATH, REPORTS: reports },
     encoding: "utf8",
