@@ -137,6 +137,50 @@ cleanup. Merge stops receive neither credential. [check.yml](.github/workflows/c
 same steps, so one job can read a superproject's modules and also build and test its images with
 `images: true` and keep `reports`.
 
+## GitHub's free runners
+
+Public projects run on GitHub's standard runners, which are free for public repositories without
+a minute quota: Linux x64 and arm64, Windows and macOS. Larger runners are billed in public
+repositories too, so the library never selects one. A private repository on the free plan gets $12
+of hosted compute a month (2,000 Linux minutes; a Windows minute costs about 1.7 of them and a
+macOS minute about 10), so private projects run on managed runners instead.
+
+A public run is bound by the plan's limits, not by minutes. On the free plan for organizations
+([limits](https://docs.github.com/en/actions/reference/limits),
+[caching](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching),
+[billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions), checked
+13 November 2026):
+
+| Limit | Value |
+| --- | --- |
+| Concurrent jobs on standard runners, per account | 20 |
+| Of them on macOS | 5 |
+| Time of one job | 6 hours |
+| Jobs of one matrix | 256 |
+| Actions cache, per repository | 10 GB; entries unused for 7 days are deleted, and above the limit the least recently used ones are evicted |
+| Cache uploads, per repository | 200 a minute |
+| Artifact storage of private repositories | 500 MB |
+
+What the library does, and what a project's workflows follow:
+
+- **Caches.** Only pushes to `dev` and `main` and scheduled runs write caches; a pull request reads
+  them. A cache written by a pull request belongs to its merge ref, only that pull request's
+  reruns can restore it, and it evicts the shared ones. [hosted-cache](actions/hosted-cache/action.yml)
+  applies this. A BuildKit `type=gha` cache follows the same rule: written only by a push to the
+  integration branch, in `mode=min` (the image's own layers), one scope per architecture.
+- **Cache budget.** A repository keeps its cache well under 10 GB (`gh cache list`). Once it is
+  over, the least recently used entries leave first, and an artifact that takes minutes to rebuild,
+  such as a compiled historical binary, is lost with them.
+- **macOS.** A run plans its macOS jobs within five. Platform-independent work runs on Linux, a
+  macOS leg runs in the full check rather than on every pull request, and a suite whose shards each
+  pay a fixed setup cost runs as one shard on macOS.
+- **Jobs.** Every job takes one of the 20 slots. Short jobs of one platform are merged, and a run of
+  more jobs than slots queues behind itself.
+- **Concurrency.** A pull request's run cancels its superseded runs. The full check of `dev`
+  queues instead (`cancel-in-progress: false`), so at most one run waits behind the running one.
+- **Telemetry.** [telemetry](actions/telemetry/action.yml) turns outside telemetry off; a workflow
+  that does not use it sets the same switches as its environment.
+
 ## Caches
 
 Managed execution preserves runner-owned package stores, `CARGO_HOME`, `RUSTC_WRAPPER`
