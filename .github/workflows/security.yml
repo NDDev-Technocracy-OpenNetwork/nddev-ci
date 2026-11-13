@@ -238,7 +238,9 @@ jobs:
           lines = ["The daily security scan: findings are reported without hiding scanner failures.", ""]
           # The issue shows 50 rows a section; the run log prints every row.
           full = list(lines)
+          reported = []
           def section(title, rows):
+              reported.extend(rows)
               for text in (lines, full):
                   text.append(f"## {title}: {len(rows)}")
               lines.extend(f"- {row}" for row in rows[:50])
@@ -301,6 +303,8 @@ jobs:
           lines.append(run)
           full.append(run)
           (out / "full.md").write_text("\n".join(full) + "\n")
+          # The report issue stays open only while something is found.
+          (out / "findings").write_text(f"{len(reported)}\n")
           # GitHub refuses an issue body over 65536 characters.
           body = "\n".join(lines)
           if len(body) > 60000:
@@ -310,7 +314,13 @@ jobs:
           cat "$RUNNER_TEMP/security/out/full.md"
           title="Security report"
           number=$(gh issue list -R "$REPOSITORY" --state open --search "\"$title\" in:title" --json number,title --jq "map(select(.title == \"$title\")) | .[0].number // empty")
-          if [ -n "$number" ]; then
+          findings=$(cat "$RUNNER_TEMP/security/out/findings")
+          if [ "$findings" = 0 ]; then
+            # Nothing found: an open report closes, and none is opened.
+            if [ -n "$number" ]; then
+              gh issue close "$number" -R "$REPOSITORY" --reason completed --comment "Nothing found in $RUN."
+            fi
+          elif [ -n "$number" ]; then
             gh issue edit "$number" -R "$REPOSITORY" --body-file "$RUNNER_TEMP/security/report.md"
           else
             gh issue create -R "$REPOSITORY" --title "$title" --body-file "$RUNNER_TEMP/security/report.md"
