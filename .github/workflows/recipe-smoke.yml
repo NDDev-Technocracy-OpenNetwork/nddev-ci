@@ -15,7 +15,7 @@ jobs:
     uses: ./.github/workflows/recipe.yml
     with:
       hosted-runner: ${{ matrix.os }}
-      node-version: '26.13.0'
+      node-version: '26.13.1'
       python-version: '3.15.2'
       uv-version: '0.13.7'
       bun-version: '1.4.4'
@@ -45,7 +45,7 @@ jobs:
         id: sdk
         uses: $/actions/hosted-sdk
         with:
-          node-version: '26.13.0'
+          node-version: '26.13.1'
           python-version: '3.15.2'
           uv-version: '0.13.7'
           bun-version: '1.4.4'
@@ -53,7 +53,7 @@ jobs:
           rust-components: clippy,rustfmt
           # Temurin publishes no JDK for Windows on ARM64.
           java-version: ${{ (runner.os != 'Windows' || runner.arch != 'ARM64') && '25.0.5' || '' }}
-          go-version: '1.27.3'
+          go-version: '1.27.4'
           tools: cargo-nextest@0.9.151
           # Flutter publishes its Linux and Windows SDK for x64 only.
           flutter-version: ${{ (runner.os == 'macOS' || runner.arch == 'X64') && '3.47.9' || '' }}
@@ -64,7 +64,7 @@ jobs:
           JAVA: ${{ (runner.os != 'Windows' || runner.arch != 'ARM64') && 'true' || '' }}
         run: >-
           node -e "const r=JSON.parse(process.env.SDK_RECEIPT);
-          const expected={node:'26.13.0',python:'3.15.2',uv:'0.13.7',bun:'1.4.4',rust:'1.99.1',go:'1.27.3',...(process.env.JAVA?{java:'25.0.5'}:{}),...(process.env.FLUTTER?{flutter:'3.47.9',dart:'3.13.7'}:{})};
+          const expected={node:'26.13.1',python:'3.15.2',uv:'0.13.7',bun:'1.4.4',rust:'1.99.1',go:'1.27.4',...(process.env.JAVA?{java:'25.0.5'}:{}),...(process.env.FLUTTER?{flutter:'3.47.9',dart:'3.13.7'}:{})};
           for(const [name,version] of Object.entries(expected))if(r.versions[name]!==version)throw Error('SDK receipt mismatch: '+name)"
       - name: Require the declared tool at its version
         run: cargo nextest --version
@@ -72,7 +72,7 @@ jobs:
         id: sdk-again
         uses: $/actions/hosted-sdk
         with:
-          node-version: '26.13.0'
+          node-version: '26.13.1'
           python-version: '3.15.2'
           uv-version: '0.13.7'
       - name: Require the repeated preparation to measure the same versions
@@ -80,7 +80,7 @@ jobs:
           SDK_RECEIPT: ${{ steps.sdk-again.outputs.receipt }}
         run: >-
           node -e "const r=JSON.parse(process.env.SDK_RECEIPT);
-          for(const [name,version] of Object.entries({node:'26.13.0',python:'3.15.2',uv:'0.13.7'}))if(r.versions[name]!==version)throw Error('repeated SDK mismatch: '+name)"
+          for(const [name,version] of Object.entries({node:'26.13.1',python:'3.15.2',uv:'0.13.7'}))if(r.versions[name]!==version)throw Error('repeated SDK mismatch: '+name)"
       - name: Hosted dependency caches of a Cargo and npm fixture
         uses: $/actions/hosted-cache
         with:
@@ -134,7 +134,7 @@ jobs:
       - name: Verify the managed SDK path without a tool cache
         env:
           SDK_RUNNER_ENVIRONMENT: self-hosted
-          SDK_NODE_VERSION: '26.13.0'
+          SDK_NODE_VERSION: '26.13.1'
           SDK_PYTHON_VERSION: '3.15.2'
           SDK_UV_VERSION: '0.13.7'
           SDK_BUN_VERSION: '1.4.4'
