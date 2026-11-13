@@ -214,10 +214,12 @@ use `provenance.yml`; private repositories use release verification.
 [job-record](actions/job-record/action.yml) ends each job with a summary and one
 structured `nddev_ci.job.completed` line: source commit, workflow, result, actual
 OS/architecture, duration and available compiler-cache counters. Missing measured
-queue time remains unknown. The runner can provide `NDDEV_CI_QUEUE_SECONDS` and
-`NDDEV_CI_TELEMETRY_FILE`; hosted jobs keep the record in the job log. The execution
-controller owns the SDK, device and generation provenance added at collection.
-[telemetry](actions/telemetry/action.yml) disables outside telemetry in every job.
+queue time remains unknown. A failed job names its `failure-layer`: `project` for its
+own commands or named reports, `library` for the steps around them. The runner can
+provide `NDDEV_CI_QUEUE_SECONDS` and `NDDEV_CI_TELEMETRY_FILE`; hosted jobs keep the
+record in the job log. The execution controller owns the SDK, device and generation
+provenance added at collection. [telemetry](actions/telemetry/action.yml) disables
+outside telemetry in every job.
 
 ## Developing the library
 

@@ -80,3 +80,12 @@ test("the record reaches the runner's telemetry file only by an absolute regular
     assert.throws(() => main({ ...base, NDDEV_CI_TELEMETRY_FILE: root }), /regular file/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("a failed job names whose failure it is, and only a failed job", () => {
+  const failed = { ...base, INPUT_STATUS: "failure" };
+  assert.equal(record({ ...failed, "INPUT_FAILURE-LAYER": "project" })["nddev_ci.failure.layer"], "project");
+  assert.equal(record({ ...failed, "INPUT_FAILURE-LAYER": "library" })["nddev_ci.failure.layer"], "library");
+  assert.equal(record(failed)["nddev_ci.failure.layer"], undefined);
+  assert.equal(record({ ...base, "INPUT_FAILURE-LAYER": "library" })["nddev_ci.failure.layer"], undefined);
+  assert.throws(() => record({ ...failed, "INPUT_FAILURE-LAYER": "runner" }), /failure-layer/);
+});
