@@ -200,6 +200,16 @@ jobs:
             --exclude="origin/$HEAD_REF" --remotes=origin); do
             git log -1 --format='%h %s' "$commit"
             committed --config "$config" "$commit^..$commit" || failed=1
+            # committed 1.1.12 passes any subject length when subject_capitalized is false, so the
+            # limits are checked here too: a subject up to 72 characters, other lines up to 100.
+            if [ ! -f committed.toml ] \
+              && [ "$(git log -1 --format='%an <%ae>' "$commit")" != "dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>" ] \
+              && ! git log -1 --format=%B "$commit" | awk '
+                NR == 1 && length > 72 { printf "::error::%s: the subject has %d characters, more than 72\n", c, length; bad = 1 }
+                NR > 1 && length > 100 { printf "::error::%s: line %d has %d characters, more than 100\n", c, NR, length; bad = 1 }
+                END { exit bad }' c="${commit:0:7}"; then
+              failed=1
+            fi
           done
           exit "$failed"
 
