@@ -165,11 +165,15 @@ permissions: {}
 
 jobs:
   recipe:
-    # Public calls cannot select a private runner label. Unknown public labels refuse scheduling.
-    runs-on: ${{ github.event.repository.private && inputs.runner || contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm","macos-15","macos-26","windows-2025","windows-11-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || '' }}
+    # A new label reruns the job only when it chooses the runner.
+    if: github.event.action != 'labeled' || github.event.label.name == 'runner:github'
+    # Public calls, and private ones the label runner:github or a manual github choice moves, run
+    # on the given GitHub-hosted label; other private calls run on ours. A public call cannot
+    # select a private label, and an unknown hosted label refuses scheduling.
+    runs-on: ${{ (!github.event.repository.private || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github'))) && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm","macos-15","macos-26","windows-2025","windows-11-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || '') || (github.event.repository.private && !(contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github'))) && inputs.runner || '' }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     env:
-      SDK_MANAGED: ${{ github.event.repository.private }}
+      SDK_MANAGED: ${{ github.event.repository.private && !(contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github')) }}
     permissions:
       contents: read
     steps:

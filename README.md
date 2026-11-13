@@ -107,8 +107,8 @@ Public projects use the selected GitHub-hosted runner. Private projects use `run
 The jobs of the last column are light by their nature, so they leave the standard class to a
 project's own builds and tests.
 
-Only the explicit PR label `runner:github` moves a private check and its merge stops
-to GitHub's runners. Other labels do not rerun them. A caller may also select
+Only the explicit PR label `runner:github` moves a private check, its merge stops and
+its recipe jobs to GitHub's runners; a recipe job takes its `hosted-runner` label there. Other labels do not rerun them. A caller may also select
 `runner: github` explicitly for a manual full check; its `workflow_dispatch` choice list
 uses `ours` and `github`. A waiting job stays where it was sent. Native public macOS and Windows
 matrices use `recipe.yml`; supported hosted labels are in its declaration.
