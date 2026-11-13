@@ -229,11 +229,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
+          POLICY: ${{ inputs.license-policy }}
+          ALLOWED: ${{ steps.licences.outputs.licenses }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           python3 - "$RUNNER_TEMP/security/out" > "$RUNNER_TEMP/security/report.md" <<'PY'
-          import json, pathlib, os, sys
+          import json, pathlib, os, re, sys
           out = pathlib.Path(sys.argv[1])
           lines = ["The daily security scan: findings are reported without hiding scanner failures.", ""]
           # The issue shows 50 rows a section; the run log prints every row.
@@ -270,6 +272,38 @@ jobs:
                       vulnerabilities.append(f"{vulnerability.get('id')} in {info.get('ecosystem')} {info.get('name')} {info.get('version')} ({os.path.relpath(result.get('source', {}).get('path', '.'))})")
           section("Vulnerable dependencies (OSV-Scanner)", sorted(set(vulnerabilities)))
           outside, unknown = set(), set()
+          allowed = set(os.environ["ALLOWED"].split(","))
+          # cargo-deny's per-package exceptions in the same policy file, such as an LGPL library
+          # loaded unchanged and dynamically: [[licenses.exceptions]] name = "sharp", allow = [...].
+          exceptions = {}
+          if os.environ.get("POLICY"):
+              import tomllib
+              policy = tomllib.load(open(os.environ["POLICY"], "rb")).get("licenses") or {}
+              for exception in policy.get("exceptions") or []:
+                  if isinstance(exception, dict) and isinstance(exception.get("name"), str):
+                      exceptions.setdefault(exception["name"], set()).update(
+                          item for item in exception.get("allow") or [] if isinstance(item, str))
+          # deps.dev marks licence strings it cannot map as non-standard; a PyPI package then
+          # answers with its own SPDX expression or its trove classifiers.
+          classifiers = {
+              "MIT License": {"MIT"}, "Apache Software License": {"Apache-2.0"},
+              "BSD License": {"BSD-2-Clause", "BSD-3-Clause"}, "ISC License (ISCL)": {"ISC"},
+              "Python Software Foundation License": {"PSF-2.0"},
+              "Mozilla Public License 2.0 (MPL 2.0)": {"MPL-2.0"},
+          }
+          def pypi_allowed(name, version):
+              import urllib.request
+              try:
+                  with urllib.request.urlopen(f"https://pypi.org/pypi/{name}/{version}/json", timeout=20) as answer:
+                      data = json.load(answer).get("info") or {}
+              except Exception:
+                  return False
+              expression = data.get("license_expression") or ""
+              if expression:
+                  terms = [term for term in re.split(r"[()\s]+|\bAND\b|\bOR\b", expression) if term]
+                  return bool(terms) and all(term in allowed for term in terms)
+              found = [label.rsplit(" :: ", 1)[-1] for label in data.get("classifiers") or [] if label.startswith("License :: OSI Approved :: ")]
+              return bool(found) and all(classifiers.get(label, set()) & allowed for label in found)
           licences = json.loads((out / "licenses.json").read_text() or "{}")
           for result in licences.get("results") or []:
               for package in result.get("packages") or []:
@@ -280,6 +314,10 @@ jobs:
                   name = f"{info.get('ecosystem')} {info.get('name')} {info.get('version')}"
                   if set(violations) <= {"UNKNOWN"}:
                       unknown.add(name)
+                      continue
+                  if set(violations) <= exceptions.get(info.get("name"), set()) | allowed:
+                      continue
+                  if info.get("ecosystem") == "PyPI" and {item.lower() for item in violations} <= {"non-standard"} | {item.lower() for item in allowed} and pypi_allowed(info.get("name"), info.get("version")):
                       continue
                   outside.add(f"{name}: {', '.join(package.get('licenses') or violations)} ({os.path.relpath(result.get('source', {}).get('path', '.'))})")
           section("Licences outside the licence policy (OSV-Scanner with deps.dev)", sorted(outside))
