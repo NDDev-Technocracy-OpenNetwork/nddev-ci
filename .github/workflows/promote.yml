@@ -91,7 +91,9 @@ jobs:
           git init -q "$folder/repository"
           cd "$folder/repository"
           git remote add origin "git@ssh.github.com:$REPOSITORY.git"
-          git fetch -q --depth 1 origin "$SHA"
+          # The commits from main up to the chosen one, without their files: git proves the
+          # fast-forward locally only when it has main's commit and the path to the new one.
+          git fetch -q --filter=blob:none origin "$SHA" refs/heads/main
           # No force: GitHub refuses the push unless it moves main forward.
           git push -q origin "$SHA:refs/heads/main"
           echo "main is at $SHA."
