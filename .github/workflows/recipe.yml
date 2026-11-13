@@ -545,7 +545,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@f3bc504f35197fdc6cb875474b151112e5484168
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@61838fd37d12ec6a853c9ca11d0fc1423d705273
         with:
           task: just ${{ inputs.recipe }}
           task-type: ${{ inputs.artifact != '' && 'build' || 'test' }}
