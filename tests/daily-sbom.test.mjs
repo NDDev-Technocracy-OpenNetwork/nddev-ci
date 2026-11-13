@@ -2,16 +2,19 @@ import assert from "node:assert/strict";
 import {
   chmodSync,
   mkdirSync,
+  readdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
 
-import { databases, main } from "../actions/daily-sbom/run.mjs";
+import { databases, grypeCache, main } from "../actions/daily-sbom/run.mjs";
 
 // A stand-in for each scanner: it records the database addresses it was given, and writes the
 // report its caller expects.
@@ -20,6 +23,18 @@ const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
 const tool = path.basename(process.argv[1]);
+if (tool === "grype" && args[0] === "db") {
+  const db = path.join(process.env.GRYPE_DB_CACHE_DIR, "6", "vulnerability.db");
+  fs.appendFileSync(path.join(path.dirname(process.argv[1]), "db.log"), args.slice(0, 2).join(" ") + "\\n");
+  if (args[1] === "import") {
+    fs.mkdirSync(path.dirname(db), { recursive: true });
+    fs.writeFileSync(db, fs.readFileSync(args[2], "utf8") === "archive" ? "valid" : "other");
+    process.exit(0);
+  }
+  const valid = fs.existsSync(db) && fs.readFileSync(db, "utf8") === "valid";
+  process.stdout.write(valid ? "Status:    valid\\n" : "Status:    invalid\\n");
+  process.exit(valid ? 0 : 1);
+}
 fs.appendFileSync(
   path.join(path.dirname(process.argv[1]), "calls.log"),
   JSON.stringify({
@@ -27,6 +42,7 @@ fs.appendFileSync(
     grype: process.env.GRYPE_DB_UPDATE_URL ?? null,
     trivy: process.env.TRIVY_DB_REPOSITORY ?? null,
     java: process.env.TRIVY_JAVA_DB_REPOSITORY ?? null,
+    cache: process.env.GRYPE_DB_CACHE_DIR ?? null,
   }) + "\\n",
 );
 if (tool === "syft") {
@@ -100,4 +116,61 @@ test("without a declared registry each scanner keeps its own source", linux, (t)
       ),
     /Invalid declared security tool registry/,
   );
+});
+
+// The registry runs in its own process: the scan blocks this one while it waits for curl.
+const grypeRegistry = `
+const http = require("node:http");
+const fs = require("node:fs");
+const crypto = require("node:crypto");
+const [log, day] = process.argv.slice(1);
+const name = "vulnerability-db_v6.1.10_2026-11-12T00:22:10Z_1794464458.tar.zst";
+const server = http.createServer((request, response) => {
+  fs.appendFileSync(log, request.url + "\\n");
+  if (request.url === "/grype/" + day + "/v6/latest.json")
+    response.end(JSON.stringify({ path: name, checksum: "sha256:" + crypto.createHash("sha256").update("archive").digest("hex") }));
+  else if (request.url === "/grype/" + day + "/v6/" + name) response.end("archive");
+  else { response.statusCode = 404; response.end(); }
+});
+server.listen(0, "127.0.0.1", () => console.log(server.address().port));
+`;
+
+test("Grype's database is imported once into the runner's cache and checked at every use", linux, async (t) => {
+  const { root, environment, calls } = job();
+  const log = path.join(root, "registry.log");
+  const day = "2026-11-13";
+  const server = spawn(process.execPath, ["-e", grypeRegistry, log, day], {
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  t.after(() => {
+    server.kill();
+    rmSync(root, { recursive: true, force: true });
+  });
+  const port = await new Promise((resolve) =>
+    server.stdout.once("data", (bytes) => resolve(String(bytes).trim())),
+  );
+  const cache = path.join(root, "build-cache");
+  mkdirSync(cache);
+  environment.NDDEV_CI_ARTIFACT_REGISTRY = `http://127.0.0.1:${port}`;
+  environment.NDDEV_BUILD_CACHE_ROOT = cache;
+  const digest = createHash("sha256").update("archive").digest("hex");
+  const database = path.join(cache, "nddev-ci", "grype", digest);
+  const requests = () => readFileSync(log, "utf8").trim().split("\n");
+
+  main(environment, day);
+  assert.equal(requests().length, 2);
+  for (const call of calls().filter((call) => call.tool === "grype"))
+    assert.equal(call.cache, database);
+  assert.equal(readFileSync(path.join(database, "6", "vulnerability.db"), "utf8"), "valid");
+
+  // The next job reads only the listing and uses the imported database in place.
+  grypeCache(environment, day, environment.INPUT_TOOLS);
+  assert.equal(requests().length, 3);
+
+  // A database that fails Grype's own check is imported again from the checked archive.
+  writeFileSync(path.join(database, "6", "vulnerability.db"), "altered");
+  grypeCache(environment, day, environment.INPUT_TOOLS);
+  assert.equal(requests().length, 5);
+  assert.equal(readFileSync(path.join(database, "6", "vulnerability.db"), "utf8"), "valid");
+  assert.deepEqual(readdirSync(path.join(cache, "nddev-ci", "grype")), [digest]);
 });
