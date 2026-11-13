@@ -188,7 +188,7 @@ test(
 						/^[a-f0-9]{64}$/.test(entry.sha256),
 				),
 			);
-			assert.equal(receipt.scanner.version, "2.7.0");
+			assert.equal(receipt.scanner.version, "2.7.1");
 			assert.equal(
 				existsSync(path.join(workspace, "new project/MUST_NOT_EXECUTE")),
 				false,
