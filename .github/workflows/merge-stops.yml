@@ -86,17 +86,17 @@ jobs:
           filter: blob:none
 
       - name: File contents of the change
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/change-objects@c4117c8fea28a3e8dda96737cb2db5fffbc97e8c
+        uses: $/actions/change-objects
         with:
           base: ${{ github.event.pull_request.base.sha }}
           head: ${{ github.event.pull_request.head.sha }}
           merge: ${{ github.sha }}
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@9795917fc97bf71b2761e609a87adbb189119894
+        uses: $/actions/telemetry
 
       - name: Artifact registry
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@9795917fc97bf71b2761e609a87adbb189119894
+        uses: $/actions/artifact-registry
         with:
           url: ${{ inputs.artifact-registry }}
 
@@ -322,7 +322,7 @@ jobs:
 
       - name: No new fixed critical dependency
         id: dependencies
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/dependency-guard@223fcf18789fb0b6b9710a09c1cb956ac0bd73e1
+        uses: $/actions/dependency-guard
         with:
           base: ${{ github.event.pull_request.base.sha }}
           head: ${{ github.event.pull_request.head.sha }}
@@ -359,7 +359,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@f3bc504f35197fdc6cb875474b151112e5484168
+        uses: $/actions/job-record
         with:
           task: merge stops
           task-type: test

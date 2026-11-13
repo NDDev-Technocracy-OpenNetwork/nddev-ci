@@ -209,10 +209,10 @@ jobs:
           sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@9795917fc97bf71b2761e609a87adbb189119894
+        uses: $/actions/telemetry
 
       - name: Artifact registry
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@9795917fc97bf71b2761e609a87adbb189119894
+        uses: $/actions/artifact-registry
         with:
           url: ${{ inputs.artifact-registry }}
 
@@ -415,12 +415,12 @@ jobs:
           echo "GIT_CONFIG_COUNT=$count" >> "$GITHUB_ENV"
 
       - name: Native task runner
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/frontend@9795917fc97bf71b2761e609a87adbb189119894
+        uses: $/actions/frontend
         with:
           managed: ${{ env.SDK_MANAGED }}
 
       - name: Prepare or verify declared SDKs
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-sdk@f5f6e0ab92b4f81a681f76926a4781840be8ec4d
+        uses: $/actions/hosted-sdk
         with:
           managed: ${{ env.SDK_MANAGED }}
           node-version: ${{ inputs.node-version }}
@@ -442,7 +442,7 @@ jobs:
           exit 1
       - name: Prepare declared native tool assets
         if: inputs.tool-assets != '' && env.SDK_MANAGED == 'false'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/release-assets@9795917fc97bf71b2761e609a87adbb189119894
+        uses: $/actions/release-assets
         with:
           managed: ${{ env.SDK_MANAGED }}
           manifest: ${{ inputs.tool-assets }}
@@ -451,7 +451,7 @@ jobs:
 
       - name: Hosted dependency caches
         if: env.SDK_MANAGED == 'false'
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/hosted-cache@9795917fc97bf71b2761e609a87adbb189119894
+        uses: $/actions/hosted-cache
         with:
           managed: ${{ env.SDK_MANAGED }}
 
@@ -545,7 +545,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@f3bc504f35197fdc6cb875474b151112e5484168
+        uses: $/actions/job-record
         with:
           task: ${{ github.event_name == 'pull_request' && 'short check' || 'full check' }}
           task-type: test
@@ -571,7 +571,7 @@ jobs:
   merge-stops:
     # The merge stops, the same workflow a project with its own command jobs calls.
     if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'runner:github')
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-stops.yml@ad57575f9c6e22d2ccfe15216360470fd6ee27bc
+    uses: $/.github/workflows/merge-stops.yml
     with:
       runner: ${{ inputs.runner }}
       artifact-registry: ${{ inputs.artifact-registry }}

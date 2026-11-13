@@ -232,8 +232,11 @@ just verify  # the complete check
 
 Runtime tests and native matrices belong on build machines. Fixtures exercise real
 Git histories, loopback HTTP transport and archive bytes; native integration suites
-also download pinned tools. Self-references in reusable workflows pin an existing
-implementation commit and are updated after that implementation is committed.
+also download pinned tools. The library calls its own actions and reusable workflows with GitHub's
+self-repository syntax, `uses: $/...`, which resolves at the commit being run: a caller's one pin
+selects every part of the library. Self-hosted runners need version 2.336.0 or newer for it. The
+library's own top-level workflows call its reusable workflows with `./`, which resolves to the same
+commit there and keeps actionlint's check of their inputs.
 
 ## Credit
 

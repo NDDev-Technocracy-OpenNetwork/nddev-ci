@@ -99,10 +99,10 @@ jobs:
           fetch-depth: 0
 
       - name: Outside telemetry off
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/telemetry@9795917fc97bf71b2761e609a87adbb189119894
+        uses: $/actions/telemetry
 
       - name: Artifact registry
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/artifact-registry@9795917fc97bf71b2761e609a87adbb189119894
+        uses: $/actions/artifact-registry
         with:
           url: ${{ inputs.artifact-registry }}
 
@@ -211,14 +211,14 @@ jobs:
           PY
 
       - name: Dependencies and licences
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-osv@67cffe9da01008435d920b49ea3b7afced3ad126 # verified native scanner policy
+        uses: $/actions/daily-osv # verified native scanner policy
         with:
           scanner: ${{ runner.temp }}/security/bin/osv-scanner
           output: ${{ runner.temp }}/security/out
           licenses: ${{ steps.licences.outputs.licenses }}
 
       - name: Packages
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/daily-sbom@c69abc7fb68742ff4e1d00506465ea701a2b3d4c
+        uses: $/actions/daily-sbom
         with:
           tools: ${{ runner.temp }}/security/bin
           output: ${{ runner.temp }}/security/out
@@ -328,7 +328,7 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@9795917fc97bf71b2761e609a87adbb189119894
+        uses: $/actions/job-record
         with:
           task: daily security
           task-type: test
