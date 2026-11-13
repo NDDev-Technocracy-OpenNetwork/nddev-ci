@@ -40,7 +40,7 @@ jobs:
   publish:
     name: publish to ${{ inputs.registry }}
     # Trusted publication runs on GitHub's runners.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     environment: ${{ inputs.environment }}
     concurrency:
       group: nddev-ci-registry-${{ inputs.registry }}-${{ inputs.tag }}

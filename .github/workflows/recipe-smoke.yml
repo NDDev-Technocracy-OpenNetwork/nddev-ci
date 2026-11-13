@@ -167,7 +167,7 @@ jobs:
   # Proof of provenance.yml on dev: a built file of this run is attested by the reusable workflow.
   provenance-fixture:
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - name: Build a fixture file of this commit
