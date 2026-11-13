@@ -17,6 +17,12 @@ inputs:
   started-file:
     description: A file holding the job's start as Unix seconds; empty measures nothing.
     default: ''
+  failure-layer:
+    description: >-
+      For a failed job, whose failure it is: project when the project's own commands or its named
+      reports failed, library when a step of the library or the runner around them failed. Empty
+      records nothing; a job that did not fail records nothing either.
+    default: ''
 runs:
   using: node24
   main: run.mjs

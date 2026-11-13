@@ -56,6 +56,12 @@ export function record(environment, now = new Date()) {
     "os.type": { Linux: "linux", macOS: "darwin", Windows: "windows" }[environment.RUNNER_OS] ?? "",
     "host.arch": { X64: "amd64", ARM64: "arm64" }[environment.RUNNER_ARCH] ?? os.arch(),
   };
+  // Who a failure belongs to: the project's own commands, or the library and runner around them.
+  const layer = input("failure-layer");
+  if (layer !== "") {
+    if (!["project", "library"].includes(layer)) throw new Error("failure-layer must be project or library");
+    if (status === "failure") document["nddev_ci.failure.layer"] = layer;
+  }
   const started = input("started-file");
   const queued = environment.NDDEV_CI_QUEUE_SECONDS || "";
   if (queued !== "") {
