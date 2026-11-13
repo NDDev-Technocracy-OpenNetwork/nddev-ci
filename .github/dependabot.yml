@@ -8,3 +8,7 @@ updates:
       interval: daily
     cooldown:
       default-days: 3
+    # The workflows call the library's own actions at the commit that last changed them, updated
+    # in the same change. A proposal for each new commit of `dev` would only move the reference.
+    ignore:
+      - dependency-name: "NDDev-Technocracy-OpenNetwork/nddev-ci/*"
