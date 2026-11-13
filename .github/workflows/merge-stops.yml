@@ -167,6 +167,7 @@ jobs:
           echo "$bin" >> "$GITHUB_PATH"
 
       - name: Commit messages
+        id: commits
         # A Conventional Commits subject in the imperative, up to 72 characters, lines up
         # to 100, no fixup or WIP commit. A repository's own committed.toml takes the place of this.
         # Only the commits the change brings are checked: a merge commit is left out, and so is a
@@ -214,6 +215,7 @@ jobs:
           exit "$failed"
 
       - name: Pull request text
+        id: text
         # The title and description use the standards' terms (registry/terms.toml), as the owner
         # decided on 12 November 2026; a pull request of a bot passes.
         shell: python3 {0}
@@ -312,12 +314,14 @@ jobs:
               sys.exit(main())
 
       - name: No secret in the change
+        id: secrets
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: betterleaks git --no-banner --redact --log-opts="$BASE..$HEAD" .
 
       - name: No new fixed critical dependency
+        id: dependencies
         uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/dependency-guard@223fcf18789fb0b6b9710a09c1cb956ac0bd73e1
         with:
           base: ${{ github.event.pull_request.base.sha }}
@@ -325,6 +329,7 @@ jobs:
           merge: ${{ github.sha }}
 
       - name: No dangerous workflow
+        id: workflows
         run: |
           set -euo pipefail
           if [ ! -d .github/workflows ]; then
@@ -354,9 +359,11 @@ jobs:
 
       - name: Job record
         if: always()
-        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@9795917fc97bf71b2761e609a87adbb189119894
+        uses: NDDev-Technocracy-OpenNetwork/nddev-ci/actions/job-record@f3bc504f35197fdc6cb875474b151112e5484168
         with:
           task: merge stops
           task-type: test
           status: ${{ job.status }}
+          # A stop that judged the change, or the steps around them (nddev_ci.failure.layer).
+          failure-layer: ${{ job.status == 'failure' && ((steps.commits.outcome == 'failure' || steps.text.outcome == 'failure' || steps.secrets.outcome == 'failure' || steps.dependencies.outcome == 'failure' || steps.workflows.outcome == 'failure') && 'project' || 'library') || '' }}
           started-file: ${{ runner.temp }}/nddev-ci-started
