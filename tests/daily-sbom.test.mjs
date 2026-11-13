@@ -108,6 +108,16 @@ test("without a declared registry each scanner keeps its own source", linux, (t)
   for (const call of calls())
     assert.deepEqual([call.grype, call.trivy, call.java], [null, null, null]);
   assert.deepEqual(databases(environment, "2026-11-11"), {});
+  // A runner's persistent cache keeps Trivy's databases; a relative path is not taken.
+  const declared = { NDDEV_CI_ARTIFACT_REGISTRY: "http://127.0.0.1:8740" };
+  assert.equal(
+    databases({ ...declared, NDDEV_TRIVY_CACHE_ROOT: "/ci/cache/trivy" }, "2026-11-11").TRIVY_CACHE_DIR,
+    "/ci/cache/trivy",
+  );
+  assert.equal(
+    databases({ ...declared, NDDEV_TRIVY_CACHE_ROOT: "cache/trivy" }, "2026-11-11").TRIVY_CACHE_DIR,
+    undefined,
+  );
   assert.throws(
     () =>
       databases(

@@ -23,10 +23,14 @@ export function databases(environment, day) {
   const declared = registry(environment);
   if (!declared) return {};
   const images = `${new URL(declared).host}/ghcr.io/aquasecurity`;
+  // A runner's persistent cache keeps Trivy's databases between jobs; Trivy downloads them again
+  // only when their metadata says they are due, instead of in every job.
+  const trivy = environment.NDDEV_TRIVY_CACHE_ROOT;
   return {
     GRYPE_DB_UPDATE_URL: `${declared}/grype/${day}`,
     TRIVY_DB_REPOSITORY: `${images}/trivy-db:2`,
     TRIVY_JAVA_DB_REPOSITORY: `${images}/trivy-java-db:1`,
+    ...(trivy && path.isAbsolute(trivy) ? { TRIVY_CACHE_DIR: trivy } : {}),
   };
 }
 
