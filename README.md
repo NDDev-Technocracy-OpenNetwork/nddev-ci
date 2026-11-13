@@ -17,6 +17,7 @@ the linked workflow and action declarations.
 | [recipe.yml](.github/workflows/recipe.yml) | One project recipe in a native platform matrix |
 | [image.yml](.github/workflows/image.yml) | Build a native container image and push it by source commit |
 | [promote.yml](.github/workflows/promote.yml) | Move `main` forward to the newest `dev` commit whose full check passed, then start the release |
+| [merge-on-green.yml](.github/workflows/merge-on-green.yml) | Merge a labelled pull request once every check of its head passed, where branch rules are unavailable |
 | [release.yml](.github/workflows/release.yml) | Publish the exact verified commit and its files as an immutable GitHub Release |
 | [image-tag.yml](.github/workflows/image-tag.yml) | Give the checked image digest its release tag without rebuilding |
 | [registry.yml](.github/workflows/registry.yml) | Publish released files to crates.io or PyPI through trusted publishing |
@@ -294,6 +295,34 @@ pushes with a deploy key that has write access. The caller keeps it as `PROMOTIO
 environment, `promotion` by default, that only its `dev` branch may use, and calls the workflow
 with `secrets: inherit`. The library promotes itself this way once a day, so it publishes at most
 one release a day.
+
+## Merge on green without branch rules
+
+A private repository on GitHub's free plan has no branch rules, so GitHub's auto-merge cannot
+wait for its checks. [merge-on-green.yml](.github/workflows/merge-on-green.yml) gives it the same
+result: when the caller's check finishes, it takes the open pull request of this repository whose
+head is that commit and which carries the label `merge-on-green`, and merges it into its base once
+every check of that exact commit passed. It pushes the merge commit with the same `PROMOTION_KEY`
+as promotion, so a change of workflow files merges too and the base branch's check starts. Label
+the pull request when it is opened; the update bots add the label themselves.
+
+```yaml
+name: merge on green
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+permissions: {}
+jobs:
+  merge:
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/merge-on-green.yml@<release commit>
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    permissions:
+      checks: read
+      contents: read
+      pull-requests: read
+      statuses: read
+```
 
 ## Developing the library
 
