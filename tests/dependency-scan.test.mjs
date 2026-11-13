@@ -24,7 +24,7 @@ test("each supported native Linux architecture selects its own pinned scanner", 
   assert.equal(scannerPin("linux", "arm64"), scannerPins.arm64);
   assert.equal(scannerPin("linux", "arm64").name, "osv-scanner_linux_arm64");
   for (const pin of Object.values(scannerPins)) {
-    assert.equal(pin.version, "2.7.0");
+    assert.equal(pin.version, "2.7.1");
     assert.match(pin.sha256, /^[a-f0-9]{64}$/);
     assert.ok(Number.isSafeInteger(pin.asset) && pin.asset > 0);
     assert.ok(Number.isSafeInteger(pin.size) && pin.size > 0);
