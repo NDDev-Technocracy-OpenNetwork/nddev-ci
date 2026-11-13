@@ -1,0 +1,104 @@
+# Merges a pull request on green where branch rules cannot: a private repository on GitHub's free
+# plan has no rules, so GitHub's auto-merge is not available there. The caller runs this when its
+# check finishes (workflow_run, which runs on the default branch where the key's environment is
+# open), so a pull request takes the label when it is opened. A pull request with the
+# label, from this repository, whose every check on its exact head passed, is merged into its base
+# with a merge commit, pushed with the same deploy key promote.yml uses: GitHub's job token cannot
+# push commits that change workflow files, and a push by the key starts the base branch's checks.
+# The caller keeps PROMOTION_KEY in an environment, `promotion` by default, that only its default
+# branch may use, and calls this workflow with `secrets: inherit`.
+name: merge on green
+
+on:
+  workflow_call:
+    inputs:
+      label:
+        description: The label that asks for a merge on green.
+        type: string
+        default: merge-on-green
+      environment:
+        description: The caller's environment holding PROMOTION_KEY.
+        type: string
+        default: promotion
+      runner:
+        description: The label of our runners, used by private repositories.
+        type: string
+        default: nddev-linux-small
+
+permissions: {}
+
+jobs:
+  merge:
+    name: merge on green
+    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || inputs.runner }}
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: nddev-ci-merge-${{ github.repository }}
+      cancel-in-progress: false
+    timeout-minutes: 15
+    permissions:
+      checks: read # read the checks of the commit
+      contents: read # read the commit
+      pull-requests: read # find the labelled pull request
+      statuses: read # read the commit statuses
+    steps:
+      - name: Start
+        run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
+
+      - name: Outside telemetry off
+        uses: $/actions/telemetry
+
+      - name: Choose the pull request
+        id: choose
+        uses: $/actions/merge-on-green
+        with:
+          sha: ${{ github.event.workflow_run.head_sha }}
+          label: ${{ inputs.label }}
+
+      - name: Merge into the base branch
+        if: steps.choose.outputs.state == 'ready'
+        env:
+          KEY: ${{ secrets.PROMOTION_KEY }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          NUMBER: ${{ steps.choose.outputs.number }}
+          BASE: ${{ steps.choose.outputs.base }}
+          HEAD_BRANCH: ${{ steps.choose.outputs.head }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          folder="$RUNNER_TEMP/nddev-ci-merge"
+          mkdir -p "$folder"
+          chmod 0700 "$folder"
+          trap 'rm -rf "$folder"' EXIT
+          case "$KEY" in
+            *"-----END OPENSSH PRIVATE KEY-----"*) ;;
+            *) echo "::error::PROMOTION_KEY holds no OpenSSH private key"; exit 1 ;;
+          esac
+          (umask 077 && printf '%s\n' "$KEY" > "$folder/key")
+          # GitHub's published host keys, the same on github.com and on ssh.github.com:443.
+          cat > "$folder/known_hosts" <<'KEYS'
+          github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+          github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+          github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
+          KEYS
+          export GIT_SSH_COMMAND="ssh -i $folder/key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$folder/known_hosts -o HostKeyAlias=github.com -p 443"
+          git init -q "$folder/repository"
+          cd "$folder/repository"
+          git remote add origin "git@ssh.github.com:$REPOSITORY.git"
+          # The commit history without files: enough to merge and to prove the push moves forward.
+          git fetch -q --filter=blob:none origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" "$SHA"
+          git checkout -q --detach "refs/remotes/origin/$BASE"
+          git -c user.name="nddev-ci" -c user.email="nddev-ci@users.noreply.github.com" -c commit.gpgsign=false \
+            merge -q --no-ff --no-edit -m "Merge pull request #$NUMBER from $REPOSITORY/$HEAD_BRANCH" "$SHA"
+          # No force: when the base moved meanwhile GitHub refuses, and its new check merges later.
+          git push -q origin "HEAD:refs/heads/$BASE"
+          echo "Merged pull request #$NUMBER into $BASE."
+
+      - name: Job record
+        if: always()
+        uses: $/actions/job-record
+        with:
+          task: merge
+          task-type: deploy
+          status: ${{ job.status }}
+          started-file: ${{ runner.temp }}/nddev-ci-started

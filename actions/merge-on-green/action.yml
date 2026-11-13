@@ -1,0 +1,29 @@
+name: Choose the pull request to merge
+description: >-
+  Finds the open pull request of this repository whose head is the commit, which carries the label
+  and whose every check on that commit passed. It merges nothing; the merge-on-green workflow does.
+inputs:
+  sha:
+    description: The commit whose checks finished.
+    required: true
+  label:
+    description: The label that asks for a merge on green.
+    default: merge-on-green
+  self:
+    description: The name of the merging job, left out of the checks.
+    default: merge on green
+  github-token:
+    description: A token that reads pull requests and checks.
+    default: ${{ github.token }}
+outputs:
+  state:
+    description: ready, none (no labelled pull request), pending or failed.
+  number:
+    description: The pull request to merge when the state is ready.
+  base:
+    description: Its base branch.
+  head:
+    description: Its head branch.
+runs:
+  using: node24
+  main: run.mjs
