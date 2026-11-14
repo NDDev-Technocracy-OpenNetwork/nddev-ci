@@ -5,7 +5,7 @@ on:
 permissions: {}
 jobs:
   release:
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/release.yml@52d8302d2272967a21fd8e3ae594205588648777 # v0.6.28
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/release.yml@18cc86d2679f0fce863dc7752c1cb2117606ca01 # v0.6.52
     permissions:
       actions: read
       contents: write
