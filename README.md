@@ -5,7 +5,7 @@ Projects own their checks and artifacts; this library prepares the execution too
 runs those commands and enforces the merge and release boundaries.
 
 Copy a caller from [examples](examples), pin a released commit with its version in
-the comment, and let Dependabot propose later releases. Input descriptions live in
+the comment, and let the update bot (Renovate, or Dependabot) propose later releases. Input descriptions live in
 the linked workflow and action declarations.
 
 ## Entry points
