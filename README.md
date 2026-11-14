@@ -80,7 +80,8 @@ explicit policy for unchanged dynamic use must preserve replaceability, licence 
 source information. Static linking or modifications need review. The scanner does
 not infer these use and distribution conditions.
 
-Checkout inputs support projects that read history or omit generated trees.
+Checkout inputs support projects that read history or omit generated trees; `submodules` checks
+out public submodules at their recorded commits for a superproject's checks.
 `diagnostics` keeps only named workspace reports on failure; release artifacts are
 uploaded only after successful non-PR checks.
 `reports` keeps named workspace reports whether the job passes or fails, pull requests included,
