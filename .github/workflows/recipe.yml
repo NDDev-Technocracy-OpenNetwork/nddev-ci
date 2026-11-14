@@ -147,6 +147,10 @@ on:
         description: Reads sparse-checkout as cone directories; false reads gitignore-style patterns.
         type: boolean
         default: true
+      submodules:
+        description: "'true' checks out the submodules at their recorded commits, 'recursive' theirs too; they must be readable with the job's token, as public repositories are."
+        type: string
+        default: "false"
       timeout-minutes:
         type: number
         default: 30
@@ -190,6 +194,7 @@ jobs:
           images: ${{ inputs.images }}
           sparse-checkout: ${{ inputs.sparse-checkout }}
           sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
+          submodules: ${{ inputs.submodules }}
           repository-token: ${{ inputs.repository-token }}
           read-keys: ${{ secrets.read-keys }}
           read-app-client-id: ${{ inputs.read-app-client-id }}

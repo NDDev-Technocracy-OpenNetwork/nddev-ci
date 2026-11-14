@@ -29,6 +29,11 @@ inputs:
   sparse-checkout-cone-mode:
     description: Reads sparse-checkout as cone directories; false reads gitignore-style patterns.
     default: 'true'
+  submodules:
+    description: >-
+      'true' checks out the submodules at their recorded commits, 'recursive' theirs too; they must
+      be readable with the job's token, as public repositories are.
+    default: 'false'
   repository-token:
     description: >-
       'true' gives the project's commands the job's own token as GITHUB_TOKEN, reading only this repository.
@@ -126,6 +131,7 @@ runs:
         filter: ${{ inputs.filter }}
         sparse-checkout: ${{ inputs.sparse-checkout }}
         sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
+        submodules: ${{ inputs.submodules }}
 
     - name: Outside telemetry off
       uses: $/actions/telemetry
