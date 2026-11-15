@@ -121,6 +121,57 @@ test("only exact merge parents and the checked out merge may be compared", () =>
 			/exact PR head/,
 		);
 	}));
+test("merge parents do not require unrelated blobs or revision traversal", () =>
+	fixture(({ root, git, write, commit }) => {
+		write("Cargo.lock", "version=4\n");
+		write("source.txt", "base source\n".repeat(20));
+		const base = commit();
+		renameSync(path.join(root, "source.txt"), path.join(root, "renamed.txt"));
+		const head = commit();
+		const missing = git("rev-parse", `${head}:renamed.txt`);
+		git("checkout", "--detach", base);
+		write("source.txt", "moved base source\n".repeat(20));
+		const moved = commit();
+		const merge = git(
+			"commit-tree",
+			`${head}^{tree}`,
+			"-p",
+			moved,
+			"-p",
+			head,
+			"-m",
+			"resolved merge",
+		);
+		git("checkout", "--detach", merge);
+		rmSync(
+			path.join(root, ".git", "objects", missing.slice(0, 2), missing.slice(2)),
+		);
+		const revisions = { base: moved, head, merge };
+		const input = sources(root, revisions);
+		assert.equal(input.changed, false);
+		assert.equal(input.revisions.mergeBase, moved);
+		assert.equal(input.head[0].path, "Cargo.lock");
+		assert.equal(materialize(root, input.head, path.join(root, "out")).length, 1);
+		// A shallow boundary hides traversal parents but must not hide the object's parents.
+		write(".git/shallow", `${merge}\n`);
+		assert.equal(sources(root, revisions).changed, false);
+		assert.throws(() => sources(root, { ...revisions, head: moved }), /exact PR head/);
+	}));
+test("missing Git inputs name the operation and status without child output", () =>
+	fixture(({ root, git, write, commit, merge }) => {
+		write("Cargo.lock", "version=4\n");
+		const base = commit();
+		write("source.txt", "head");
+		const head = commit();
+		const revisions = merge(base, head);
+		assert.throws(
+			() => sources(root, { ...revisions, head: "f".repeat(40) }),
+			/^Error: Exact dependency Git inputs are unavailable \(git cat-file; exit 128\)\.$/,
+		);
+		write(".git/shallow", `${revisions.merge}\n`);
+		git("checkout", "--detach", head);
+		assert.throws(() => sources(root, revisions), /checkout differs/);
+	}));
 test("a base branch that moved on is compared at the merge's own base", () =>
 	fixture(({ root, git, write, commit, merge }) => {
 		write("Cargo.lock", "version=4\nbase\n");
