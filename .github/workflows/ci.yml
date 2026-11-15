@@ -3,6 +3,7 @@ name: ci
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, edited]
   push:
     branches: [dev]
   workflow_dispatch:

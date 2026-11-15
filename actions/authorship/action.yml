@@ -1,0 +1,12 @@
+name: Check change authorship
+description: Reject generated assistant signatures in introduced commits and pull request text.
+inputs:
+  base:
+    description: Exact pull request base commit.
+    required: true
+  head:
+    description: Exact pull request head commit.
+    required: true
+runs:
+  using: node24
+  main: run.mjs

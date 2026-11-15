@@ -92,6 +92,13 @@ jobs:
           head: ${{ github.event.pull_request.head.sha }}
           merge: ${{ github.sha }}
 
+      - name: Change authorship
+        id: authorship
+        uses: $/actions/authorship
+        with:
+          base: ${{ github.event.pull_request.base.sha }}
+          head: ${{ github.event.pull_request.head.sha }}
+
       - name: Outside telemetry off
         uses: $/actions/telemetry
 
@@ -365,5 +372,5 @@ jobs:
           task-type: test
           status: ${{ job.status }}
           # A stop that judged the change, or the steps around them (nddev_ci.failure.layer).
-          failure-layer: ${{ job.status == 'failure' && ((steps.commits.outcome == 'failure' || steps.text.outcome == 'failure' || steps.secrets.outcome == 'failure' || steps.dependencies.outcome == 'failure' || steps.workflows.outcome == 'failure') && 'project' || 'library') || '' }}
+          failure-layer: ${{ job.status == 'failure' && ((steps.commits.outcome == 'failure' || steps.authorship.outcome == 'failure' || steps.text.outcome == 'failure' || steps.secrets.outcome == 'failure' || steps.dependencies.outcome == 'failure' || steps.workflows.outcome == 'failure') && 'project' || 'library') || '' }}
           started-file: ${{ runner.temp }}/nddev-ci-started

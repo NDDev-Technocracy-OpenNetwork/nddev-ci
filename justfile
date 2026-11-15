@@ -44,6 +44,9 @@ check: (_tools "check")
     node --check actions/dependency-guard/run.mjs
     node --check tests/dependency-report.test.mjs
     node --check tests/dependency-source.test.mjs
+    node --check lib/authorship.mjs
+    node --check actions/authorship/run.mjs
+    node --check tests/authorship.test.mjs
     node --check lib/change-objects.mjs
     node --check actions/change-objects/run.mjs
     node --check tests/change-objects.test.mjs
