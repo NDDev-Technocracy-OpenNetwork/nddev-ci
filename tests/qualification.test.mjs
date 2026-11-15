@@ -273,7 +273,10 @@ test("product promotion and publication refuse false checked metadata before any
         "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", INPUT_ARTIFACTS: "build", "INPUT_RELEASE-METADATA": "linux.json\nmac.json"};
       if (variant === "valid") {
         const chosen = await choose(env); assert.equal(chosen.version, version);assert.equal(chosen.state, "ready");
-      } else await assert.rejects(choose(env), undefined, variant);
+      } else {
+        await assert.rejects(choose(env), undefined, variant);
+        assert.equal(existsSync(env.GITHUB_OUTPUT), false, "a refused choice emits no ready commit");
+      }
       assert.equal(writes, 0, "the promotion choice performs no mutation");
       assert.ok(readdirSync(temp).every((name) => !name.startsWith("nddev-ci-promotion-")));
       for (let attempt = 0; attempt < (variant === "valid" ? 2 : 1); attempt++) {

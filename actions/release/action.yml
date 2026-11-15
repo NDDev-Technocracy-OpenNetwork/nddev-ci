@@ -13,7 +13,7 @@ inputs:
     description: Artifact names of the qualifying run, one per line; their top-level files are published.
     default: ''
   version:
-    description: A version the owner chose, newer than every release; empty raises the last number.
+    description: For a product, matches its checked metadata; otherwise selects an explicit newer tag.
     default: ''
   initial-version:
     description: The version of the first release when none exists.

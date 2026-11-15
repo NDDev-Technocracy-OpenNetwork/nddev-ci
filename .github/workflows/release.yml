@@ -27,7 +27,7 @@ on:
         type: string
         default: ""
       version:
-        description: A version the owner chose, newer than every release; empty raises the last number.
+        description: For a product, matches its checked metadata; otherwise selects an explicit newer tag.
         type: string
         default: ""
       initial-version:
