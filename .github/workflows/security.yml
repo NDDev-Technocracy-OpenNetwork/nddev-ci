@@ -207,6 +207,7 @@ jobs:
                   sys.exit("::error::OSV cannot enforce an exception-only licence policy; its base must be independently allowed")
           identifiers = [item for item in allow if " WITH " not in item]
           print("licenses=" + ",".join(identifiers))
+          print("allowed=" + ",".join(allow))
           print(f"Licence policy: {path or 'default'}, {len(identifiers)} scanner identifiers.", file=sys.stderr)
           PY
 
@@ -230,7 +231,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           POLICY: ${{ inputs.license-policy }}
-          ALLOWED: ${{ steps.licences.outputs.licenses }}
+          ALLOWED: ${{ steps.licences.outputs.allowed }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
