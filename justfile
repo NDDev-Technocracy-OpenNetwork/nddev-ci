@@ -77,6 +77,8 @@ check: (_tools "check")
     node --check actions/checked-artifacts/run.mjs
     node --check tests/qualification.test.mjs
     node --check lib/release.mjs
+    node --check lib/release-version.mjs
+    node --check tests/release-version.test.mjs
     node --check actions/release/run.mjs
     node --check tests/release.test.mjs
     node --check lib/promotion.mjs

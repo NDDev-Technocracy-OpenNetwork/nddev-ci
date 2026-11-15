@@ -9,6 +9,14 @@ name: promote
 on:
   workflow_call:
     inputs:
+      release-metadata:
+        description: Checked JSON metadata file names with schema_version, source_commit and product version, one per line.
+        type: string
+        default: ''
+      artifacts:
+        description: Qualifying artifact names holding the product metadata, one per line.
+        type: string
+        default: ''
       check-workflow:
         description: The caller's workflow file whose push check on dev qualifies a commit.
         type: string
@@ -62,6 +70,8 @@ jobs:
         id: choose
         uses: $/actions/promote
         with:
+          release-metadata: ${{ inputs.release-metadata }}
+          artifacts: ${{ inputs.artifacts }}
           check-workflow: ${{ inputs.check-workflow }}
 
       - name: Move main forward

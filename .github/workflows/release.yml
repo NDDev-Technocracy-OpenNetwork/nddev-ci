@@ -14,6 +14,10 @@ on:
         description: Optional artifact transport API serving the same artifact download route.
         type: string
         default: ''
+      release-metadata:
+        description: Checked JSON metadata file names with schema_version, source_commit and product version, one per line.
+        type: string
+        default: ''
       check-workflow:
         description: The caller's workflow file whose push check on dev qualifies the commit.
         type: string
@@ -23,7 +27,7 @@ on:
         type: string
         default: ""
       version:
-        description: A version the owner chose, newer than every release; empty raises the last number.
+        description: For a product, matches its checked metadata; otherwise selects an explicit newer tag.
         type: string
         default: ""
       initial-version:
@@ -83,6 +87,7 @@ jobs:
         id: release
         uses: $/actions/release
         with:
+          release-metadata: ${{ inputs.release-metadata }}
           check-workflow: ${{ inputs.check-workflow }}
           artifacts: ${{ inputs.artifacts }}
           version: ${{ inputs.version }}

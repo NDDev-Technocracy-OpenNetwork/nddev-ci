@@ -16,9 +16,8 @@ import {
   artifactNames,
   checkFiles,
   checksums,
-  nextVersion,
-  parseVersion,
 } from "../../lib/release.mjs";
+import { releaseVersion, tagCommit } from "../../lib/release-version.mjs";
 import { client, qualify, recheck, transferArtifacts } from "../../lib/qualification.mjs";
 
 const refuse = (message) => {
@@ -74,29 +73,11 @@ async function main() {
     planned.push({ name: "SHA256SUMS", path: sums, size: stat.size, sha256: await sha256(sums) });
   }
 
-  // 3. The version: the one this commit already carries, otherwise the next one.
-  const refs =
-    (await github.json("GET", `/repos/${repository}/git/matching-refs/tags/v`)) ?? [];
-  if (refs.length > 1000) refuse("Too many release tags to compare.");
-  async function target(object) {
-    for (let depth = 0; object.type === "tag" && depth < 4; depth += 1)
-      object = (await github.json("GET", `/repos/${repository}/git/tags/${object.sha}`)).object;
-    return object.type === "commit" ? object.sha : null;
-  }
-  const tags = refs.map((item) => item.ref.slice("refs/tags/".length));
-  let version = null;
-  for (const item of refs) {
-    const tag = item.ref.slice("refs/tags/".length);
-    if (parseVersion(tag.slice(1)) && (await target(item.object)) === sha) {
-      if (version) refuse(`Commit ${sha} already carries two release versions.`);
-      version = tag.slice(1);
-    }
-  }
-  version ??= nextVersion({
-    tags,
-    explicit: input("version"),
-    initial: input("initial-version") || "0.1.0",
-  });
+  // Product metadata is checked before a tag or release can be created.
+  const version = await releaseVersion(github, {repository, sha, files,
+    metadata: input("release-metadata"), explicit: input("version"),
+    initial: input("initial-version") || "0.1.0"});
+  await recheck(github, qualified);
   const tag = `v${version}`;
 
   // 4. The tag never moves: it is created at this commit or must already point here.
@@ -104,7 +85,7 @@ async function main() {
     optional: true,
   });
   if (existingTag) {
-    if ((await target(existingTag.object)) !== sha) refuse(`Tag ${tag} points to another commit.`);
+    if ((await tagCommit(github, repository, existingTag.object)) !== sha) refuse(`Tag ${tag} points to another commit.`);
   } else
     await github.json("POST", `/repos/${repository}/git/refs`, {
       body: { ref: `refs/tags/${tag}`, sha },
