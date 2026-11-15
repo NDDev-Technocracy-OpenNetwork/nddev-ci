@@ -17,7 +17,7 @@ import {
   checkFiles,
   checksums,
 } from "../../lib/release.mjs";
-import { releaseVersion } from "../../lib/release-version.mjs";
+import { releaseVersion, tagCommit } from "../../lib/release-version.mjs";
 import { client, qualify, recheck, transferArtifacts } from "../../lib/qualification.mjs";
 
 const refuse = (message) => {
@@ -77,11 +77,6 @@ async function main() {
   const version = await releaseVersion(github, {repository, sha, files,
     metadata: input("release-metadata"), explicit: input("version"),
     initial: input("initial-version") || "0.1.0"});
-  async function target(object) {
-    for (let depth = 0; object.type === "tag" && depth < 4; depth += 1)
-      object = (await github.json("GET", `/repos/${repository}/git/tags/${object.sha}`)).object;
-    return object.type === "commit" ? object.sha : null;
-  }
   await recheck(github, qualified);
   const tag = `v${version}`;
 
@@ -90,7 +85,7 @@ async function main() {
     optional: true,
   });
   if (existingTag) {
-    if ((await target(existingTag.object)) !== sha) refuse(`Tag ${tag} points to another commit.`);
+    if ((await tagCommit(github, repository, existingTag.object)) !== sha) refuse(`Tag ${tag} points to another commit.`);
   } else
     await github.json("POST", `/repos/${repository}/git/refs`, {
       body: { ref: `refs/tags/${tag}`, sha },

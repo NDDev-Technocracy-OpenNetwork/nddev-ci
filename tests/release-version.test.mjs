@@ -73,4 +73,6 @@ test("annotated targets are bounded and tag-only source releases retain their se
     : {object: {type: "tag", sha: other}};
   await assert.rejects(releaseVersion(annotated, fields), /cyclic/);
   await assert.rejects(releaseVersion(api([tag("1.2.3"), tag("1.2.3")]), fields), /repeats/);
+  for (const refs of [null, {}, [{ref: "refs/tags/foreign", object: {type: "commit", sha}}]])
+    await assert.rejects(releaseVersion(api(refs), fields));
 });
