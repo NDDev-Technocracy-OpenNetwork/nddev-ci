@@ -58,6 +58,14 @@ Each matrix platform gives its artifact a distinct name. An artifact is kept for
 `artifact-days`, 14 by default: long enough for `main` to release the checked `dev`
 commit. A deployment that takes an older build sets more.
 
+Subscribe the caller's pull request trigger to opened, synchronize, reopened, labeled and edited
+events, as in the example. Editing a title or description must rerun its metadata checks.
+The authorship stop rejects generated assistant signatures and machine coauthor trailers in
+the introduced commits, including merge commits, and in the title/description. Bot requests
+receive the same check. Human coauthors, cryptographic signatures, tool-version discussion and
+quoted examples remain valid. It reads Git objects and event data without executing project code
+or requesting another permission.
+
 The PR merge stops scan secrets in the changed commits, dangerous workflows,
 commit messages and newly introduced fixed critical dependency vulnerabilities.
 Dependency comparison reads the exact proposed merge and its own base from Git,
