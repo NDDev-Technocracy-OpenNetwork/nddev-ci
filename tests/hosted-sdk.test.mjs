@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { runInNewContext } from "node:vm";
 import path from "node:path";
 import { cachePlan, imageKey, main, managedPython, selections, supported, verify } from "../actions/hosted-sdk/run.mjs";
 import { selectRelease } from "../actions/hosted-sdk/flutter.mjs";
@@ -188,4 +189,35 @@ test("tools are exact name@version entries, each name once", () => {
   for (const value of ["cargo-nextest", "cargo-nextest@latest", "cargo-nextest@0.9", "Cargo@1.0.0",
     "a@1.0.0,a@1.0.1", "a@1.0.0;b@1.0.0", "a@1.0.0, b@1.0.0", "a@01.0.0"])
     assert.throws(() => selections({...hosted, SDK_TOOLS: value}), value);
+});
+
+
+test("the actual SDK cache save condition admits only integration-branch writers", () => {
+  const action = readFileSync(new URL("../actions/hosted-sdk/action.yml", import.meta.url), "utf8");
+  const block = action.split("- name: Keep exact SDKs in the tool cache\n")[1];
+  assert.ok(block);
+  const condition = block.split("uses:")[0].replace(/^\s*if:\s*(?:>-)?/, "").trim()
+    .replace(/\.(cache-key|cache-hit|tool-cache)\b/g, (_, key) => "[" + JSON.stringify(key) + "]");
+  function saves(event, ref, key = "exact-sdk", hit = "false") {
+    return runInNewContext(condition, {
+      github: {event_name: event, ref},
+      steps: {validate: {outputs: {"cache-key": key}}, "tool-cache": {outputs: {"cache-hit": hit}}},
+    });
+  }
+  for (const ref of ["refs/heads/dev", "refs/heads/main"]) {
+    for (const event of ["push", "schedule", "workflow_dispatch"]) {
+      assert.equal(saves(event, ref), true, event + ":" + ref);
+      assert.equal(saves(event, ref, ""), false);
+      assert.equal(saves(event, ref, "exact-sdk", "true"), false);
+    }
+  }
+  for (const event of ["push", "schedule", "workflow_dispatch", "pull_request", "pull_request_target", "workflow_run"]) {
+    for (const ref of ["refs/pull/192/merge", "refs/heads/fix/cache", "refs/tags/v1.0.0"]) {
+      assert.equal(saves(event, ref), false, event + ":" + ref);
+    }
+    if (!["push", "schedule", "workflow_dispatch"].includes(event)) {
+      assert.equal(saves(event, "refs/heads/dev"), false);
+      assert.equal(saves(event, "refs/heads/main"), false);
+    }
+  }
 });

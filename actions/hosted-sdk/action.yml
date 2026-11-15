@@ -186,7 +186,10 @@ runs:
           const action = await import(require("node:url").pathToFileURL(process.env.SDK_ACTION_PATH + "/run.mjs").href);
           action.main("verify");
     - name: Keep exact SDKs in the tool cache
-      if: steps.validate.outputs.cache-key != '' && steps.tool-cache.outputs.cache-hit != 'true'
+      if: >-
+        steps.validate.outputs.cache-key != '' && steps.tool-cache.outputs.cache-hit != 'true' &&
+        (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+        (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         key: ${{ steps.validate.outputs.cache-key }}
