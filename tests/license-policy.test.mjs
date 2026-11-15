@@ -19,7 +19,7 @@ function run(content) {
       env: {...process.env, POLICY: content === undefined ? "" : "deny.toml", LICENSES: defaults, GITHUB_OUTPUT: output}});
     assert.ifError(result.error);
     const text = existsSync(output) ? readFileSync(output, "utf8") : "";
-    const outputs = Object.fromEntries(text.trim().split("\n").filter(Boolean).map((line) => {
+    const outputs = Object.fromEntries(text.trim().split(/\r?\n/).filter(Boolean).map((line) => {
       const at = line.indexOf("=");
       return [line.slice(0, at), line.slice(at + 1)];
     }));

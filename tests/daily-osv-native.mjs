@@ -115,7 +115,7 @@ test("daily reports retain vulnerable and disallowed-licence packages despite lo
       env: {...process.env, POLICY: "", LICENSES: defaults, GITHUB_OUTPUT: policyOutput}});
     assert.ifError(policy.error);
     assert.equal(policy.status, 0, policy.stderr);
-    const identifiers = readFileSync(policyOutput, "utf8").trim().slice("licenses=".length);
+    const identifiers = readFileSync(policyOutput, "utf8").match(/^licenses=([^\r\n]*)\r?$/m)[1];
     const defaultOutput = path.join(root, "default reports");
     const admitted = run(defaultOutput, identifiers);
     assert.ifError(admitted.error);
