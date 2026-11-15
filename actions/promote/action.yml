@@ -3,6 +3,12 @@ description: >-
   Finds the newest commit of the source branch, ahead of the target, whose newest full check on a
   push passed. It moves nothing; the promote workflow does.
 inputs:
+  release-metadata:
+    description: Checked JSON metadata file names with schema_version, source_commit and product version, one per line.
+    default: ''
+  artifacts:
+    description: Qualifying artifact names holding the product metadata, one per line.
+    default: ''
   check-workflow:
     description: The workflow file whose push check on the source branch qualifies a commit.
     default: ci.yml

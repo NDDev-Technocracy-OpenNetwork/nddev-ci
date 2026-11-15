@@ -272,9 +272,24 @@ separate explicit inputs, and storage redirects receive no API credentials.
 
 `release.yml` reuses this implementation: `main` releases the exact successful `dev`
 commit, reuses its files, adds `SHA256SUMS`, and publishes a verified draft. Tags use
-`v<major>.<minor>.<patch>` and never move. An ordinary release raises the patch;
-`version` selects a newer version and `initial-version` sets the first release.
-Reruns reconcile the same release. Deployment stays with the caller.
+`v<major>.<minor>.<patch>` and never move. Reruns reconcile the same release.
+Deployment stays with the caller.
+
+For software with an embedded product version, pass `release-metadata` to both
+`promote.yml` and `release.yml`. It lists the top-level JSON metadata file names
+from the full-check artifacts, one per line; `artifacts` names the artifacts holding
+them. Each document has `schema_version: 1`, `source_commit` equal to the checked
+commit and a plain `version`, such as `1.2.3`. Additional platform or hash fields
+are permitted. Every selected platform must agree. Missing, changed, malformed or
+contradictory metadata stops promotion before moving `main`, and stops publication
+before creating a tag or release. A version used by another commit is refused.
+The checked product version is the release version; an explicit `version` must
+agree with it. The project's version preparation updates its source before the
+full build; these actions do not edit the product manifest.
+
+A source release without an embedded product version can leave `release-metadata`
+empty. Its tag is its version: an ordinary release raises the patch, `version`
+selects a newer version, and `initial-version` sets the first release.
 
 `registry.yml` verifies immutable release files before trusted publication. Crates
 must reproduce the released package from tagged source. Public artifact attestations

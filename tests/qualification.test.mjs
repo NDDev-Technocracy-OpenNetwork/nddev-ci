@@ -227,3 +227,68 @@ test("the release entrypoint publishes qualified files and checksums and reconci
     assert.ok(checks >= 8, "each attempt rechecks qualification around transfer and publication");
   } finally { await close(api.server); rmSync(root, {recursive: true, force: true}); }
 });
+
+test("product promotion and publication refuse false checked metadata before any write", async () => {
+  const { main: choose } = await import("../actions/promote/run.mjs");
+  for (const variant of ["valid", "wrong-source", "platform-mismatch", "missing", "consumed", "malformed"]) {
+    const root = mkdtempSync(path.join(tmpdir(), "product-release-"));
+    const version = "2.6.0";
+    const linux = {schema_version: 1, source_commit: variant === "wrong-source" ? "c".repeat(40) : where.sha, version};
+    const mac = {...linux, version: variant === "platform-mismatch" ? "2.6.1" : version};
+    const entries = {"linux.json": variant === "malformed" ? "{" : JSON.stringify(linux)};
+    if (variant !== "missing") entries["mac.json"] = JSON.stringify(mac);
+    const archive = path.join(root, "build.zip");
+    execFileSync("python3", ["-I", "-c", "import sys,stat,zipfile,json; z=zipfile.ZipFile(sys.argv[1],'w');\nfor n,v in json.loads(sys.argv[2]).items():\n i=zipfile.ZipInfo(n); i.external_attr=(stat.S_IFREG|0o644)<<16; z.writestr(i,v)\nz.close()", archive, JSON.stringify(entries)]);
+    const bytes = readFileSync(archive), digest = (data) => createHash("sha256").update(data).digest("hex");
+    const tags = [{ref: "refs/tags/v2.4.2", object: {type: "commit", sha: "b".repeat(40)}}];
+    if (variant === "consumed") tags.push({ref: `refs/tags/v${version}`, object: {type: "commit", sha: "c".repeat(40)}});
+    let release = null, writes = 0;
+    const api = await listen(async (req, res) => {
+      const parts = []; for await (const chunk of req) parts.push(chunk);
+      const body = Buffer.concat(parts), route = req.url;
+      const json = (value, status = 200) => {res.writeHead(status, {"content-type": "application/json"});res.end(JSON.stringify(value));};
+      if (req.method !== "GET") writes++;
+      if (route.includes("/compare/")) json({ahead_by: 1, behind_by: 0, total_commits: 1, commits: [{sha: where.sha}]});
+      else if (route.includes("/workflows/")) json(inventory());
+      else if (route.endsWith("/artifacts?per_page=100")) json(artifacts(artifact({size_in_bytes: bytes.length, digest: `sha256:${digest(bytes)}`})));
+      else if (route.endsWith("/artifacts/9/zip")) res.end(bytes);
+      else if (route.endsWith("/matching-refs/tags/v")) json(tags);
+      else if (route.endsWith(`/git/ref/tags/v${version}`)) {const known = tags.find((tag) => tag.ref === `refs/tags/v${version}`);json(known ?? {}, known ? 200 : 404);}
+      else if (route.endsWith("/git/refs")) {tags.push({ref: `refs/tags/v${version}`, object: {type: "commit", sha: where.sha}});json(tags.at(-1));}
+      else if (route.endsWith(`/releases/tags/v${version}`)) json(release ?? {}, release ? 200 : 404);
+      else if (route.endsWith("/releases?per_page=100")) json([]);
+      else if (route.endsWith("/releases/generate-notes")) json({body: "Fixture changes"});
+      else if (route.endsWith("/releases") && req.method === "POST") {
+        release = {...JSON.parse(body), id: 11, assets: [], upload_url: `${api.url}/upload{?name}`, html_url: "https://github.com/fixture/project/releases/tag/v2.6.0"};
+        assert.equal(release.tag_name, "v2.6.0");json(release);
+      } else if (route.startsWith("/upload?")) {
+        const asset = {name: new URL(route, api.url).searchParams.get("name"), size: body.length, digest: `sha256:${digest(body)}`};release.assets.push(asset);json(asset);
+      } else if (route.endsWith("/releases/11") && req.method === "PATCH") {Object.assign(release, JSON.parse(body));json(release);}
+      else {res.writeHead(404);res.end();}
+    });
+    try {
+      const temp = mkdtempSync(path.join(root, "promote-"));
+      const env = {...process.env, GITHUB_REPOSITORY: where.repository, GITHUB_API_URL: api.url,
+        RUNNER_TEMP: temp, GITHUB_OUTPUT: path.join(temp, "output"),
+        "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", INPUT_ARTIFACTS: "build", "INPUT_RELEASE-METADATA": "linux.json\nmac.json"};
+      if (variant === "valid") {
+        const chosen = await choose(env); assert.equal(chosen.version, version);assert.equal(chosen.state, "ready");
+      } else await assert.rejects(choose(env), undefined, variant);
+      assert.equal(writes, 0, "the promotion choice performs no mutation");
+      assert.ok(readdirSync(temp).every((name) => !name.startsWith("nddev-ci-promotion-")));
+      for (let attempt = 0; attempt < (variant === "valid" ? 2 : 1); attempt++) {
+        const work = mkdtempSync(path.join(root, "release-"));
+        const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
+          stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...env,
+            RUNNER_TEMP: work, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", "INPUT_API-URL": api.url,
+            "INPUT_WAIT-MINUTES": "0", GITHUB_OUTPUT: path.join(work, "outputs"), GITHUB_STEP_SUMMARY: path.join(work, "summary")},
+        });
+        let output = "";child.stdout.on("data", (x) => {output += x;});child.stderr.on("data", (x) => {output += x;});
+        const before = writes, [code] = await once(child, "close");
+        assert.equal(code, variant === "valid" ? 0 : 1, `${variant}: ${output}`);
+        if (variant !== "valid" || attempt) assert.equal(writes, before, "refusal/rerun creates no tag or release");
+        if (variant === "valid") assert.match(readFileSync(path.join(work, "outputs"), "utf8"), /version=2\.6\.0/);
+      }
+    } finally {await close(api.server);rmSync(root, {recursive: true, force: true});}
+  }
+});

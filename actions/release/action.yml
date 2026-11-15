@@ -3,6 +3,9 @@ description: >-
   Publishes one GitHub Release of the exact commit its full check on the integration branch
   verified, reusing that check's artifacts, with SHA256SUMS. A rerun completes the same release.
 inputs:
+  release-metadata:
+    description: Checked JSON metadata file names with schema_version, source_commit and product version, one per line.
+    default: ''
   check-workflow:
     description: The workflow file whose push check on the integration branch qualifies the commit.
     default: ci.yml
