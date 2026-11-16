@@ -16,6 +16,7 @@ jobs:
       required-workflows: |
         recipe-smoke.yml
         qualification-smoke.yml
+        source-version-smoke.yml
       daily-release: true
       release-workflow: publish.yml
     # The deploy key lives in the promotion environment, which only dev may use.

@@ -1,0 +1,28 @@
+name: Require a trusted commit status
+description: Require the configured creator and successful context on the exact source, without waiting.
+inputs:
+  context:
+    description: The commit-status context that owns source readiness.
+    required: true
+  creator-id:
+    description: The immutable numeric account ID of the trusted status creator.
+    required: true
+  maximum-statuses:
+    description: Maximum distinct status contexts admitted in one complete read pass.
+    required: true
+  sha:
+    description: The exact source commit to qualify.
+    default: ${{ github.sha }}
+  github-token:
+    description: A repository-scoped status-read token.
+    default: ${{ github.server_url == 'https://github.com' && github.token || '' }}
+outputs:
+  state:
+    description: ready after the exact trusted status passes.
+  sha:
+    description: The exact qualified source.
+  status-id:
+    description: The selected status record ID.
+runs:
+  using: node24
+  main: run.mjs

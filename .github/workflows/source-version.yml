@@ -1,0 +1,59 @@
+name: source version
+
+on:
+  workflow_call:
+    inputs:
+      context:
+        description: The status context published by the source preparer.
+        type: string
+        required: true
+      creator-id:
+        description: The immutable numeric account ID trusted to publish readiness.
+        type: string
+        required: true
+      maximum-statuses:
+        description: Maximum distinct contexts admitted in one complete read pass.
+        type: number
+        required: true
+      runner:
+        description: Private runner label; public callers use a free hosted runner.
+        type: string
+        default: nddev-linux-small
+    outputs:
+      state:
+        description: ready for full builds, or short-check for an ordinary pull request.
+        value: ${{ jobs.ready.outputs.state }}
+
+permissions: {}
+
+jobs:
+  ready:
+    name: source version
+    runs-on: ${{ (!github.event.repository.private || contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github')) && 'ubuntu-24.04' || inputs.runner }}
+    timeout-minutes: 15
+    permissions:
+      statuses: read
+    outputs:
+      state: ${{ github.event_name == 'pull_request' && 'short-check' || steps.ready.outputs.state }}
+    steps:
+      - name: Start
+        run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
+      - name: Outside telemetry off
+        uses: $/actions/telemetry
+      - name: Require prepared source
+        id: ready
+        if: github.event_name != 'pull_request'
+        uses: $/actions/require-status
+        with:
+          context: ${{ inputs.context }}
+          creator-id: ${{ inputs.creator-id }}
+          maximum-statuses: ${{ inputs.maximum-statuses }}
+          sha: ${{ github.sha }}
+      - name: Job record
+        if: always()
+        uses: $/actions/job-record
+        with:
+          task: source-version
+          task-type: check
+          status: ${{ job.status }}
+          started-file: ${{ runner.temp }}/nddev-ci-started

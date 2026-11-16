@@ -16,6 +16,7 @@ the linked workflow and action declarations.
 | [merge-stops.yml](.github/workflows/merge-stops.yml) | The same stops beside a project's existing jobs |
 | [recipe.yml](.github/workflows/recipe.yml) | One project recipe in a native platform matrix |
 | [image.yml](.github/workflows/image.yml) | Build a native container image and push it by source commit |
+| [source-version.yml](.github/workflows/source-version.yml) | Require a trusted readiness status before full-build fan-out |
 | [promote.yml](.github/workflows/promote.yml) | Move `main` forward to the newest `dev` commit whose full check passed, then start the release |
 | [merge-on-green.yml](.github/workflows/merge-on-green.yml) | Merge a labelled pull request once every check of its head passed, where branch rules are unavailable |
 | [release.yml](.github/workflows/release.yml) | Publish the exact verified commit and its files as an immutable GitHub Release |
@@ -23,6 +24,21 @@ the linked workflow and action declarations.
 | [registry.yml](.github/workflows/registry.yml) | Publish released files to crates.io or PyPI through trusted publishing |
 | [provenance.yml](.github/workflows/provenance.yml) | Attest artifacts of a public repository's build |
 | [security.yml](.github/workflows/security.yml) | Daily secrets, dependency, licence, SBOM and image scans |
+
+## Prepared source
+
+A caller that prepares version metadata before its full build calls `source-version.yml`
+once and makes its full-build jobs depend on it. Ordinary pull requests retain their short
+checks. Other events require `success` on the exact commit for the configured status
+`context` and immutable numeric `creator-id`, within `maximum-statuses` distinct contexts.
+Missing, pending, failed, foreign, malformed or incomplete status inventories fail immediately.
+The gate neither waits nor writes a status, changes source or authorizes a release. The trusted
+producer owns preparation and must bind its output to that commit before writing readiness.
+
+`actions/require-status` exposes the same read-only predicate for a custom frame. It returns
+`state`, `sha` and `status-id` only after a complete bounded inventory passes. The library's
+`source-version-smoke.yml` exercises real API statuses in its own isolated fixture context;
+that context does not represent a project's readiness or a required project check.
 
 ## Building blocks
 
