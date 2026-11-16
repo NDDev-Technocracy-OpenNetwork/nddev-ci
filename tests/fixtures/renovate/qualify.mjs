@@ -62,7 +62,7 @@ test("resolves the published preset at the checkout revision and validates both 
   assert.equal(createHash("sha256").update(fs.readFileSync("/fixture/preset.json")).digest("hex"), source.presetSha256);
   assert.deepEqual(consumer.customManagers, localPreset.customManagers);
   for (const config of [consumer, self]) {
-    const checked = await validateConfig("config", config);
+    const checked = await validateConfig("repo", config);
     assert.deepEqual(checked.errors, []);
     assert.deepEqual(checked.warnings, []);
   }

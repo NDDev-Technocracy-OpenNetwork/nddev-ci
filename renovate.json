@@ -2,6 +2,9 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "customManagers": [
     {
+      "description": [
+        "Generated SDK self calls: node tools/renovate-sdk.mjs --write"
+      ],
       "depTypeTemplate": "ci-sdk",
       "customType": "jsonata",
       "managerFilePatterns": [
@@ -10,7 +13,7 @@
       ],
       "fileFormat": "yaml",
       "matchStrings": [
-        "/* Generated SDK self calls: node tools/renovate-sdk.mjs --write */\n($sdk := {\"rust-version\":{\"depName\":\"rust\",\"datasource\":\"rust-version\"},\"python-version\":{\"depName\":\"python\",\"datasource\":\"python-version\"},\"node-version\":{\"depName\":\"node\",\"datasource\":\"node-version\",\"versioning\":\"node\"},\"bun-version\":{\"depName\":\"bun\",\"datasource\":\"npm\",\"versioning\":\"npm\"},\"uv-version\":{\"depName\":\"astral-sh/uv\",\"datasource\":\"github-releases\",\"versioning\":\"npm\"},\"java-version\":{\"depName\":\"java-jdk\",\"datasource\":\"java-version\"},\"go-version\":{\"depName\":\"go\",\"datasource\":\"golang-version\"},\"flutter-version\":{\"depName\":\"flutter\",\"datasource\":\"flutter-version\"}}; **[$type(uses) = \"string\" and $exists($match(uses, /^(?:\\.|\\$)\\/(?:\\.github\\/workflows\\/[A-Za-z0-9_-]+\\.ya?ml|actions\\/[A-Za-z0-9_/-]+)$/))].with.$each($, function($value, $key) {($spec := $lookup($sdk, $key); ($spec and $type($value) = \"string\" and $exists($match($value, /^[0-9]+\\.[0-9]+\\.[0-9]+([+.-][0-9A-Za-z.-]+)?$/))) ? $merge([$spec, {\"currentValue\": $value}]))}))"
+        "($sdk := {\"rust-version\":{\"depName\":\"rust\",\"datasource\":\"rust-version\"},\"python-version\":{\"depName\":\"python\",\"datasource\":\"python-version\"},\"node-version\":{\"depName\":\"node\",\"datasource\":\"node-version\",\"versioning\":\"node\"},\"bun-version\":{\"depName\":\"bun\",\"datasource\":\"npm\",\"versioning\":\"npm\"},\"uv-version\":{\"depName\":\"astral-sh/uv\",\"datasource\":\"github-releases\",\"versioning\":\"npm\"},\"java-version\":{\"depName\":\"java-jdk\",\"datasource\":\"java-version\"},\"go-version\":{\"depName\":\"go\",\"datasource\":\"golang-version\"},\"flutter-version\":{\"depName\":\"flutter\",\"datasource\":\"flutter-version\"}}; **[$type(uses) = \"string\" and $exists($match(uses, /^(?:\\.|\\$)\\/(?:\\.github\\/workflows\\/[A-Za-z0-9_-]+\\.ya?ml|actions\\/[A-Za-z0-9_/-]+)$/))].with.$each($, function($value, $key) {($spec := $lookup($sdk, $key); ($spec and $type($value) = \"string\" and $exists($match($value, /^[0-9]+\\.[0-9]+\\.[0-9]+([+.-][0-9A-Za-z.-]+)?$/))) ? $merge([$spec, {\"currentValue\": $value}]))}))"
       ]
     }
   ]

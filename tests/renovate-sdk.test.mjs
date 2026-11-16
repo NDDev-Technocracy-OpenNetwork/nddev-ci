@@ -45,7 +45,11 @@ test("offline checking refuses stale output without writing, and regeneration pr
   assert.notEqual(generate("--check").status, 0);
   assert.equal(generate("--write").status, 0);
   assert.equal(generate("--check").status, 0);
-  assert.deepEqual(JSON.parse(readFileSync(config, "utf8")).other, { keep: true });
+  const repaired = JSON.parse(readFileSync(config, "utf8"));
+  assert.deepEqual(repaired.other, { keep: true });
+  assert.equal(repaired.customManagers.length, generated.customManagers.length);
+  assert.deepEqual(repaired.customManagers[0], original.customManagers[0]);
+  assert.deepEqual(repaired.customManagers[1], sdkManager("relative"));
 }));
 
 test("ambiguous ownership refuses writes instead of replacing unrelated configuration", () => fixture(({ root, generate }) => {
