@@ -106,7 +106,7 @@ test("replacement selects the owned call without touching equal foreign values o
   assert.equal((await update(content, consumer)).content, content.replace("'1.2.3' # owned", "'1.2.4' # owned"));
 });
 test("an aliased version shared with a foreign call is not silently rewritten", async () => {
-  const content = ["sdk: &sdk", "  rust-version: '1.2.3'", "jobs:", "  foreign:", "    uses: other/library/.github/workflows/check.yml@v1", "    with: *sdk", "  ours:", `    uses: ${fq}`, "    with: *sdk", ""].join("\n");
+  const content = ["jobs:", "  foreign:", "    uses: other/library/.github/workflows/check.yml@v1", "    with: &sdk", "      rust-version: '1.2.3'", "  ours:", `    uses: ${fq}`, "    with: *sdk", ""].join("\n");
   let changed;
   try { changed = await update(content, consumer); }
   catch (error) { assert.match(error.message, /file-update-failed/); return; }
