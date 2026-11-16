@@ -81,6 +81,8 @@ check: (_tools "check")
     node --check tests/action-contract.test.mjs
     node --check actions/job-record/run.mjs
     node --check tests/job-record.test.mjs
+    node --check tools/repository-rules.mjs
+    node --check tests/repository-rules.test.mjs
     node --check lib/qualification.mjs
     node --check lib/commit-status.mjs
     node --check actions/require-status/run.mjs
@@ -239,3 +241,7 @@ _tools mode:
         if [[ "${previous##*/}" =~ ^(actionlint|zizmor|shellcheck)-[a-f0-9]{64}$ ]]; then rm -rf -- "$previous"; fi
       done
     fi
+
+# Reconciles this library's declared required checks through the current administrator identity.
+repository-rules repository mode="plan":
+    node tools/repository-rules.mjs {{ quote(repository) }} {{ quote(mode) }}

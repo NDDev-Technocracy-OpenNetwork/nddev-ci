@@ -1,0 +1,93 @@
+{
+  "name": "Complete library qualification",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/heads/dev"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": true,
+        "required_status_checks": [
+          {
+            "context": "check / short check",
+            "integration_id": 15368
+          },
+          {
+            "context": "check / merge-stops / merge stops",
+            "integration_id": 15368
+          },
+          {
+            "context": "merge-stops / merge stops",
+            "integration_id": 15368
+          },
+          {
+            "context": "native (ubuntu-24.04)",
+            "integration_id": 15368
+          },
+          {
+            "context": "native (ubuntu-24.04-arm)",
+            "integration_id": 15368
+          },
+          {
+            "context": "native (macos-15)",
+            "integration_id": 15368
+          },
+          {
+            "context": "native (windows-2025)",
+            "integration_id": 15368
+          },
+          {
+            "context": "native (windows-11-arm)",
+            "integration_id": 15368
+          },
+          {
+            "context": "reusable (ubuntu-26.04) / recipe",
+            "integration_id": 15368
+          },
+          {
+            "context": "reusable (ubuntu-26.04-arm) / recipe",
+            "integration_id": 15368
+          },
+          {
+            "context": "reusable (macos-26) / recipe",
+            "integration_id": 15368
+          },
+          {
+            "context": "reusable (windows-2025) / recipe",
+            "integration_id": 15368
+          },
+          {
+            "context": "reusable (windows-11-arm) / recipe",
+            "integration_id": 15368
+          },
+          {
+            "context": "image (ubuntu-24.04) / image nddev-ci-image-fixture",
+            "integration_id": 15368
+          },
+          {
+            "context": "image (ubuntu-24.04-arm) / image nddev-ci-image-fixture",
+            "integration_id": 15368
+          },
+          {
+            "context": "source status fixture",
+            "integration_id": 15368
+          },
+          {
+            "context": "gate / source version",
+            "integration_id": 15368
+          }
+        ]
+      }
+    }
+  ]
+}
