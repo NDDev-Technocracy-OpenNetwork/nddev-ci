@@ -10,6 +10,7 @@ permissions: {}
 
 jobs:
   fixture:
+    name: source status fixture
     # Forks cannot write statuses; the ordinary read-only unit suite still covers them.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04

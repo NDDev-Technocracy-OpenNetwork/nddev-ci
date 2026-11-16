@@ -436,3 +436,13 @@ commit there and keeps actionlint's check of their inputs.
 
 Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE). Please credit NDDev and link
 [this repository](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-ci).
+
+## Repository administration
+
+`.github/rulesets/dev.json` owns this library's complete native, reusable, image and real
+source-status merge checks. Its repository-scoped rule has no bypass actors and leaves other
+repository/organization rules intact. With an existing administrator identity, run
+`just repository-rules owner/repository` to plan, then the same command with `apply`.
+The command uses the current `GH_TOKEN` or authenticated `gh` identity outside ordinary CI;
+it verifies the complete observed rule after a write or lost reply and is safe to repeat.
+A missing, duplicate, foreign or truncated inventory fails. Ordinary jobs receive no new grant.
