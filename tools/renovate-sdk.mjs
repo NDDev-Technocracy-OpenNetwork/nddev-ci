@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { sdkPreset, selfConfiguration, isSdkManager } from "../lib/renovate-sdk.mjs";
+import { sdkPreset, selfConfiguration, isSelfSdkManager } from "../lib/renovate-sdk.mjs";
 
 const mode = process.argv[2];
 if (!["--check", "--write"].includes(mode) || process.argv.length !== 3) {
@@ -24,9 +24,9 @@ const current = oldSelf === undefined
 // Validate both outputs before writing either one.
 const expectedSelf = selfConfiguration(current);
 const expectedPreset = format(sdkPreset());
-const owned = current.customManagers?.filter(isSdkManager);
+const owned = current.customManagers?.filter(isSelfSdkManager);
 const selfFresh = owned?.length === 1 &&
-  JSON.stringify(owned[0]) === JSON.stringify(expectedSelf.customManagers.find(isSdkManager));
+  JSON.stringify(owned[0]) === JSON.stringify(expectedSelf.customManagers.find(isSelfSdkManager));
 const changed = [
   oldPreset !== expectedPreset && "renovate-sdk-inputs.json",
   !selfFresh && "renovate.json SDK block",

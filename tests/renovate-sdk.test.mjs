@@ -4,7 +4,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { sdkDepType } from "../lib/renovate-sdk.mjs";
+import { sdkDepType, sdkManager, isSelfSdkManager } from "../lib/renovate-sdk.mjs";
 
 function fixture(run) {
   const root = mkdtempSync(path.join(tmpdir(), "renovate-sdk-"));
@@ -21,7 +21,7 @@ test("offline checking refuses stale output without writing, and regeneration pr
   const original = {
     extends: ["config:recommended"],
     labels: ["keep this"],
-    customManagers: [{ customType: "regex", managerFilePatterns: ["custom.txt"], matchStrings: ["unrelated"] }],
+    customManagers: [{ customType: "regex", depTypeTemplate: sdkDepType, managerFilePatterns: ["custom.txt"], matchStrings: ["unrelated"] }],
   };
   writeFileSync(path.join(root, "renovate.json"), JSON.stringify(original));
   assert.equal(generate("--write").status, 0);
@@ -31,7 +31,7 @@ test("offline checking refuses stale output without writing, and regeneration pr
   assert.deepEqual(generated.extends, original.extends);
   assert.deepEqual(generated.labels, original.labels);
   assert.deepEqual(generated.customManagers[0], original.customManagers[0]);
-  assert.equal(generated.customManagers.filter((manager) => manager.depTypeTemplate === sdkDepType).length, 1);
+  assert.equal(generated.customManagers.filter(isSelfSdkManager).length, 1);
   assert.equal(generate("--check").status, 0);
   writeFileSync(preset, "{}\n");
   const before = readFileSync(config, "utf8");
@@ -50,7 +50,7 @@ test("offline checking refuses stale output without writing, and regeneration pr
 
 test("ambiguous ownership refuses writes instead of replacing unrelated configuration", () => fixture(({ root, generate }) => {
   const file = path.join(root, "renovate.json");
-  const content = JSON.stringify({ customManagers: [{ depTypeTemplate: sdkDepType }, { depTypeTemplate: sdkDepType }] });
+  const content = JSON.stringify({ customManagers: [sdkManager("relative"), sdkManager("relative")] });
   writeFileSync(file, content);
   const result = generate("--write");
   assert.notEqual(result.status, 0);

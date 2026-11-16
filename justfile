@@ -99,11 +99,11 @@ test:
     rustc --edition 2024 --test tests/recipe-routing.rs -o "{{ tools }}/recipe-routing-tests"
     "{{ tools }}/recipe-routing-tests"
     node --test tests/*.test.mjs
+    node --test tests/renovate-sdk-native.mjs
     node --test tests/bootstrap-tools.mjs
     node --test tests/dependency-native.mjs
     node --test tests/daily-osv-native.mjs
     node --test tests/daily-sbom-native.mjs
-    node --test tests/renovate-sdk-native.mjs
 
 # Everything the full check on dev runs.
 verify: check test
