@@ -94,7 +94,15 @@ alone, so a large repository costs them no more than a small one.
 The message rules leave out a commit whose author is exactly Dependabot: it writes one long line
 for a grouped update and offers no setting for it. A repository's own `committed.toml` replaces
 the default rules whole.
-Daily security findings update a report issue; scanner execution errors fail the run.
+Daily security findings go to the run summary and the `security-report-<attempt>` artifact,
+retained for 14 days. The artifact contains `security-report.json` with `schema_version: 1`,
+the run URL and every finding's scanner, kind, identifier, package/ecosystem, installed version,
+target, severity (null when unavailable) and `fixed_versions` (empty when none are reported).
+OSV rows also retain their matching affected ranges and severity scores; reported fixes are
+upstream range data, not a qualified upgrade recommendation. Secret rows contain verification
+and source-location metadata, never the matched value. The bounded summary may omit rows that
+remain in JSON and the full run log. The workflow opens, edits and closes no issue; existing
+findings remain report-only and scanner execution errors still fail the run.
 The default licence list is declared in `security.yml`; a caller's `license-policy`
 can supply its own `[licenses].allow`. OSV accepts identifiers, so a `WITH` entry
 requires its base to be independently allowed too; exception-only policies fail. Unchanged
