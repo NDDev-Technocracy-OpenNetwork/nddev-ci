@@ -473,8 +473,12 @@ with Betterleaks taking precedence. It also reads only that base's ignore files.
 cannot replace its own policy, add ignore fingerprints or use inline suppression comments.
 No repository policy selects the scanner defaults. Environment policy overrides are excluded.
 
-The policy must be a bounded regular Git blob and self-contained TOML. `[extend] useDefault`
-is supported; mutable local-file or URL extensions fail before scanning. The policy stays in
+A repository policy adds to the default rules. One without an `[extend]` table, such as a
+fixture allowlist alone, keeps them; one whose `[extend]` table does not set
+`useDefault = true` fails before scanning, because it would scan without them.
+
+The policy must be a bounded regular Git blob and self-contained TOML. Mutable local-file or URL
+extensions fail before scanning. The policy stays in
 the job's temporary directory, outside the checkout, and is removed after success or failure.
 The scanner reads the original Git database from that isolated directory, so its automatic source
 ignore-file discovery cannot read the proposed checkout.

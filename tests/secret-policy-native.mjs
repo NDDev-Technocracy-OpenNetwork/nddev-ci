@@ -59,6 +59,25 @@ test("a head-only allowlist cannot replace the defaults", (t) => {
   assert.deepEqual(readdirSync(f.temporary), []);
 });
 
+test("a base allowlist without an extend table still scans with the default rules", (t) => {
+  const value = token(); const f = fixture(t, `[allowlist]\nregexes = ['${value}']\n`);
+  writeFileSync(path.join(f.workspace, "fixture.env"), `credential=${value}\n`);
+  f.git("add", "."); f.git("commit", "-qm", "test: add the allowed fixture");
+  main(f.environment());
+  writeFileSync(path.join(f.workspace, "token.env"), `credential=${token()}\n`);
+  f.git("add", "."); f.git("commit", "-qm", "test: add a new finding");
+  assert.throws(() => main(f.environment()), /secret scan failed/);
+  assert.deepEqual(readdirSync(f.temporary), []);
+});
+
+test("a base policy that drops the default rules fails before a scan", (t) => {
+  for (const policy of ["[extend]\nuseDefault = false\n", "[extend]\ndisabledRules = []\n"]) {
+    const f = fixture(t, policy);
+    assert.throws(() => main(f.environment()), /keep the default rules/);
+    assert.deepEqual(readdirSync(f.temporary), []);
+  }
+});
+
 test("malformed and mutable extended policies fail before a scan", (t) => {
   for (const policy of ["not [valid", '[extend]\npath = "head-policy.toml"\n', '[extend]\nurl = "https://example.test/policy.toml"\n']) {
     const f = fixture(t, policy);
