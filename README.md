@@ -446,3 +446,18 @@ repository/organization rules intact. With an existing administrator identity, r
 The command uses the current `GH_TOKEN` or authenticated `gh` identity outside ordinary CI;
 it verifies the complete observed rule after a write or lost reply and is safe to repeat.
 A missing, duplicate, foreign or truncated inventory fails. Ordinary jobs receive no new grant.
+
+### Secret policy for changes
+
+The merge stop reads `.betterleaks.toml` or `.gitleaks.toml` from the exact base commit,
+with Betterleaks taking precedence. It also reads only that base's ignore files. The change
+cannot replace its own policy, add ignore fingerprints or use inline suppression comments.
+No repository policy selects the scanner defaults. Environment policy overrides are excluded.
+
+The policy must be a bounded regular Git blob and self-contained TOML. `[extend] useDefault`
+is supported; mutable local-file or URL extensions fail before scanning. The policy stays in
+the job's temporary directory, outside the checkout, and is removed after success or failure.
+The scanner reads the original Git database from that isolated directory, so its automatic source
+ignore-file discovery cannot read the proposed checkout.
+Unchanged base blobs already belong to the checkout; the existing change-object fetch provides
+the old blobs when a policy changes or disappears. The scan needs no token or lazy network fetch. Daily security reporting keeps its separate scan contract.

@@ -85,6 +85,10 @@
           {
             "context": "gate / source version",
             "integration_id": 15368
+          },
+          {
+            "context": "secret policy fixture / recipe",
+            "integration_id": 15368
           }
         ]
       }

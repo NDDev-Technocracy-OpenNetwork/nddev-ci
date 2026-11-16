@@ -66,6 +66,9 @@ check: (_tools "check")
     node --check actions/daily-sbom/run.mjs
     node --check tests/daily-sbom-native.mjs
     node --check tests/daily-sbom.test.mjs
+    node --check tests/secret-policy-native.mjs
+    node --check lib/secret-policy.mjs
+    node --check actions/secret-scan/run.mjs
     node --check lib/security-policy.mjs
     node --check tests/license-policy.test.mjs
     node --check tests/portable-recipe.test.mjs
@@ -245,3 +248,7 @@ _tools mode:
 # Reconciles this library's declared required checks through the current administrator identity.
 repository-rules repository mode="plan":
     node tools/repository-rules.mjs {{ quote(repository) }} {{ quote(mode) }}
+
+# Qualifies the actual secret scanner against the trusted-base policy boundary.
+secret-policy-smoke:
+    node --test tests/secret-policy-native.mjs tests/change-objects.test.mjs tests/license-policy.test.mjs
