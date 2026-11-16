@@ -97,7 +97,7 @@ test("the actual Git read invokes the declared route and refuses an untrusted pe
 	await once(server, "listening");
 	try {
 		await fixture(`http://127.0.0.1:${server.address().port}`, async ({ environment }) => {
-			const child = spawn("git", ["ls-remote", "https://github.com/Fixture/one"], { env: environment, stdio: ["pipe", "ignore", "pipe"] });
+			const child = spawn("git", ["ls-remote", "--exit-code", "https://github.com/Fixture/one", "HEAD"], { env: environment, stdio: ["pipe", "ignore", "pipe"] });
 			t.after(() => child.kill("SIGKILL"));
 			child.stderr.resume();
 			child.stdin.end();
