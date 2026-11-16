@@ -78,9 +78,11 @@ function report(content, entries) {
 }
 
 test("the actual security report accepts the default WITH expression and retains real violations and unknowns", () => {
-  const result = report(undefined, [["target-lexicon", "Apache-2.0 WITH LLVM-exception"], ["restricted", "GPL-3.0-only"], ["unknown", "UNKNOWN"]]);
+  const result = report(undefined, [["target-lexicon", "Apache-2.0 WITH LLVM-exception"], ["academic-license", "NCSA"], ["data-license", "CC-BY-4.0"], ["restricted", "GPL-3.0-only"], ["unknown", "UNKNOWN"]]);
   assert.equal(result.findings, 1);
   assert.ok(!result.text.includes("target-lexicon"));
+  assert.ok(!result.text.includes("academic-license"));
+  assert.ok(!result.text.includes("data-license"));
   assert.ok(result.text.includes("restricted"));
   assert.match(result.text, /1 packages have no licence/);
 });
@@ -93,4 +95,11 @@ test("the actual security report keeps custom WITH choices and package exception
   assert.ok(!result.text.includes("crates.io special"));
   assert.ok(result.text.includes("different-exception"));
   assert.ok(result.text.includes("crates.io other"));
+});
+
+test("a custom project policy still controls the recognized default identifiers", () => {
+  const result = report('[licenses]\nallow = ["MIT"]\n', [["academic-license", "NCSA"], ["data-license", "CC-BY-4.0"]]);
+  assert.equal(result.findings, 2);
+  assert.ok(result.text.includes("academic-license"));
+  assert.ok(result.text.includes("data-license"));
 });
