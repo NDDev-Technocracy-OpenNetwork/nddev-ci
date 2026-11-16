@@ -8,6 +8,30 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { client, transferArtifacts } from "../lib/qualification.mjs";
 
+const qualifiedRuntime = {
+  "qualification": {
+    "schema_version": 1,
+    "repository": "rldyourmnd/renovate",
+    "sha": "955bc7e6f11f781172eafc8792993d6159eaed10",
+    "workflowPath": ".github/workflows/alias-runtime.yml",
+    "branch": "fix/jsonata-yaml-alias-runtime",
+    "event": "push",
+    "run_id": 43813227486,
+    "run_attempt": 1,
+    "run_number": 5,
+    "run_started_at": "2026-11-16T05:54:17Z"
+  },
+  "artifact": {
+    "id": 14201521210,
+    "name": "temporary-alias-runtime-955bc7e6f11f781172eafc8792993d6159eaed10",
+    "digest": "sha256:c421f2b3854213613176a48e7fdd1163110244568f41d660ab9ceef461a1b667"
+  },
+  "version": "44.236.4-nddev.1",
+  "manifestDigest": "sha256:8854037d7bc43f12f607e659f7fe1797253a7a07e257b2eaa3f9a3ce22f73b49",
+  "configDigest": "sha256:6f181385c10e52bcbd67f77676c52a54408b70fed05ce60aa37020377331668d",
+  "archiveSha256": "sha256:a4e7cbe311e2c384ff7d14e029d00aeaa5acde8bf6864260bec8b4c81a49a787"
+};
+
 const root = fileURLToPath(new URL("../", import.meta.url));
 const run = (command, args, options = {}) => {
   const result = spawnSync(command, args, { encoding: "utf8", timeout: 300000, maxBuffer: 8 * 1024 * 1024, ...options });
@@ -23,13 +47,9 @@ test("the published strict SDK preset and generated self block use the qualified
   assert.equal(process.arch, "x64");
   assert.ok(process.env.GH_TOKEN, "the hosted job read token is required");
   const name = `nddev-ci-sdk-${randomUUID()}`;
-  const image = `${name}:test`, runtime = `${name}:runtime`;
+  const image = `${name}:test`;
   const fixtureDirectory = path.join(root, "tests/fixtures/renovate");
-  const dockerfile = readFileSync(path.join(fixtureDirectory, "Dockerfile"), "utf8");
-  const marker = "# qualified-runtime: ";
-  const declarations = dockerfile.split("\n").filter((line) => line.startsWith(marker));
-  assert.equal(declarations.length, 1);
-  const expected = JSON.parse(declarations[0].slice(marker.length));
+  const expected = qualifiedRuntime;
   const revision = run("git", ["rev-parse", "HEAD"], { cwd: root });
   const repository = process.env.GITHUB_REPOSITORY;
   assert.match(revision, /^[a-f0-9]{40}$/);
@@ -46,10 +66,8 @@ test("the published strict SDK preset and generated self block use the qualified
     const metadata = JSON.parse(readFileSync(path.join(engineDirectory, "receipt.json"), "utf8"));
     assert.deepEqual([metadata.source, metadata.version, metadata.manifestDigest, metadata.configDigest, metadata.platform],
       [expected.qualification.sha, expected.version, expected.manifestDigest, expected.configDigest, "linux/amd64"]);
-    run("skopeo", ["copy", `oci-archive:${path.join(engineDirectory, "runtime.oci.tar")}:runtime`, `docker-daemon:${runtime}`]);
-    assert.equal(run("docker", ["image", "inspect", "--format", "{{.Id}}", runtime]), expected.configDigest);
-    run("docker", ["build", "--build-arg", `RUNTIME_IMAGE=${runtime}`, "--tag", image, fixtureDirectory]);
-    assert.equal(run("docker", ["image", "inspect", "--format", "{{.Id}}", image]), expected.configDigest, "the fixture must reuse the verified runtime without rebuilding it");
+    run("skopeo", ["copy", `oci-archive:${path.join(engineDirectory, "runtime.oci.tar")}:runtime`, `docker-daemon:${image}`]);
+    assert.equal(run("docker", ["image", "inspect", "--format", "{{.Id}}", image]), expected.configDigest, "native qualification must run the exact published image");
     for (const [from, to] of [
       ["renovate-sdk-inputs.json", "preset.json"],
       ["renovate.json", "self.json"],
@@ -75,13 +93,12 @@ test("the published strict SDK preset and generated self block use the qualified
     for (const [args, absent] of [
       [["rm", "--force", name], /No such container/],
       [["image", "rm", image], /No such image/],
-      [["image", "rm", runtime], /No such image/],
     ]) {
       const removed = spawnSync("docker", args, { encoding: "utf8", timeout: 30000 });
       if (removed.error || (removed.status !== 0 && !absent.test(removed.stderr))) failures.push(removed.error?.message ?? removed.stderr);
     }
     rmSync(temporary, { recursive: true, force: true });
     assert.deepEqual(failures, [], "owned qualification cleanup failed");
-    console.log(JSON.stringify({ cleanup: "complete", container: name, images: [image, runtime], fixtureDirectoryRemoved: true }));
+    console.log(JSON.stringify({ cleanup: "complete", container: name, image, fixtureDirectoryRemoved: true }));
   }
 });

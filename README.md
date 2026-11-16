@@ -385,7 +385,7 @@ excluded from SDK extraction, even when the alias is outside the matched input.
 Renovate reports the skipped file with a warning; literal files remain supported.
 
 The required Linux check runs native Renovate qualification through its existing
-isolated hosted job Docker provider. `tests/fixtures/renovate/Dockerfile` binds the
+isolated hosted job Docker provider. `tests/renovate-sdk-native.mjs` binds the
 qualified temporary OCI image to its source, successful run, artifact and image
 digests. The existing checked-artifact reader verifies and downloads that artifact;
 the fixture imports it without rebuilding the engine. Expired artifacts, missing
