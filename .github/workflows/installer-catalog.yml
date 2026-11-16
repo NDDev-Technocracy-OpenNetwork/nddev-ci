@@ -1,0 +1,48 @@
+name: installer catalog
+
+on:
+  pull_request:
+    paths: [.github/workflows/installer-catalog.yml]
+  push:
+    branches: [dev]
+    paths: [.github/workflows/installer-catalog.yml]
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  catalog:
+    name: catalog (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      BIOME_VERSION: 2.6.7
+      TYPOS_VERSION: 1.52.2
+    steps:
+      - name: Install the declared tools from the candidate catalog
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
+        with:
+          tool: biome@${{ env.BIOME_VERSION }},typos@${{ env.TYPOS_VERSION }}
+
+      - name: Verify the actual tool versions
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import {spawnSync} from 'node:child_process';
+          const declared = {biome: process.env.BIOME_VERSION, typos: process.env.TYPOS_VERSION};
+          for (const [tool, expected] of Object.entries(declared)) {
+            const result = spawnSync(tool, ['--version'], {encoding: 'utf8'});
+            assert.equal(result.status, 0, `${tool}: ${result.error ?? result.stderr}`);
+            const actual = result.stdout.trim();
+            const prefix = tool === 'biome' ? /^(?:Version:\s*)?/ : /^typos(?:-cli)?\s+/;
+            assert.equal(actual.replace(prefix, ''), expected, `${tool}: ${actual}`);
+            console.log(JSON.stringify({tool, declared: expected, actual, os: process.platform, arch: process.arch}));
+          }
+          JS
