@@ -6,6 +6,10 @@ name: release
 on:
   workflow_call:
     inputs:
+      daily-release:
+        description: Publish at most one new release per UTC date, retaining exact published replays.
+        type: boolean
+        default: false
       api-url:
         description: Optional explicit metadata API source.
         type: string
@@ -47,6 +51,9 @@ on:
         description: Optional separate credential for the declared artifact transport.
         required: false
     outputs:
+      state:
+        description: published or held by the daily limit.
+        value: ${{ jobs.release.outputs.state }}
       version:
         description: The released version.
         value: ${{ jobs.release.outputs.version }}
@@ -66,13 +73,14 @@ jobs:
     # Public repositories release on GitHub's runners, private ones on ours.
     runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || inputs.runner }}
     concurrency:
-      group: nddev-ci-release-${{ github.workflow }}
+      group: nddev-ci-release-${{ inputs.daily-release && github.repository || github.workflow }}
       cancel-in-progress: false
     timeout-minutes: 60
     permissions:
       actions: read # find the full check of the commit on dev and its artifacts
       contents: write # create the tag and the release
     outputs:
+      state: ${{ steps.release.outputs.state }}
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
       url: ${{ steps.release.outputs.url }}
@@ -87,6 +95,7 @@ jobs:
         id: release
         uses: $/actions/release
         with:
+          daily-release: ${{ inputs.daily-release }}
           release-metadata: ${{ inputs.release-metadata }}
           check-workflow: ${{ inputs.check-workflow }}
           artifacts: ${{ inputs.artifacts }}

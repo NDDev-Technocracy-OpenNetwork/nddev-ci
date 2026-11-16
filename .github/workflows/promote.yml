@@ -9,6 +9,10 @@ name: promote
 on:
   workflow_call:
     inputs:
+      daily-release:
+        description: Publish at most one new release per UTC date, retaining exact published replays.
+        type: boolean
+        default: false
       release-metadata:
         description: Checked JSON metadata file names with schema_version, source_commit and product version, one per line.
         type: string
@@ -35,7 +39,7 @@ on:
         default: nddev-linux-small
     outputs:
       state:
-        description: ready when main moved, current when nothing was new, unchecked when no new commit passed yet.
+        description: ready, current, unchecked, held by the daily limit, or release_pending for unfinished main publication.
         value: ${{ jobs.promote.outputs.state }}
       sha:
         description: The commit main moved to.
@@ -70,6 +74,7 @@ jobs:
         id: choose
         uses: $/actions/promote
         with:
+          daily-release: ${{ inputs.daily-release }}
           release-metadata: ${{ inputs.release-metadata }}
           artifacts: ${{ inputs.artifacts }}
           check-workflow: ${{ inputs.check-workflow }}
@@ -109,7 +114,7 @@ jobs:
           echo "main is at $SHA."
 
       - name: Start the release on main
-        if: steps.choose.outputs.state == 'ready' && inputs.release-workflow != ''
+        if: (steps.choose.outputs.state == 'ready' || steps.choose.outputs.state == 'release_pending') && inputs.release-workflow != ''
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE: ${{ inputs.release-workflow }}
