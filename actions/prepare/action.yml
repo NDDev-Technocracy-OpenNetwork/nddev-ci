@@ -169,6 +169,7 @@ runs:
           exit 0
         fi
         folder="$RUNNER_TEMP/nddev-ci/ssh"
+        if [ "${RUNNER_OS:-}" = Windows ]; then folder=${folder//\\//}; fi
         rm -rf -- "$folder"
         mkdir -p "$folder"
         chmod 0700 "$folder"
@@ -201,6 +202,7 @@ runs:
             "$alias" "$folder/known_hosts" "$folder/$alias" >> "$config"
           if [ -n "${HTTPS_PROXY:-${https_proxy:-}}" ]; then
             relay="$GITHUB_ACTION_PATH/../../lib/ssh-connect.mjs"
+            if [ "${RUNNER_OS:-}" = Windows ]; then relay=${relay//\\//}; fi
             relay=${relay//%/%%}
             printf '  ProxyCommand node %q %%h %%p\n' "$relay" >> "$config"
           fi

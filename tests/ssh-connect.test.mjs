@@ -91,10 +91,18 @@ test("cancellation closes the tunnel and its child", { timeout: 10000 }, async (
 		t.after(() => child.kill("SIGKILL"));
 		const socket = await connected;
 		socket.resume();
-		const ended = once(socket, "end");
-		child.kill("SIGTERM");
+		// Windows terminates the process directly; its TCP peer can receive a reset.
+		let socketError;
+		socket.on("error", (error) => { socketError = error; });
+		socket.once("end", () => socket.end());
+		const closed = new Promise((resolve) => socket.once("close", resolve));
+		assert.equal(child.kill("SIGTERM"), true);
 		await result;
-		await ended;
+		await closed;
+		if (socketError) {
+			assert.equal(process.platform, "win32");
+			assert.equal(socketError.code, "ECONNRESET");
+		}
 	});
 });
 test("invalid routes and injected destinations refuse without exposing the input", async () => {
