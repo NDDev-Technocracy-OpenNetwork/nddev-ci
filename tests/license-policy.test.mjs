@@ -73,7 +73,8 @@ function report(content, entries) {
       env: {...process.env, ALLOWED: policy.outputs[reportOutput], POLICY: content === undefined ? "" : "deny.toml", RUN: "fixture run"}});
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr);
-    return {text: result.stdout, findings: Number(readFileSync(path.join(root, "findings"), "utf8"))};
+    const findings = JSON.parse(readFileSync(path.join(root, "security-report.json"), "utf8")).findings;
+    return {text: result.stdout, findings: findings.filter((row) => row.kind === "license" && row.identifier !== "UNKNOWN").length};
   } finally { rmSync(root, {recursive: true, force: true}); }
 }
 
