@@ -54,6 +54,6 @@ jobs:
         uses: $/actions/job-record
         with:
           task: source-version
-          task-type: check
+          task-type: test
           status: ${{ job.status }}
           started-file: ${{ runner.temp }}/nddev-ci-started
