@@ -17,7 +17,7 @@ const action = fileURLToPath(new URL("../actions/prepare", import.meta.url));
 function command(program, args, options) {
 	const result = spawnSync(program, args, { encoding: "utf8", ...options });
 	assert.ifError(result.error);
-	assert.equal(result.status, 0, result.stderr);
+	assert.equal(result.status, 0, `${result.stderr}\nGenerated command: ${options?.env?.GIT_SSH_COMMAND ?? "none"}`);
 	return result.stdout;
 }
 async function fixture(proxy, run, { repositories = ["Fixture/one", "Fixture/two"], transform = (value) => value, success = true } = {}) {
@@ -32,7 +32,7 @@ async function fixture(proxy, run, { repositories = ["Fixture/one", "Fixture/two
 		const output = path.join(root, "env");
 		const environment = {
 			...process.env, READ_KEYS: transform(repositories.map((repository, i) => `${repository}\n${privateKeys[i]}`).join("")),
-			READ_APP_CLIENT_ID: "", RUNNER_TEMP: root, GITHUB_ENV: output, GITHUB_ACTION_PATH: action,
+			READ_APP_CLIENT_ID: "", RUNNER_OS: process.platform === "win32" ? "Windows" : process.platform === "darwin" ? "macOS" : "Linux", RUNNER_TEMP: root, GITHUB_ENV: output, GITHUB_ACTION_PATH: action,
 			HTTPS_PROXY: proxy, https_proxy: "", NO_PROXY: "", no_proxy: "", SHELL: "/disabled/login/shell",
 		};
 		const prepared = spawnSync("bash", ["-euo", "pipefail", "-c", script], { env: environment, encoding: "utf8" });
