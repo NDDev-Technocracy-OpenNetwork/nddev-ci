@@ -9,7 +9,32 @@ on:
 permissions: {}
 
 jobs:
+  publish:
+    name: source status publisher
+    # Publication precedes observation, as in the actual readiness handoff.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      statuses: write
+    outputs:
+      receipt: ${{ steps.publish.outputs.receipt }}
+    steps:
+      - name: Outside telemetry off
+        uses: $/actions/telemetry
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Publish isolated states and their exact receipt
+        id: publish
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node tests/commit-status-native.mjs publish
   fixture:
+    needs: publish
     name: source status fixture
     # Forks cannot write statuses; the ordinary read-only unit suite still covers them.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -33,7 +58,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: node tests/commit-status-native.mjs
+          FIXTURE_RECEIPT: ${{ needs.publish.outputs.receipt }}
+        run: node tests/commit-status-native.mjs observe
   gate:
     needs: fixture
     uses: ./.github/workflows/source-version.yml
