@@ -22,6 +22,12 @@ setup: tools
 check: (_tools "check")
     just --fmt --check
     rustfmt --edition 2024 --check tests/recipe-routing.rs
+    node tools/renovate-sdk.mjs --check
+    node --check lib/renovate-sdk.mjs
+    node --check tools/renovate-sdk.mjs
+    node --check tests/renovate-sdk.test.mjs
+    node --check tests/renovate-sdk-native.mjs
+    node --check tests/fixtures/renovate/qualify.mjs
     node --check actions/artifact-registry/run.mjs
     node --check tests/artifact-registry.test.mjs
     node --check lib/runner-profile.mjs
@@ -98,6 +104,7 @@ test:
     rustc --edition 2024 --test tests/recipe-routing.rs -o "{{ tools }}/recipe-routing-tests"
     "{{ tools }}/recipe-routing-tests"
     node --test tests/*.test.mjs
+    node --test tests/renovate-sdk-native.mjs
     node --test tests/bootstrap-tools.mjs
     node --test tests/dependency-native.mjs
     node --test tests/daily-osv-native.mjs
@@ -109,6 +116,7 @@ verify: check test
 # Applies formatting.
 fix:
     just --fmt
+    node tools/renovate-sdk.mjs --write
 
 # Prepares only verified source generations; checks never download or change retained tools.
 tools: (_tools "setup")
