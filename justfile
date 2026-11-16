@@ -39,6 +39,9 @@ check: (_tools "check")
     node --check lib/release-asset.mjs
     node --check lib/native-member.mjs
     node --check lib/dependency-report.mjs
+    node --check lib/ssh-connect.mjs
+    node --check tests/ssh-connect.test.mjs
+    node --check tests/read-keys.test.mjs
     node --check lib/dependency-source.mjs
     node --check lib/dependency-scan.mjs
     node --check actions/dependency-guard/run.mjs
