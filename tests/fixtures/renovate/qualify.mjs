@@ -16,7 +16,7 @@ const { getMatchingFiles } = await import(engine + "workers/repository/extract/f
 const { doAutoReplace } = await import(engine + "workers/repository/update/branch/auto-replace.js");
 const { validateConfig } = await import(engine + "config/validation.js");
 const memory = await import(engine + "util/cache/memory/index.js");
-const { parseYaml } = await import(engine + "util/yaml.js");
+const { parseYaml, parseSingleYamlDocument } = await import(engine + "util/yaml.js");
 const source = JSON.parse(fs.readFileSync("/fixture/source.json", "utf8"));
 assert.equal(JSON.parse(fs.readFileSync("/usr/local/renovate/package.json", "utf8")).version, source.version);
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sdk-qualification-"));
@@ -138,6 +138,15 @@ test("native YAML conversion exposes the same JSON data for aliases and repeated
     const expanded = aliased.replace("with: &sdk", "with:").replace("with: *sdk", "with:\n      rust-version: '1.2.3'");
     assert.equal(JSON.stringify(parseYaml(aliased)), JSON.stringify(parseYaml(expanded)));
   }
+});
+test("native YAML document refusal exists but its conversion limit is not a preset option", async () => {
+  for (const direction of ["owned alias", "foreign alias"]) {
+    assert.throws(() => parseSingleYamlDocument(aliasYaml(fq, direction)).toJS({ maxAliasCount: 0 }), /Alias resolution is disabled/);
+  }
+  const literal = yaml(fq, "rust-version", "'1.2.3'");
+  assert.deepEqual(parseSingleYamlDocument(literal).toJS({ maxAliasCount: 0 }), parseYaml(literal)[0]);
+  const checked = await validateConfig("repo", { ...consumer, customManagers: consumer.customManagers.map((manager) => ({ ...manager, maxAliasCount: 0 })) });
+  assert.ok(checked.errors.some((error) => /disallowed fields: maxAliasCount/.test(error.message)));
 });
 for (const direction of ["owned alias", "foreign alias"]) {
   test(`autoReplaceGlobalMatch false: ${direction} stays unchanged or is refused`, async () => {
