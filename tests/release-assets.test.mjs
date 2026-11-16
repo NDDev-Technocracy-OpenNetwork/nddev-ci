@@ -390,13 +390,16 @@ for (const memberPath of ["native-tool", "./native-tool"]) {
       );
       save(asset);
       const installed = path.join(directory, member.file);
-      const protectedFile = path.join(workspace, "protected");
+      const protectedDirectory = path.join(workspace, "protected");
+      mkdirSync(protectedDirectory);
+      const protectedFile = path.join(protectedDirectory, "member");
       writeFileSync(protectedFile, contents);
       const publishedPath = readFileSync(environment.GITHUB_PATH, "utf8");
       for (const type of ["link", "directory"]) {
         rmSync(installed, { recursive: true });
-        if (type === "link") symlinkSync(protectedFile, installed);
-        else mkdirSync(installed);
+        if (type === "link") {
+          symlinkSync(protectedDirectory, installed, process.platform === "win32" ? "junction" : "dir");
+        } else mkdirSync(installed);
         await assert.rejects(main(environment), /not a regular file/);
         assert.equal(lstatSync(installed).isSymbolicLink(), type === "link");
         assert.deepEqual(readFileSync(protectedFile), contents);
