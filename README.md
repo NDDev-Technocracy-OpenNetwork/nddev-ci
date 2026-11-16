@@ -348,16 +348,15 @@ backward or sideways: when `main` holds a commit `dev` lacks, it stops.
 GitHub's job token cannot move a branch onto commits that change workflow files, so the move
 pushes with a deploy key that has write access. The caller keeps it as `PROMOTION_KEY` in an
 environment, `promotion` by default, that only its `dev` branch may use, and calls the workflow
-with `secrets: inherit`. The library promotes itself this way once a day, so it publishes at most
-one release a day.
+with `secrets: inherit`. The library promotes itself this way whenever the checks of a `dev` push
+pass, so every checked change becomes a release.
 
 Promotion and publication accept optional `required-workflows`, one workflow file name per line.
 Every additional workflow must qualify the same exact source/branch/event with its latest attempt,
 and all receipts are checked again before writes. `check-workflow` remains the artifact source.
 The library itself requires its portable floor and artifact-transfer smoke alongside `ci.yml`.
 
-Promotion and publication optionally accept `daily-release: true`, as this library's own workflows
-do. They permit one new immutable release per UTC date; replaying an already published exact
+Promotion and publication optionally accept `daily-release: true`. They permit one new immutable release per UTC date; replaying an already published exact
 source remains safe. Promotion resumes an unpublished `main` before moving to a later commit.
 A date already consumed returns `held` without a new tag/release; the next date can resume it.
 Existing callers keep their cadence unless they enable this contract. Publication must run through
