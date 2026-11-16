@@ -61,3 +61,12 @@ test("a no-change day is a no-op, a consumed day holds, and a new unchecked sour
   assert.ok(held.calls.every((route) => !route.includes("/compare/")));
   assert.equal((await selectDailyPromotion(api([published()], {tagSource: sha, comparison: [prior]}), options, now)).state, "unchecked");
 });
+
+test("valid historical release tags retain their identity without changing numeric version selection", async () => {
+  const legacy = published({tag_name: "nddev-ci-v0.6.25"});
+  assert.equal((await state(api([legacy]))).state, "ready");
+  assert.equal((await state(api([{...legacy, published_at: "2026-11-16T08:00:00Z"}]))).state, "held");
+  assert.equal((await state(api([legacy], {tagSource: sha}), {tag: legacy.tag_name})).state, "replay");
+  for (const name of ["", "bad\nname", "bad name", "a".repeat(1025)])
+    await assert.rejects(state(api([published({tag_name: name})])));
+});
