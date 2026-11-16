@@ -12,7 +12,7 @@ on:
         type: string
         required: true
       maximum-statuses:
-        description: Maximum distinct contexts admitted in one complete read pass.
+        description: Maximum status records, including history, admitted in one complete read pass.
         type: number
         required: true
       runner:
@@ -54,6 +54,6 @@ jobs:
         uses: $/actions/job-record
         with:
           task: source-version
-          task-type: check
+          task-type: test
           status: ${{ job.status }}
           started-file: ${{ runner.temp }}/nddev-ci-started

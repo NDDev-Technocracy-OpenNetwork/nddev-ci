@@ -8,9 +8,8 @@ import { requireStatus } from "../lib/commit-status.mjs";
 import { main } from "../actions/require-status/run.mjs";
 
 const expected = {repository: "fixture/project", sha: "a".repeat(40), context: "source/ready", creator: 7, maximumStatuses: 150};
-const status = (fields = {}) => ({id: 11, context: expected.context, creator: {id: 7}, state: "success", ...fields});
-const page = (statuses = [status()], fields = {}) => ({sha: expected.sha, repository: {full_name: expected.repository},
-  state: "failure", total_count: statuses.length, statuses, ...fields});
+const status = (fields = {}) => ({id: 11, context: expected.context, creator: {id: 7}, state: "success", url: `https://api.github.com/repos/${expected.repository}/statuses/${expected.sha}`, ...fields});
+const page = (statuses = [status()]) => statuses;
 const api = (value) => ({json: async () => value});
 
 test("only the exact trusted context qualifies, independent of unrelated failures", async () => {
@@ -23,29 +22,29 @@ test("only the exact trusted context qualifies, independent of unrelated failure
   await assert.rejects(requireStatus(api(page([])), expected), /missing/);
 });
 
-test("complete bounded pagination cannot borrow a partial, duplicate or changed inventory", async () => {
-  const rows = Array.from({length: 149}, (_, i) => status({id: 100 + i, context: `other/${i}`}));
+test("complete bounded history preserves latest context and refuses partial or foreign data", async () => {
+  const rows = Array.from({length: 149}, (_, i) => status({id: 1000 - i, context: `other/${i}`}));
   rows.push(status());
   const calls = [];
   const paged = {json: async (method, route) => {
-    calls.push([method, route]);
-    return page(rows.slice((calls.length - 1) * 100, calls.length * 100), {total_count: 150});
+    calls.push([method, route]); return rows.slice((calls.length - 1) * 100, calls.length * 100);
   }};
   assert.equal((await requireStatus(paged, expected)).statusId, 11);
-  assert.deepEqual(calls, [1, 2].map((n) => ["GET", `/repos/fixture/project/commits/${expected.sha}/status?per_page=100&page=${n}`]));
-  for (const value of [page(undefined, {total_count: 2}), page(undefined, {total_count: 151}),
-    page(undefined, {total_count: "1"}), page(undefined, {total_count: -1}), page(undefined, {statuses: null}),
-    page(undefined, {sha: "b".repeat(40)}), page(undefined, {repository: {full_name: "foreign/project"}}),
-    page([status(), status({id: 12})]), page([status(), status({context: "other"})]),
-    page([null]), page([status({id: 0})])])
+  assert.deepEqual(calls, [1, 2].map((n) => ["GET", `/repos/fixture/project/commits/${expected.sha}/statuses?per_page=100&page=${n}`]));
+  for (const value of [null, {}, Array(101).fill(status()), [status(), status()], [null], [status({id: 0})],
+    [status({url: `https://api.github.com/repos/foreign/project/statuses/${expected.sha}`})],
+    [status({url: `https://api.github.com/repos/fixture/project/statuses/${"b".repeat(40)}`})]])
     await assert.rejects(requireStatus(api(value), expected));
+  await assert.rejects(requireStatus(api(rows), {...expected, maximumStatuses: 1}));
   let requests = 0;
-  await assert.rejects(requireStatus({json: async () => page(rows.slice(requests++ * 100, requests * 100),
-    {total_count: requests === 1 ? 150 : 149})}, expected), /changed/);
+  await assert.rejects(requireStatus({json: async () => {requests++; return rows.slice(0, 100);}}, expected), /changed|bound/);
+  assert.equal(requests, 2);
   requests = 0;
-  await assert.rejects(requireStatus({json: async () => page(rows.slice(requests++ * 100, requests * 100).slice(0, 1),
-    {total_count: 150})}, expected), /incomplete/);
-  assert.equal(requests, 1);
+  assert.equal((await requireStatus({json: async () => {requests++; return requests === 1 ? [...rows.slice(0, 99), status()] : []; }},
+    {...expected, maximumStatuses: 100})).state, "ready");
+  assert.equal(requests, 2);
+  await assert.rejects(requireStatus(api([status({id: 12, state: "pending"}), status()]), expected), /pending/);
+  await assert.rejects(requireStatus(api([status({id: 12, creator: {id: 8}}), status()]), expected), /configured creator/);
 });
 
 test("invalid identities and bounds fail before an API read", async () => {
@@ -63,7 +62,7 @@ test("the actual action uses read-only transport and writes a receipt only after
     requests++;
     assert.equal(req.method, "GET");
     assert.equal(req.headers.authorization, "Bearer fixture-read-token");
-    assert.equal(req.url, `/repos/fixture/project/commits/${expected.sha}/status?per_page=100&page=1`);
+    assert.equal(req.url, `/repos/fixture/project/commits/${expected.sha}/statuses?per_page=100&page=1`);
     res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(value));
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));

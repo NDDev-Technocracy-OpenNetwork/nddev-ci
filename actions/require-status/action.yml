@@ -8,7 +8,7 @@ inputs:
     description: The immutable numeric account ID of the trusted status creator.
     required: true
   maximum-statuses:
-    description: Maximum distinct status contexts admitted in one complete read pass.
+    description: Maximum status records, including history, admitted in one complete read pass.
     required: true
   sha:
     description: The exact source commit to qualify.
