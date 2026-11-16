@@ -30,8 +30,8 @@ the linked workflow and action declarations.
 A caller that prepares version metadata before its full build calls `source-version.yml`
 once and makes its full-build jobs depend on it. Ordinary pull requests retain their short
 checks. Other events require `success` on the exact commit for the configured status
-`context` and immutable numeric `creator-id`, within `maximum-statuses` distinct contexts.
-Missing, pending, failed, foreign, malformed or incomplete status inventories fail immediately.
+`context` and immutable numeric `creator-id`, within `maximum-statuses` records, including history.
+Missing, pending, failed, foreign, malformed or incomplete status histories fail immediately.
 The gate neither waits nor writes a status, changes source or authorizes a release. The trusted
 producer owns preparation and must bind its output to that commit before writing readiness.
 

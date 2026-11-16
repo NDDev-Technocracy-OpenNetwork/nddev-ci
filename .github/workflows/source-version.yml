@@ -12,7 +12,7 @@ on:
         type: string
         required: true
       maximum-statuses:
-        description: Maximum distinct contexts admitted in one complete read pass.
+        description: Maximum status records, including history, admitted in one complete read pass.
         type: number
         required: true
       runner:
