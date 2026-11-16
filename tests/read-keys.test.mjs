@@ -83,7 +83,7 @@ for (const proxy of ["", "http://127.0.0.1:12345"])
 			assert.equal(existsSync(path.join(root, "nddev-ci/ssh")), false);
 		}));
 
-test("the actual generated SSH command invokes the declared route with a disabled inherited shell", { timeout: 25000 }, async (t) => {
+test("the actual Git read invokes the declared route and refuses an untrusted peer with a disabled inherited shell", { timeout: 25000 }, async (t) => {
 	const requests = [];
 	const sockets = new Set();
 	const server = http.createServer();
@@ -97,8 +97,7 @@ test("the actual generated SSH command invokes the declared route with a disable
 	await once(server, "listening");
 	try {
 		await fixture(`http://127.0.0.1:${server.address().port}`, async ({ environment }) => {
-			const target = command("git", ["ls-remote", "--get-url", "https://github.com/Fixture/one"], { env: environment }).trim().split(":")[0];
-			const child = spawn("bash", ["-c", `${environment.GIT_SSH_COMMAND} -T ${target}`], { env: environment, stdio: ["pipe", "ignore", "pipe"] });
+			const child = spawn("git", ["ls-remote", "https://github.com/Fixture/one"], { env: environment, stdio: ["pipe", "ignore", "pipe"] });
 			t.after(() => child.kill("SIGKILL"));
 			child.stderr.resume();
 			child.stdin.end();
