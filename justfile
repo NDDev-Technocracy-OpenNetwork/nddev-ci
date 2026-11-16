@@ -84,6 +84,8 @@ check: (_tools "check")
     node --check tests/release-version.test.mjs
     node --check actions/release/run.mjs
     node --check tests/release.test.mjs
+    node --check lib/release-cadence.mjs
+    node --check tests/release-cadence.test.mjs
     node --check lib/promotion.mjs
     node --check actions/promote/run.mjs
     node --check tests/promotion.test.mjs

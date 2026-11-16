@@ -326,6 +326,13 @@ environment, `promotion` by default, that only its `dev` branch may use, and cal
 with `secrets: inherit`. The library promotes itself this way once a day, so it publishes at most
 one release a day.
 
+Promotion and publication optionally accept `daily-release: true`, as this library's own workflows
+do. They permit one new immutable release per UTC date; replaying an already published exact
+source remains safe. Promotion resumes an unpublished `main` before moving to a later commit.
+A date already consumed returns `held` without a new tag/release; the next date can resume it.
+Existing callers keep their cadence unless they enable this contract. Publication must run through
+the serial release workflow, which checks the date again immediately before making a draft public.
+
 ## Merge on green without branch rules
 
 A private repository on GitHub's free plan has no branch rules, so GitHub's auto-merge cannot
