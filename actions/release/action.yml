@@ -3,6 +3,9 @@ description: >-
   Publishes one GitHub Release of the exact commit its full check on the integration branch
   verified, reusing that check's artifacts, with SHA256SUMS. A rerun completes the same release.
 inputs:
+  required-workflows:
+    description: Additional workflow file names that must qualify the same exact source, one per line.
+    default: ''
   daily-release:
     description: Publish at most one new release per UTC date; exact published replays remain allowed.
     default: 'false'

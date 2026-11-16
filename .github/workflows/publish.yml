@@ -21,6 +21,9 @@ jobs:
       actions: read # find the full check of the commit on dev
       contents: write # create the tag and the release
     with:
+      required-workflows: |
+        recipe-smoke.yml
+        qualification-smoke.yml
       daily-release: true
       check-workflow: ci.yml
       initial-version: 0.6.26
