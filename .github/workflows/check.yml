@@ -161,6 +161,7 @@ permissions: {}
 jobs:
   check:
     name: ${{ (github.event.action != 'labeled' || github.event.label.name == 'runner:github') && (github.event_name == 'pull_request' && 'short check' || 'full check') || 'ignored label' }}
+    # Keep an ignored result separate even if GitHub evaluates its skipped name expression.
     # A new label reruns the check only when it chooses the runner.
     if: github.event.action != 'labeled' || github.event.label.name == 'runner:github'
     # Public repositories always run on GitHub's runners; an unknown hosted label fails below.

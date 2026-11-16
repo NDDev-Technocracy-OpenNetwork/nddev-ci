@@ -380,6 +380,9 @@ self-excluded names fail. Each newest named result must succeed from the GitHub 
 integration on the exact head; missing, pending, skipped, neutral or failed mandatory results
 cannot merge. Earlier success cannot replace a newer unsuccessful result. Optional jobs may
 still skip or finish neutral. Incomplete, changing or foreign check inventories fail.
+Unrelated labels leave prior mandatory results intact and use a separate optional context for
+ignored jobs. GitHub may display their name expressions unevaluated. The runner-selection label
+still executes the real checks with their normal names; it does not take the ignored path.
 
 ```yaml
 name: merge on green
