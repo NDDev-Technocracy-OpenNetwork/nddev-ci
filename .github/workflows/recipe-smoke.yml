@@ -26,6 +26,10 @@ jobs:
       justfile: tests/fixtures/portable.just
       arguments: '["path with spaces","$(must-stay-literal)","مرحبا-Ә-测试"]'
   native:
+    env:
+      JAVA_VERSION: '25.0.5'
+      FLUTTER_VERSION: '3.47.9'
+      DART_VERSION: '3.13.7'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
@@ -52,20 +56,46 @@ jobs:
           rust-version: '1.100.0'
           rust-components: clippy,rustfmt
           # Temurin publishes no JDK for Windows on ARM64.
-          java-version: ${{ (runner.os != 'Windows' || runner.arch != 'ARM64') && '25.0.5' || '' }}
+          java-version: ${{ (runner.os != 'Windows' || runner.arch != 'ARM64') && env.JAVA_VERSION || '' }}
           go-version: '1.27.4'
           tools: cargo-nextest@0.9.151
           # Flutter publishes its Linux and Windows SDK for x64 only.
-          flutter-version: ${{ (runner.os == 'macOS' || runner.arch == 'X64') && '3.47.9' || '' }}
+          flutter-version: ${{ (runner.os == 'macOS' || runner.arch == 'X64') && env.FLUTTER_VERSION || '' }}
       - name: Require measured SDK versions
+        id: expected
         env:
           SDK_RECEIPT: ${{ steps.sdk.outputs.receipt }}
-          FLUTTER: ${{ (runner.os == 'macOS' || runner.arch == 'X64') && 'true' || '' }}
-          JAVA: ${{ (runner.os != 'Windows' || runner.arch != 'ARM64') && 'true' || '' }}
+          SDK_JAVA_VERSION: ${{ (runner.os != 'Windows' || runner.arch != 'ARM64') && env.JAVA_VERSION || '' }}
+          SDK_FLUTTER_VERSION: ${{ (runner.os == 'macOS' || runner.arch == 'X64') && env.FLUTTER_VERSION || '' }}
         run: >-
-          node -e "const r=JSON.parse(process.env.SDK_RECEIPT);
-          const expected={node:'26.13.1',python:'3.15.2',uv:'0.13.7',bun:'1.4.4',rust:'1.99.1',go:'1.27.4',...(process.env.JAVA?{java:'25.0.5'}:{}),...(process.env.FLUTTER?{flutter:'3.47.9',dart:'3.13.7'}:{})};
-          for(const [name,version] of Object.entries(expected))if(r.versions[name]!==version)throw Error('SDK receipt mismatch: '+name)"
+          bun -e "import fs from 'node:fs'; import path from 'node:path'; import assert from 'node:assert/strict';
+          import {sdkInputs} from './lib/renovate-sdk.mjs'; import {selections} from './actions/hosted-sdk/run.mjs';
+          const source=Bun.YAML.parse(fs.readFileSync('.github/workflows/recipe-smoke.yml','utf8')).jobs.native.steps;
+          const request=id=>{
+            const declaration=source.find(step=>step.id===id)?.with;
+            if(!declaration)throw Error('missing SDK declaration: '+id);
+            const environment={};
+            for(const input of Object.keys(sdkInputs)){
+              if(!Object.hasOwn(declaration,input))continue;
+              const key='SDK_'+input.slice(0,-8).toUpperCase()+'_VERSION';
+              const value=declaration[input];
+              if(typeof value==='string' && value.startsWith(String.fromCharCode(36)+'{{')){
+                if(!Object.hasOwn(process.env,key))throw Error('unresolved SDK declaration: '+key);
+                environment[key]=process.env[key];
+              }else environment[key]=value;
+            }
+            environment.SDK_TOOLS=declaration.tools??'';
+            const expected=selections({...environment,SDK_RUNNER_ENVIRONMENT:process.env.RUNNER_ENVIRONMENT});
+            if(!Object.keys(expected).length)throw Error('empty SDK declaration');
+            if(expected.flutter){if(!process.env.DART_VERSION)throw Error('missing Dart declaration');expected.dart=process.env.DART_VERSION;}
+            return {environment,expected};
+          };
+          const requests={sdk:request('sdk'),warm:request('sdk-again')};
+          const requireVersions=versions=>{for(const [name,version] of Object.entries(requests.sdk.expected))if(versions[name]!==version)throw Error('SDK receipt mismatch: '+name);};
+          const measured=JSON.parse(process.env.SDK_RECEIPT).versions; requireVersions(measured);
+          for(const name of Object.keys(requests.sdk.expected))for(const value of [undefined,'incorrect'])assert.throws(()=>requireVersions({...measured,[name]:value}),/SDK receipt mismatch:/);
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP,'sdk-requests.json'),JSON.stringify(requests));
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,Object.entries(requests.sdk.environment).map(([key,value])=>key+'='+value).join('\n')+'\n')"
       - name: Require the declared tool at its version
         run: cargo nextest --version
       - name: Prepare the same SDKs again from the tool cache
@@ -79,8 +109,10 @@ jobs:
         env:
           SDK_RECEIPT: ${{ steps.sdk-again.outputs.receipt }}
         run: >-
-          node -e "const r=JSON.parse(process.env.SDK_RECEIPT);
-          for(const [name,version] of Object.entries({node:'26.13.1',python:'3.15.2',uv:'0.13.7'}))if(r.versions[name]!==version)throw Error('repeated SDK mismatch: '+name)"
+          node -e "const fs=require('node:fs'),path=require('node:path');
+          const expected=JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP,'sdk-requests.json'),'utf8')).warm.expected;
+          const r=JSON.parse(process.env.SDK_RECEIPT);
+          for(const [name,version] of Object.entries(expected))if(r.versions[name]!==version)throw Error('repeated SDK mismatch: '+name)"
       - name: Hosted dependency caches of a Cargo and npm fixture
         uses: $/actions/hosted-cache
         with:
@@ -134,12 +166,12 @@ jobs:
       - name: Verify the managed SDK path without a tool cache
         env:
           SDK_RUNNER_ENVIRONMENT: self-hosted
-          SDK_NODE_VERSION: '26.13.1'
-          SDK_PYTHON_VERSION: '3.15.2'
-          SDK_UV_VERSION: '0.13.7'
-          SDK_BUN_VERSION: '1.4.4'
-          SDK_RUST_VERSION: '1.99.1'
-          SDK_TOOLS: cargo-nextest@0.9.151
+          SDK_NODE_VERSION: ${{ steps.expected.outputs.SDK_NODE_VERSION }}
+          SDK_PYTHON_VERSION: ${{ steps.expected.outputs.SDK_PYTHON_VERSION }}
+          SDK_UV_VERSION: ${{ steps.expected.outputs.SDK_UV_VERSION }}
+          SDK_BUN_VERSION: ${{ steps.expected.outputs.SDK_BUN_VERSION }}
+          SDK_RUST_VERSION: ${{ steps.expected.outputs.SDK_RUST_VERSION }}
+          SDK_TOOLS: ${{ steps.expected.outputs.SDK_TOOLS }}
         run: >-
           node --input-type=module -e "import {main} from './actions/hosted-sdk/run.mjs';
           const env={...process.env,RUNNER_TOOL_CACHE:''}; main('validate',env); main('verify',env)"
