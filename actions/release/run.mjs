@@ -19,6 +19,7 @@ import {
 } from "../../lib/release.mjs";
 import { releaseVersion, tagCommit } from "../../lib/release-version.mjs";
 import { client, qualify, recheck, transferArtifacts } from "../../lib/qualification.mjs";
+import { dailyEnabled, dailyPublication } from "../../lib/release-cadence.mjs";
 
 const refuse = (message) => {
   throw new ReleaseError(message);
@@ -79,6 +80,15 @@ async function main() {
     initial: input("initial-version") || "0.1.0"});
   await recheck(github, qualified);
   const tag = `v${version}`;
+  const daily = dailyEnabled(input("daily-release"));
+  async function held() {
+    if (!daily || (await dailyPublication(github, {repository, sha, tag})).state !== "held") return false;
+    appendFileSync(environment("GITHUB_OUTPUT"), "state=held\n");
+    appendFileSync(environment("GITHUB_STEP_SUMMARY"), "A release already published on this UTC date; this source waits.\n");
+    console.log("Daily publication limit reached; no new release is published.");
+    return true;
+  }
+  if (await held()) return;
 
   // 4. The tag never moves: it is created at this commit or must already point here.
   const existingTag = await github.json("GET", `/repos/${repository}/git/ref/tags/${encodeURIComponent(tag)}`, {
@@ -136,6 +146,7 @@ async function main() {
       refuse(`GitHub recorded different bytes for ${file.name}.`);
   }
   await recheck(github, qualified);
+  if (release.draft && await held()) return;
   if (release.draft)
     release = await github.json("PATCH", `/repos/${repository}/releases/${release.id}`, {
       body: { draft: false, make_latest: "true" },
@@ -144,7 +155,7 @@ async function main() {
   const output = environment("GITHUB_OUTPUT");
   appendFileSync(
     output,
-    `version=${version}\ntag=${tag}\nurl=${release.html_url}\n`,
+    `state=published\nversion=${version}\ntag=${tag}\nurl=${release.html_url}\n`,
   );
   appendFileSync(
     environment("GITHUB_STEP_SUMMARY"),
