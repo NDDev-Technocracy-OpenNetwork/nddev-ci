@@ -18,7 +18,7 @@ import {
   checksums,
 } from "../../lib/release.mjs";
 import { releaseVersion, tagCommit } from "../../lib/release-version.mjs";
-import { client, qualify, recheck, transferArtifacts } from "../../lib/qualification.mjs";
+import { client, qualifyWorkflows, recheck, transferArtifacts } from "../../lib/qualification.mjs";
 import { dailyEnabled, dailyPublication } from "../../lib/release-cadence.mjs";
 
 const refuse = (message) => {
@@ -50,7 +50,10 @@ async function main() {
   const github = client(input("github-token") || refuse("A token is required."), input("api-url") || environment("GITHUB_API_URL"));
 
   // 1. The newest full check of this exact commit on the integration branch.
-  const qualified = await qualify(github, {sha, repository, workflowPath: `.github/workflows/${workflow}`, branch: "dev"}, {waitMinutes});
+  const qualifications = await qualifyWorkflows(github, {sha, repository, workflowPath: `.github/workflows/${workflow}`, branch: "dev"},
+    input("required-workflows"), {waitMinutes});
+  const qualified = qualifications[0];
+  const recheckAll = () => Promise.all(qualifications.map((proof) => recheck(github, proof)));
   const run = {id: qualified.run_id, run_attempt: qualified.run_attempt,
     html_url: `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${repository}/actions/runs/${qualified.run_id}`};
   console.log(`Qualified by ${run.html_url} (attempt ${run.run_attempt}).`);
@@ -78,7 +81,7 @@ async function main() {
   const version = await releaseVersion(github, {repository, sha, files,
     metadata: input("release-metadata"), explicit: input("version"),
     initial: input("initial-version") || "0.1.0"});
-  await recheck(github, qualified);
+  await recheckAll();
   const tag = `v${version}`;
   const daily = dailyEnabled(input("daily-release"));
   async function held() {
@@ -145,7 +148,7 @@ async function main() {
     if (uploaded.size !== file.size || uploaded.digest !== `sha256:${file.sha256}`)
       refuse(`GitHub recorded different bytes for ${file.name}.`);
   }
-  await recheck(github, qualified);
+  await recheckAll();
   if (release.draft && await held()) return;
   if (release.draft)
     release = await github.json("PATCH", `/repos/${repository}/releases/${release.id}`, {

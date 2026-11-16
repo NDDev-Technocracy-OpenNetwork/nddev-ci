@@ -9,6 +9,10 @@ name: promote
 on:
   workflow_call:
     inputs:
+      required-workflows:
+        description: Additional workflow file names that must qualify the same exact source, one per line.
+        type: string
+        default: ''
       daily-release:
         description: Publish at most one new release per UTC date, retaining exact published replays.
         type: boolean
@@ -74,6 +78,7 @@ jobs:
         id: choose
         uses: $/actions/promote
         with:
+          required-workflows: ${{ inputs.required-workflows }}
           daily-release: ${{ inputs.daily-release }}
           release-metadata: ${{ inputs.release-metadata }}
           artifacts: ${{ inputs.artifacts }}

@@ -66,3 +66,20 @@ test("main ahead of dev, an unbounded gap and malformed input are refused", asyn
   await assert.rejects(selectPromotion(api({ahead: []}), {repository, workflowPath, source: "dev", target: "dev"}), /two different/);
   await assert.rejects(selectPromotion(api({ahead: []}), {repository: "bad", workflowPath}), /exact repository/);
 });
+
+test("promotion requires every workflow for the exact commit and its newest attempt", async () => {
+  for (const state of ["missing", "pending", "failed", "qualified"]) {
+    const github = api({ahead: [sha(2)], runs: {[sha(2)]: [run(sha(2))]}});
+    const original = github.json;
+    github.json = async (method, route) => {
+      if (!route.includes("/workflows/portable.yml/")) return original(method, route);
+      let runs = [run(sha(2), {path: ".github/workflows/portable.yml"})];
+      if (state === "missing") runs = [];
+      if (state === "pending") runs[0] = {...runs[0], status: "in_progress", conclusion: null};
+      if (state === "failed") runs = [runs[0], {...runs[0], run_attempt: 2, conclusion: "failure"}];
+      return {total_count: runs.length, workflow_runs: runs};
+    };
+    const result = await selectPromotion(github, {repository, workflowPath, requiredWorkflows: "portable.yml"});
+    assert.equal(result.state, state === "qualified" ? "ready" : "unchecked", state);
+  }
+});
