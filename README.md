@@ -386,11 +386,10 @@ Renovate reports the skipped file with a warning; literal files remain supported
 
 The required Linux check runs native Renovate qualification through its existing
 isolated hosted job Docker provider. `tests/renovate-sdk-native.mjs` binds the
-qualified temporary OCI image to its source, successful run, artifact and image
-digests. The existing checked-artifact reader verifies and downloads that artifact;
-the fixture imports it without rebuilding the engine. Expired artifacts, missing
-read access or a changed qualification fail the check instead of selecting an old
-runtime.
+qualified temporary OCI image to its source, immutable manifest and executed image
+configuration. The image is retained in its public container registry and imported
+without rebuilding the engine. Missing registry access or a changed image refuses
+the check instead of selecting another runtime.
 
 Qualification resolves the public preset at the exact checked Git revision before
 testing extraction and actual replacements. Both shared-alias ownership directions

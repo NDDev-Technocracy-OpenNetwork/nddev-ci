@@ -6,30 +6,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { client, transferArtifacts } from "../lib/qualification.mjs";
 
 const qualifiedRuntime = {
-  "qualification": {
-    "schema_version": 1,
-    "repository": "rldyourmnd/renovate",
-    "sha": "955bc7e6f11f781172eafc8792993d6159eaed10",
-    "workflowPath": ".github/workflows/alias-runtime.yml",
-    "branch": "fix/jsonata-yaml-alias-runtime",
-    "event": "push",
-    "run_id": 43813227486,
-    "run_attempt": 1,
-    "run_number": 5,
-    "run_started_at": "2026-11-16T05:54:17Z"
-  },
-  "artifact": {
-    "id": 14201521210,
-    "name": "temporary-alias-runtime-955bc7e6f11f781172eafc8792993d6159eaed10",
-    "digest": "sha256:c421f2b3854213613176a48e7fdd1163110244568f41d660ab9ceef461a1b667"
-  },
-  "version": "44.236.4-nddev.1",
-  "manifestDigest": "sha256:8854037d7bc43f12f607e659f7fe1797253a7a07e257b2eaa3f9a3ce22f73b49",
-  "configDigest": "sha256:6f181385c10e52bcbd67f77676c52a54408b70fed05ce60aa37020377331668d",
-  "archiveSha256": "sha256:a4e7cbe311e2c384ff7d14e029d00aeaa5acde8bf6864260bec8b4c81a49a787"
+  source: "955bc7e6f11f781172eafc8792993d6159eaed10",
+  image: "ghcr.io/rldyourmnd/renovate@sha256:8854037d7bc43f12f607e659f7fe1797253a7a07e257b2eaa3f9a3ce22f73b49",
+  version: "44.236.4-nddev.1",
+  configDigest: "sha256:6f181385c10e52bcbd67f77676c52a54408b70fed05ce60aa37020377331668d",
 };
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -58,16 +40,9 @@ test("the published strict SDK preset and generated self block use the qualified
   assert.equal(run("git", ["show", `${revision}:renovate-sdk-inputs.json`], { cwd: root }), preset.toString().trim(), "native qualification requires the committed preset");
   const temporary = mkdtempSync(path.join(tmpdir(), "renovate-sdk-native-"));
   try {
-    const engineDirectory = path.join(temporary, "engine");
-    const transferred = await transferArtifacts(client(process.env.GH_TOKEN), expected.qualification, expected.artifact.name, engineDirectory);
-    assert.deepEqual(transferred.artifacts, [expected.artifact]);
-    assert.equal(`sha256:${transferred.files.find((file) => file.name === "runtime.oci.tar")?.sha256}`, expected.archiveSha256);
-    assert.equal(`sha256:${transferred.files.find((file) => file.name === "manifest.json")?.sha256}`, expected.manifestDigest);
-    const metadata = JSON.parse(readFileSync(path.join(engineDirectory, "receipt.json"), "utf8"));
-    assert.deepEqual([metadata.source, metadata.version, metadata.manifestDigest, metadata.configDigest, metadata.platform],
-      [expected.qualification.sha, expected.version, expected.manifestDigest, expected.configDigest, "linux/amd64"]);
-    run("skopeo", ["copy", `oci-archive:${path.join(engineDirectory, "runtime.oci.tar")}:runtime`, `docker-daemon:${image}`]);
+    run("skopeo", ["copy", `docker://${expected.image}`, `docker-daemon:${image}`]);
     assert.equal(run("docker", ["image", "inspect", "--format", "{{.Id}}", image]), expected.configDigest, "native qualification must run the exact published image");
+    assert.equal(run("docker", ["image", "inspect", "--format", '{{index .Config.Labels "org.opencontainers.image.revision"}}', image]), expected.source);
     for (const [from, to] of [
       ["renovate-sdk-inputs.json", "preset.json"],
       ["renovate.json", "self.json"],
@@ -77,7 +52,7 @@ test("the published strict SDK preset and generated self block use the qualified
       copyFileSync(path.join(root, from), path.join(temporary, to));
       chmodSync(path.join(temporary, to), 0o644);
     }
-    const source = { repository, revision, version: metadata.version, presetSha256: createHash("sha256").update(preset).digest("hex") };
+    const source = { repository, revision, version: expected.version, presetSha256: createHash("sha256").update(preset).digest("hex") };
     writeFileSync(path.join(temporary, "source.json"), JSON.stringify(source));
     chmodSync(path.join(temporary, "source.json"), 0o644);
     const mounts = ["preset.json", "self.json", "definition.mjs", "qualify.mjs", "source.json"].flatMap((file) => ["--mount", `type=bind,src=${path.join(temporary, file)},dst=/fixture/${file},readonly`]);
@@ -87,7 +62,7 @@ test("the published strict SDK preset and generated self block use the qualified
     assert.ok(output.split(warning).length - 1 >= 6, "native alias refusal must report skipped files");
     assert.ok(output.includes(".github/workflows/ci.yml"));
     console.log(output);
-    console.log(JSON.stringify({ runtime: expected, preset: source, transport: "existing checked-artifact reader" }));
+    console.log(JSON.stringify({ runtime: expected, preset: source, transport: "published immutable OCI image" }));
   } finally {
     const failures = [];
     for (const [args, absent] of [
