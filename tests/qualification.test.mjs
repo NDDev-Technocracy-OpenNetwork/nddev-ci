@@ -81,6 +81,31 @@ async function close(server) {
   await new Promise((resolve) => server.close(resolve));
 }
 
+test("mutable status reads revalidate a cached success after a newer failure", async () => {
+  let state = "success", id = 1, cached;
+  const expected = {repository: where.repository, sha: where.sha, context: "readiness", creator: 77, maximumStatuses: 1000};
+  const { requireStatus } = await import("../lib/commit-status.mjs");
+  const api = await listen((req, res) => {
+    const status = () => ({id, state, context: expected.context, creator: {id: 77},
+      url: `${api.url}/repos/${where.repository}/statuses/${where.sha}`});
+    res.setHeader("Content-Type", "application/json");
+    if (req.method === "POST") {
+      let body = ""; req.on("data", (chunk) => { body += chunk; });
+      req.on("end", () => { state = JSON.parse(body).state; id++; res.end(JSON.stringify(status())); });
+    } else {
+      if (!cached || req.headers["cache-control"] === "no-cache") cached = [status()];
+      res.setHeader("Cache-Control", "private, max-age=60");
+      res.end(JSON.stringify(cached));
+    }
+  });
+  try {
+    const github = client("read-token-fixture", api.url);
+    assert.equal((await requireStatus(github, expected)).state, "ready");
+    await github.json("POST", `/repos/${where.repository}/statuses/${where.sha}`, {body: {state: "failure"}});
+    await assert.rejects(requireStatus(github, expected), /status is failure/);
+  } finally { await close(api.server); }
+});
+
 test("real redirect and failure servers receive credentials only at the declared API origin", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "qualification-http-"));
   const bytes = Buffer.from("zip bytes fixture"), headers = [], locations = [];
