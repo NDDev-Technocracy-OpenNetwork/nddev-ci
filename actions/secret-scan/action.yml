@@ -1,0 +1,12 @@
+name: Scan a change with its trusted base policy
+description: Scan exact pull-request commits with only the base commit's self-contained secret policy and ignore files.
+inputs:
+  base:
+    description: Exact base commit containing the trusted policy.
+    required: true
+  head:
+    description: Exact change head.
+    required: true
+runs:
+  using: node24
+  main: run.mjs
