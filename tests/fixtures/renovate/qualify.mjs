@@ -16,6 +16,7 @@ const { getMatchingFiles } = await import(engine + "workers/repository/extract/f
 const { doAutoReplace } = await import(engine + "workers/repository/update/branch/auto-replace.js");
 const { validateConfig } = await import(engine + "config/validation.js");
 const memory = await import(engine + "util/cache/memory/index.js");
+const { parseYaml } = await import(engine + "util/yaml.js");
 const source = JSON.parse(fs.readFileSync("/fixture/source.json", "utf8"));
 assert.equal(JSON.parse(fs.readFileSync("/usr/local/renovate/package.json", "utf8")).version, source.version);
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sdk-qualification-"));
@@ -47,12 +48,12 @@ async function dependencies(content, config) {
   }
   return result;
 }
-async function update(content, config, next = "1.2.4") {
+async function update(content, config, next = "1.2.4", options = {}) {
   let changed = content;
   const initial = await dependencies(content, config);
   for (let index = 0; index < initial.length; index++) {
     const item = (await dependencies(changed, config))[index];
-    changed = await doAutoReplace({ ...getConfig(), ...item.manager, ...item.found, ...item.dep, manager: item.manager.manager, packageFile: file, depIndex: item.index, newValue: next }, changed, false);
+    changed = await doAutoReplace({ ...getConfig(), ...item.manager, ...item.found, ...item.dep, manager: item.manager.manager, packageFile: file, depIndex: item.index, newValue: next, ...options }, changed, false);
     assert.equal(typeof changed, "string");
   }
   return { content: changed, count: initial.length };
@@ -112,4 +113,39 @@ test("an aliased version shared with a foreign call is not silently rewritten", 
   catch (error) { assert.match(error.message, /file-update-failed/); return; }
   assert.equal(changed.content, content, "an indirect shared value is not a literal SDK input");
 });
+
+const aliasYaml = (uses, direction) => direction === "owned alias"
+  ? ["jobs:", "  foreign:", "    uses: other/library/.github/workflows/check.yml@v1", "    with: &sdk", "      rust-version: '1.2.3'", "  ours:", `    uses: ${uses}`, "    with: *sdk", ""].join("\n")
+  : ["jobs:", "  ours:", `    uses: ${uses}`, "    with: &sdk", "      rust-version: '1.2.3'", "  foreign:", "    uses: other/library/.github/workflows/check.yml@v1", "    with: *sdk", ""].join("\n");
+async function unchangedOrRefused(content, config, options) {
+  let changed;
+  try { changed = await update(content, config, "1.2.4", options); }
+  catch (error) { assert.match(error.message, /file-update-failed/); return; }
+  assert.equal(changed.content, content, "a shared SDK value must not rewrite a foreign call");
+}
+for (const [label, uses, config, direction] of [
+  ["relative", relative, self, "owned alias"],
+  ["qualified", fq, consumer, "foreign alias"],
+  ["relative", relative, self, "foreign alias"],
+]) {
+  test(`${label} ${direction} stays unchanged or is refused`, async () => {
+    await unchangedOrRefused(aliasYaml(uses, direction), config);
+  });
+}
+test("native YAML conversion exposes the same JSON data for aliases and repeated literal mappings", () => {
+  for (const direction of ["owned alias", "foreign alias"]) {
+    const aliased = aliasYaml(fq, direction);
+    const expanded = aliased.replace("with: &sdk", "with:").replace("with: *sdk", "with:\n      rust-version: '1.2.3'");
+    assert.equal(JSON.stringify(parseYaml(aliased)), JSON.stringify(parseYaml(expanded)));
+  }
+});
+for (const direction of ["owned alias", "foreign alias"]) {
+  test(`autoReplaceGlobalMatch false: ${direction} stays unchanged or is refused`, async () => {
+    const validation = await validateConfig("repo", { ...consumer, autoReplaceGlobalMatch: false });
+    assert.deepEqual(validation.errors, []);
+    assert.deepEqual(validation.warnings, []);
+    await unchangedOrRefused(aliasYaml(fq, direction), consumer, { autoReplaceGlobalMatch: false });
+  });
+}
+
 process.on("exit", () => { fs.rmSync(directory, { recursive: true, force: true }); memory.reset(); });

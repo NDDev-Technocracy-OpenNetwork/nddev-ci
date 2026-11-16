@@ -364,7 +364,10 @@ The self block has no dependency on another release of this repository.
 
 The required Linux check runs native Renovate qualification through its existing
 isolated job Docker provider. Its pinned test image is declared in
-`tests/fixtures/renovate/Dockerfile`. Qualification resolves the public preset at
+`tests/fixtures/renovate/Dockerfile`; a separate pinned candidate in
+`tests/fixtures/renovate-candidate/Dockerfile` runs the same mandatory suite without
+changing that dependency. Both directions of shared YAML aliases must be refused
+or left unchanged. Qualification resolves the public preset at
 the exact checked Git revision before testing extraction and actual replacements.
 It mounts only public fixture/configuration files and forwards no credential or
 host Docker socket to the engine. Docker-dependent qualification is separate from
