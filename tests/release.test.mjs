@@ -43,6 +43,11 @@ test("an ordinary release raises the last number of the newest release", () => {
   assert.equal(nextVersion({ tags: ["history/1"], initial: "1.0.0" }), "1.0.0");
 });
 
+test("a patch increment refuses the parser limit without changing the release line", () => {
+  assert.equal(nextVersion({ tags: ["v1.2.999999998"] }), "1.2.999999999");
+  assert.throws(() => nextVersion({ tags: ["v1.2.999999999"] }), ReleaseError);
+});
+
 test("a chosen version must be newer than every release", () => {
   const tags = ["v1.4.2"];
   assert.equal(nextVersion({ tags, explicit: "1.5.0" }), "1.5.0");
