@@ -3,6 +3,12 @@ description: >-
   Finds the newest commit of the source branch, ahead of the target, whose newest full check on a
   push passed. It moves nothing; the promote workflow does.
 inputs:
+  required-workflows:
+    description: Additional workflow file names that must qualify the same exact source, one per line.
+    default: ''
+  daily-release:
+    description: Publish at most one new release per UTC date; exact published replays remain allowed.
+    default: 'false'
   release-metadata:
     description: Checked JSON metadata file names with schema_version, source_commit and product version, one per line.
     default: ''
@@ -23,7 +29,7 @@ inputs:
     default: ${{ github.token }}
 outputs:
   state:
-    description: ready, current (nothing new) or unchecked (no new commit passed yet).
+    description: ready, current, unchecked, held by the daily limit, or release_pending for unfinished main publication.
   sha:
     description: The commit to promote when the state is ready.
 runs:

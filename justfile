@@ -45,6 +45,9 @@ check: (_tools "check")
     node --check lib/release-asset.mjs
     node --check lib/native-member.mjs
     node --check lib/dependency-report.mjs
+    node --check lib/ssh-connect.mjs
+    node --check tests/ssh-connect.test.mjs
+    node --check tests/read-keys.test.mjs
     node --check lib/dependency-source.mjs
     node --check lib/dependency-scan.mjs
     node --check actions/dependency-guard/run.mjs
@@ -87,6 +90,8 @@ check: (_tools "check")
     node --check tests/release-version.test.mjs
     node --check actions/release/run.mjs
     node --check tests/release.test.mjs
+    node --check lib/release-cadence.mjs
+    node --check tests/release-cadence.test.mjs
     node --check lib/promotion.mjs
     node --check actions/promote/run.mjs
     node --check tests/promotion.test.mjs

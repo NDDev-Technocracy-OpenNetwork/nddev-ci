@@ -13,6 +13,10 @@ jobs:
   promote:
     uses: ./.github/workflows/promote.yml
     with:
+      required-workflows: |
+        recipe-smoke.yml
+        qualification-smoke.yml
+      daily-release: true
       release-workflow: publish.yml
     # The deploy key lives in the promotion environment, which only dev may use.
     secrets: inherit # zizmor: ignore[secrets-inherit]

@@ -182,7 +182,14 @@ test("the release entrypoint publishes qualified files and checksums and reconci
     const body = Buffer.concat(chunks), route = req.url;
     const json = (value, status = 200) => { res.writeHead(status, {"content-type": "application/json"}); res.end(JSON.stringify(value)); };
     if (req.method !== "GET") mutations++;
-    if (route.includes("/workflows/")) { checks++; json(inventory()); }
+    if (route.includes("/workflows/")) {
+      checks++;
+      const name = route.split("/workflows/")[1].split("/")[0];
+      const value = inventory();
+      value.workflow_runs = value.workflow_runs.map((run) => ({...run, id: run.id + ({"ci.yml": 0, "portable.yml": 100, "artifact.yml": 200}[name]),
+        path: `.github/workflows/${name}`}));
+      json(value);
+    }
     else if (route.endsWith("/artifacts?per_page=100")) json(artifacts(artifact({size_in_bytes: bytes.length, digest: `sha256:${digest(bytes)}`})));
     else if (route.endsWith("/artifacts/9/zip")) res.end(bytes);
     else if (route.endsWith("/matching-refs/tags/v")) json(tags);
@@ -191,6 +198,7 @@ test("the release entrypoint publishes qualified files and checksums and reconci
       assert.deepEqual(JSON.parse(body), {ref: "refs/tags/v1.0.1", sha: where.sha});
       tags.push({ref: "refs/tags/v1.0.1", object: {type: "commit", sha: where.sha}}); json(tags[1]);
     } else if (route.endsWith("/releases/tags/v1.0.1")) json(release ?? {}, release ? 200 : 404);
+    else if (route.includes("/releases?per_page=100&page=")) json(release ? [release] : []);
     else if (route.endsWith("/releases?per_page=100")) json([]);
     else if (route.endsWith("/releases/generate-notes")) json({body: "Fixture changes"});
     else if (route.endsWith("/releases") && req.method === "POST") {
@@ -201,7 +209,7 @@ test("the release entrypoint publishes qualified files and checksums and reconci
       uploads.set(name, body); const asset = {name, size: body.length, digest: `sha256:${digest(body)}`};
       release.assets.push(asset); json(asset);
     } else if (route.endsWith("/releases/11") && req.method === "PATCH") {
-      Object.assign(release, JSON.parse(body)); json(release);
+      Object.assign(release, JSON.parse(body), {published_at: new Date(Date.now() - 1000).toISOString().replace(/\.\d{3}Z$/, "Z")}); json(release);
     } else { res.writeHead(404); res.end(); }
   });
   try {
@@ -211,7 +219,7 @@ test("the release entrypoint publishes qualified files and checksums and reconci
         stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...process.env,
           GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: temp,
           GITHUB_API_URL: api.url, GITHUB_SERVER_URL: "https://github.com", "INPUT_API-URL": api.url,
-          "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", "INPUT_WAIT-MINUTES": "0", INPUT_ARTIFACTS: "build",
+          "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", "INPUT_REQUIRED-WORKFLOWS": "portable.yml\nartifact.yml", "INPUT_DAILY-RELEASE": "true", "INPUT_WAIT-MINUTES": "0", INPUT_ARTIFACTS: "build",
           GITHUB_OUTPUT: path.join(temp, "outputs"), GITHUB_STEP_SUMMARY: path.join(temp, "summary")},
       });
       let output = "";
@@ -226,6 +234,35 @@ test("the release entrypoint publishes qualified files and checksums and reconci
     assert.equal(uploads.get("SHA256SUMS").toString(), `${digest(binary)}  program.bin\n`);
     assert.ok(checks >= 8, "each attempt rechecks qualification around transfer and publication");
   } finally { await close(api.server); rmSync(root, {recursive: true, force: true}); }
+});
+
+test("the actual daily publisher holds a second new source before creating any tag or draft", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "daily-publish-"));
+  let writes = 0;
+  const api = await listen(async (req, res) => {
+    for await (const chunk of req) { void chunk; }
+    if (req.method !== "GET") writes++;
+    const json = (value) => {res.writeHead(200, {"content-type": "application/json"});res.end(JSON.stringify(value));};
+    if (req.url.includes("/workflows/")) json(inventory());
+    else if (req.url.endsWith("/matching-refs/tags/v")) json([{ref: "refs/tags/v1.0.0", object: {type: "commit", sha: "b".repeat(40)}}]);
+    else if (req.url.includes("/releases?")) json([{id: 1, tag_name: "v1.0.0", draft: false,
+      published_at: new Date(Date.now() - 1000).toISOString().replace(/\.\d{3}Z$/, "Z")}]);
+    else {res.writeHead(404);res.end();}
+  });
+  try {
+    const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
+      stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...process.env,
+        GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: root,
+        GITHUB_API_URL: api.url, "INPUT_API-URL": api.url, "INPUT_GITHUB-TOKEN": "opaque-credential-fixture",
+        "INPUT_WAIT-MINUTES": "0", "INPUT_DAILY-RELEASE": "true", INPUT_ARTIFACTS: "", "INPUT_RELEASE-METADATA": "",
+        GITHUB_OUTPUT: path.join(root, "outputs"), GITHUB_STEP_SUMMARY: path.join(root, "summary")},
+    });
+    let output = "";child.stdout.on("data", (bytes) => {output += bytes;});child.stderr.on("data", (bytes) => {output += bytes;});
+    const [code] = await once(child, "close");
+    assert.equal(writes, 0, "a consumed date must prevent even the first mutation request");
+    assert.equal(code, 0, output);
+    assert.equal(readFileSync(path.join(root, "outputs"), "utf8"), "state=held\n");
+  } finally {await close(api.server);rmSync(root, {recursive: true, force: true});}
 });
 
 test("product promotion and publication refuse false checked metadata before any write", async () => {
@@ -294,4 +331,70 @@ test("product promotion and publication refuse false checked metadata before any
       }
     } finally {await close(api.server);rmSync(root, {recursive: true, force: true});}
   }
+});
+
+test("required workflow names are bounded and cannot repeat or leave the workflow directory", async () => {
+  const {qualificationWorkflows} = await import("../lib/qualification.mjs");
+  assert.deepEqual(qualificationWorkflows(".github/workflows/ci.yml", " portable.yml\r\nartifact.yml\n"),
+    [".github/workflows/ci.yml", ".github/workflows/portable.yml", ".github/workflows/artifact.yml"]);
+  for (const names of ["ci.yml", "portable.yml\nportable.yml", "../foreign.yml", "bad.yml?x", "a b.yml",
+    Array.from({length: 9}, (_, i) => `w${i}.yml`).join("\n")])
+    assert.throws(() => qualificationWorkflows(".github/workflows/ci.yml", names));
+});
+
+for (const variant of ["failed", "replaced", "foreign", "duplicate"])
+  test(`a ${variant} required workflow prevents promotion readiness and the publisher's first mutation`, async () => {
+    const {main: choose} = await import("../actions/promote/run.mjs");
+    const root = mkdtempSync(path.join(tmpdir(), "required-workflow-"));
+    let writes = 0, secondaryReads = 0;
+    const api = await listen(async (req, res) => {
+      for await (const chunk of req) {void chunk;}
+      if (req.method !== "GET") writes++;
+      if (req.method === "GET" && (req.url.includes("/git/ref/tags/") || req.url.includes("/releases/tags/"))) {
+        res.writeHead(404);res.end();return;
+      }
+      let value = inventory();
+      if (req.url.includes("/compare/")) value = {ahead_by: 1, behind_by: 0, total_commits: 1, commits: [{sha: where.sha}]};
+      else if (req.url.endsWith("/matching-refs/tags/v")) value = [];
+      else if (req.url.includes("/workflows/portable.yml/")) {
+        secondaryReads++;
+        value.workflow_runs = value.workflow_runs.map((run) => ({...run,
+          id: variant === "duplicate" ? run.id : run.id + 100,
+          path: variant === "foreign" ? ".github/workflows/foreign.yml" : ".github/workflows/portable.yml",
+          run_attempt: variant === "replaced" && secondaryReads > 1 ? 2 : 1,
+          conclusion: variant === "failed" || (variant === "replaced" && secondaryReads > 1) ? "failure" : "success"}));
+      }
+      res.writeHead(200, {"content-type": "application/json"});res.end(JSON.stringify(value));
+    });
+    try {
+      const env = {...process.env, GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: root,
+        GITHUB_API_URL: api.url, "INPUT_API-URL": api.url, "INPUT_GITHUB-TOKEN": "opaque-credential-fixture",
+        "INPUT_WAIT-MINUTES": "0", "INPUT_REQUIRED-WORKFLOWS": "portable.yml", INPUT_ARTIFACTS: "", "INPUT_RELEASE-METADATA": "",
+        GITHUB_OUTPUT: path.join(root, "promotion-output"), GITHUB_STEP_SUMMARY: path.join(root, "summary")};
+      if (variant === "failed") assert.equal((await choose(env)).state, "unchecked");
+      else {await assert.rejects(choose(env));assert.equal(existsSync(env.GITHUB_OUTPUT), false);}
+      assert.equal(writes, 0);
+      secondaryReads = 0;
+      const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
+        stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...env, GITHUB_OUTPUT: path.join(root, "outputs")},
+      });
+      let output = "";child.stdout.on("data", (bytes) => {output += bytes;});child.stderr.on("data", (bytes) => {output += bytes;});
+      const [code] = await once(child, "close");
+      assert.equal(writes, 0, "required workflows must stop the first publication mutation");
+      assert.equal(code, 1, output);assert.match(output, /No qualification|same run identity/);
+      assert.equal(existsSync(path.join(root, "outputs")), false);
+    } finally {await close(api.server);rmSync(root, {recursive: true, force: true});}
+  });
+
+test("a failed workflow ends a shared qualification wait while another workflow is pending", async () => {
+  const {qualifyWorkflows} = await import("../lib/qualification.mjs");
+  const github = {async json(_method, route) {
+    const value = inventory();
+    value.workflow_runs = value.workflow_runs.map((run) => route.includes("portable.yml")
+      ? {...run, id: run.id + 100, path: ".github/workflows/portable.yml", conclusion: "failure"}
+      : {...run, status: "in_progress", conclusion: null});
+    return value;
+  }};
+  await assert.rejects(qualifyWorkflows(github, where, "portable.yml", {waitMinutes: 30,
+    sleep: async () => assert.fail("a known failed workflow must not leave a pending waiter")}), /portable.yml/);
 });

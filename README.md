@@ -141,8 +141,14 @@ Managed runners retain their SDK instead.
 
 Private source reads use either `read-keys` deploy keys or a scoped GitHub App,
 never both. The App grants contents-read access only to the explicit same-organization
-repositories. Keys stay in the job's temporary directory; App tokens are revoked in
-cleanup. Merge stops receive neither credential. [check.yml](.github/workflows/check.yml) and
+repositories. Keys stay in the job's private temporary directory and are removed by completion on success,
+failure or cancellation; App tokens are revoked in cleanup. The key profile preserves one identity
+per repository and GitHub's pinned host keys. Connections and SSH negotiation have a 15-second
+bound; encrypted keepalives detect a dead peer after three unanswered 15-second probes. A declared
+`HTTPS_PROXY` (or `https_proxy`) uses a binary-safe HTTP CONNECT tunnel, with `NO_PROXY`/`no_proxy`
+matching hosts or domains and optional ports. HTTP and HTTPS proxy URLs are supported. The
+execution provider owns the route; the library contains no private endpoint. Proxy commands get
+a command shell even when the isolated account's login shell is disabled. Merge stops receive neither credential. [check.yml](.github/workflows/check.yml) and
 [recipe.yml](.github/workflows/recipe.yml) take the same inputs and optional secrets and run the
 same steps, so one job can read a superproject's modules and also build and test its images with
 `images: true` and keep `reports`.
@@ -319,6 +325,18 @@ pushes with a deploy key that has write access. The caller keeps it as `PROMOTIO
 environment, `promotion` by default, that only its `dev` branch may use, and calls the workflow
 with `secrets: inherit`. The library promotes itself this way once a day, so it publishes at most
 one release a day.
+
+Promotion and publication accept optional `required-workflows`, one workflow file name per line.
+Every additional workflow must qualify the same exact source/branch/event with its latest attempt,
+and all receipts are checked again before writes. `check-workflow` remains the artifact source.
+The library itself requires its portable floor and artifact-transfer smoke alongside `ci.yml`.
+
+Promotion and publication optionally accept `daily-release: true`, as this library's own workflows
+do. They permit one new immutable release per UTC date; replaying an already published exact
+source remains safe. Promotion resumes an unpublished `main` before moving to a later commit.
+A date already consumed returns `held` without a new tag/release; the next date can resume it.
+Existing callers keep their cadence unless they enable this contract. Publication must run through
+the serial release workflow, which checks the date again immediately before making a draft public.
 
 ## Merge on green without branch rules
 
