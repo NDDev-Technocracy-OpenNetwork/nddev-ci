@@ -356,12 +356,6 @@ Every additional workflow must qualify the same exact source/branch/event with i
 and all receipts are checked again before writes. `check-workflow` remains the artifact source.
 The library itself requires its portable floor and artifact-transfer smoke alongside `ci.yml`.
 
-Promotion and publication optionally accept `daily-release: true`. They permit one new immutable release per UTC date; replaying an already published exact
-source remains safe. Promotion resumes an unpublished `main` before moving to a later commit.
-A date already consumed returns `held` without a new tag/release; the next date can resume it.
-Existing callers keep their cadence unless they enable this contract. Publication must run through
-the serial release workflow, which checks the date again immediately before making a draft public.
-
 ## Merge on green without branch rules
 
 A private repository on GitHub's free plan has no branch rules, so GitHub's auto-merge cannot

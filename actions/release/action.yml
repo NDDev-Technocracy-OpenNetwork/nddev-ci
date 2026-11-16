@@ -6,9 +6,6 @@ inputs:
   required-workflows:
     description: Additional workflow file names that must qualify the same exact source, one per line.
     default: ''
-  daily-release:
-    description: Publish at most one new release per UTC date; exact published replays remain allowed.
-    default: 'false'
   release-metadata:
     description: Checked JSON metadata file names with schema_version, source_commit and product version, one per line.
     default: ''
@@ -41,7 +38,7 @@ inputs:
     default: ''
 outputs:
   state:
-    description: published or held by the daily limit.
+    description: published.
   version:
     description: The released version.
   tag:

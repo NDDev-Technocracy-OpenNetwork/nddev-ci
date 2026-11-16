@@ -3,8 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { client, qualifyWorkflows, qualificationWorkflows, recheck, transferArtifacts } from "../../lib/qualification.mjs";
 import { releaseVersion } from "../../lib/release-version.mjs";
-import { selectPromotion, selectDailyPromotion } from "../../lib/promotion.mjs";
-import { dailyEnabled } from "../../lib/release-cadence.mjs";
+import { selectPromotion } from "../../lib/promotion.mjs";
 
 export async function main(environment = process.env) {
   const input = (name) => environment[`INPUT_${name.toUpperCase()}`] || "";
@@ -12,8 +11,7 @@ export async function main(environment = process.env) {
   if (!token) throw new Error("A read token is required to choose the commit.");
   const github = client(token, environment.GITHUB_API_URL);
   const workflows = qualificationWorkflows(`.github/workflows/${input("check-workflow") || "ci.yml"}`, input("required-workflows"));
-  const choose = dailyEnabled(input("daily-release")) ? selectDailyPromotion : selectPromotion;
-  const result = await choose(github, {
+  const result = await selectPromotion(github, {
     repository: environment.GITHUB_REPOSITORY,
     workflowPath: `.github/workflows/${input("check-workflow") || "ci.yml"}`,
     requiredWorkflows: input("required-workflows"),
@@ -40,8 +38,6 @@ export async function main(environment = process.env) {
   appendFileSync(environment.GITHUB_OUTPUT, `state=${result.state}\nsha=${result.sha ?? ""}\n`);
   console.log(result.state === "ready" ? `Promoting ${result.sha}, checked by run ${result.run_id}.`
     : result.state === "current" ? "Nothing new to promote."
-    : result.state === "held" ? "A release was already published on this UTC date; promotion waits."
-    : result.state === "release_pending" ? "Resuming the unfinished publication of main."
     : "No new commit has a passed check yet.");
   return result;
 }
