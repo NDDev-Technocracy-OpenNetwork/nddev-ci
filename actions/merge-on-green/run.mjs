@@ -8,7 +8,7 @@ export async function main(environment = process.env) {
   const token = input("github-token");
   if (!token) throw new Error("A read token is required to choose the pull request.");
   const result = await selectMerge(client(token, environment.GITHUB_API_URL), {
-    repository: environment.GITHUB_REPOSITORY, sha: input("sha"),
+    repository: environment.GITHUB_REPOSITORY, sha: input("sha"), requiredChecks: input("required-checks"),
     label: input("label") || "merge-on-green", self: input("self") || "merge on green",
   });
   appendFileSync(environment.GITHUB_OUTPUT,

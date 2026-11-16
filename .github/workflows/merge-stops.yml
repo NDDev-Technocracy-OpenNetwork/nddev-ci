@@ -28,7 +28,9 @@ permissions: {}
 
 jobs:
   merge-stops:
-    name: merge stops
+    name: ${{ (github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'runner:github')) && 'merge stops' || 'ignored merge stops' }}
+    # Non-executing results must not reuse the mandatory context. GitHub may report a skipped
+    # name expression unevaluated; either representation stays separate from real work.
     # A new label reruns the stops only when it chooses the runner.
     if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'runner:github')
     # Public repositories always run on GitHub's runners; an unknown hosted label fails below.

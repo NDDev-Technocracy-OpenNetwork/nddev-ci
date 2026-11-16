@@ -373,6 +373,17 @@ every check of that exact commit passed. It pushes the merge commit with the sam
 as promotion, so a change of workflow files merges too and the base branch's check starts. Label
 the pull request when it is opened; the update bots add the label themselves.
 
+`required-checks` declares the mandatory check names, one per line. Its default is the standard
+short check and its nested merge stops. A caller with other native jobs supplies its complete
+mandatory set, including every required platform and the merge stops. Empty, duplicate or
+self-excluded names fail. Each newest named result must succeed from the GitHub Actions
+integration on the exact head; missing, pending, skipped, neutral or failed mandatory results
+cannot merge. Earlier success cannot replace a newer unsuccessful result. Optional jobs may
+still skip or finish neutral. Incomplete, changing or foreign check inventories fail.
+Unrelated labels leave prior mandatory results intact and use a separate optional context for
+ignored jobs. GitHub may display their name expressions unevaluated. The runner-selection label
+still executes the real checks with their normal names; it does not take the ignored path.
+
 ```yaml
 name: merge on green
 on:

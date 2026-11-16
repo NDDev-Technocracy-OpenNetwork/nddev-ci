@@ -1,10 +1,13 @@
 name: Choose the pull request to merge
 description: >-
   Finds the open pull request of this repository whose head is the commit, which carries the label
-  and whose every check on that commit passed. It merges nothing; the merge-on-green workflow does.
+  and whose mandatory Actions checks on that commit succeeded. It merges nothing; the merge-on-green workflow does.
 inputs:
   sha:
     description: The commit whose checks finished.
+    required: true
+  required-checks:
+    description: Mandatory check names, one per line; each must succeed from GitHub Actions on the exact head.
     required: true
   label:
     description: The label that asks for a merge on green.

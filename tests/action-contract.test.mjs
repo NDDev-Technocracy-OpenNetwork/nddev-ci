@@ -76,3 +76,29 @@ test("check and recipe begin with prepare and end with complete", () => {
     assert.equal(targets.at(-1), "actions/complete", workflow);
   }
 });
+
+// A skipped job still creates a GitHub check. Its optional name must follow the same predicate
+// as execution; real work keeps its required context. Actual event transitions qualify this on
+// GitHub as well, because source assertions alone do not prove skipped-name evaluation.
+function jobContract(workflow, id) {
+  const source = read(`.github/workflows/${workflow}`);
+  const block = source.split(`\n  ${id}:\n`)[1]?.split(/\n  [a-z][a-z0-9-]*:\n/)[0];
+  assert.ok(block, `${workflow}:${id} exists`);
+  const value = (name) => block.match(new RegExp(`^    ${name}: (.+)$`, "m"))?.[1];
+  return {name: value("name"), condition: value("if")};
+}
+
+test("unrelated labels cannot own the mandatory native context", () => {
+  const {name, condition} = jobContract("check.yml", "check");
+  assert.equal(condition, "github.event.action != 'labeled' || github.event.label.name == 'runner:github'");
+  assert.equal(name,
+    `\${{ (${condition}) && (github.event_name == 'pull_request' && 'short check' || 'full check') || 'ignored label' }}`,
+    "unrelated label must not own the mandatory short-check context");
+});
+
+test("non-executing merge stops cannot own the mandatory context", () => {
+  const {name, condition} = jobContract("merge-stops.yml", "merge-stops");
+  assert.equal(condition, "github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'runner:github')");
+  assert.equal(name, `\${{ (${condition}) && 'merge stops' || 'ignored merge stops' }}`,
+    "non-executing merge stops must not own the mandatory context");
+});
