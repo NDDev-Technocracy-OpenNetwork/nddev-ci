@@ -82,6 +82,10 @@ check: (_tools "check")
     node --check actions/job-record/run.mjs
     node --check tests/job-record.test.mjs
     node --check lib/qualification.mjs
+    node --check lib/commit-status.mjs
+    node --check actions/require-status/run.mjs
+    node --check tests/commit-status.test.mjs
+    node --check tests/commit-status-native.mjs
     node --check actions/qualify/run.mjs
     node --check actions/checked-artifacts/run.mjs
     node --check tests/qualification.test.mjs

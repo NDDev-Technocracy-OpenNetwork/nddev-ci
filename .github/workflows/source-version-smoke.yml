@@ -1,0 +1,44 @@
+name: trusted source status
+
+on:
+  pull_request:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  fixture:
+    # Forks cannot write statuses; the ordinary read-only unit suite still covers them.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      statuses: write
+    outputs:
+      context: ${{ steps.fixture.outputs.context }}
+      creator: ${{ steps.fixture.outputs.creator }}
+    steps:
+      - name: Outside telemetry off
+        uses: $/actions/telemetry
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Exercise the actual status API in an isolated fixture context
+        id: fixture
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node tests/commit-status-native.mjs
+  gate:
+    needs: fixture
+    uses: ./.github/workflows/source-version.yml
+    permissions:
+      statuses: read
+    with:
+      context: ${{ needs.fixture.outputs.context }}
+      creator-id: ${{ needs.fixture.outputs.creator }}
+      maximum-statuses: 1000
