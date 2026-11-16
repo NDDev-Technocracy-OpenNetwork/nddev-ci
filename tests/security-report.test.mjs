@@ -21,7 +21,7 @@ function report(files = {}) {
     mkdirSync(bin);
     writeFileSync(path.join(bin, "gh"), "#!/bin/sh\necho unexpected-issue-api >&2\nexit 99\n", {mode: 0o755});
     const summary = path.join(root, "summary.md");
-    const result = spawnSync("bash", ["-euo", "pipefail", "-c", script], {cwd: root, encoding: "utf8",
+    const result = spawnSync("bash", ["-euo", "pipefail", "-s"], {cwd: root, encoding: "utf8", input: script,
       env: {...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, RUNNER_TEMP: root, ALLOWED: "MIT", POLICY: "", RUN: "https://example.test/run/1", GITHUB_STEP_SUMMARY: summary}});
     assert.ifError(result.error);
     const jsonFile = path.join(out, "security-report.json");
