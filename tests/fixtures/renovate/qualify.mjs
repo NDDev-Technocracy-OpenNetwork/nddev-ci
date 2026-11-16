@@ -17,6 +17,8 @@ const { doAutoReplace } = await import(engine + "workers/repository/update/branc
 const { validateConfig } = await import(engine + "config/validation.js");
 const memory = await import(engine + "util/cache/memory/index.js");
 const { parseYaml, parseSingleYamlDocument } = await import(engine + "util/yaml.js");
+const nativeLogger = await import(engine + "logger/index.js");
+await nativeLogger.init();
 const source = JSON.parse(fs.readFileSync("/fixture/source.json", "utf8"));
 assert.equal(JSON.parse(fs.readFileSync("/usr/local/renovate/package.json", "utf8")).version, source.version);
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sdk-qualification-"));
@@ -27,7 +29,10 @@ const file = ".github/workflows/ci.yml";
 const reference = `github>${source.repository}:renovate-sdk-inputs#${source.revision}`;
 // Native GitHub preset loading performs the real public Contents API read at this exact commit.
 // There is no seeded preset cache, source-loader replacement or credential input.
-const { config: consumer } = await resolveConfigPresets({ extends: [reference] });
+let consumer;
+nativeLogger.levels("stdout", "debug");
+try { ({ config: consumer } = await resolveConfigPresets({ extends: [reference] })); }
+finally { nativeLogger.levels("stdout", "info"); }
 const self = JSON.parse(fs.readFileSync("/fixture/self.json", "utf8"));
 const localPreset = JSON.parse(fs.readFileSync("/fixture/preset.json", "utf8"));
 const fq = "NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@" + "a".repeat(40);
