@@ -137,7 +137,8 @@ Native tools such as FFmpeg require a separately qualified provider and the proj
 complete acceptance tests. A language SDK or Python wrapper supplies neither.
 [release-assets](actions/release-assets/action.yml) prepares explicitly declared
 public archive members, checking archive and executable digests before adding PATH.
-Managed runners retain their SDK instead.
+Member paths keep their exact archive spelling, including one leading `./`; the remaining
+components must be nonempty and contain no `.` or `..`. Managed runners retain their SDK instead.
 
 Private source reads use either `read-keys` deploy keys or a scoped GitHub App,
 never both. The App grants contents-read access only to the explicit same-organization
