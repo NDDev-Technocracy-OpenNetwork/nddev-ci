@@ -17,9 +17,9 @@ jobs:
       hosted-runner: ${{ matrix.os }}
       node-version: '26.13.1'
       python-version: '3.15.2'
-      uv-version: '0.13.7'
+      uv-version: '0.13.8'
       bun-version: '1.4.4'
-      rust-version: '1.99.1'
+      rust-version: '1.100.0'
       rust-components: clippy,rustfmt
       prepare: environment-probe
       recipe: script-probe
@@ -47,9 +47,9 @@ jobs:
         with:
           node-version: '26.13.1'
           python-version: '3.15.2'
-          uv-version: '0.13.7'
+          uv-version: '0.13.8'
           bun-version: '1.4.4'
-          rust-version: '1.99.1'
+          rust-version: '1.100.0'
           rust-components: clippy,rustfmt
           # Temurin publishes no JDK for Windows on ARM64.
           java-version: ${{ (runner.os != 'Windows' || runner.arch != 'ARM64') && '25.0.5' || '' }}
@@ -74,7 +74,7 @@ jobs:
         with:
           node-version: '26.13.1'
           python-version: '3.15.2'
-          uv-version: '0.13.7'
+          uv-version: '0.13.8'
       - name: Require the repeated preparation to measure the same versions
         env:
           SDK_RECEIPT: ${{ steps.sdk-again.outputs.receipt }}
