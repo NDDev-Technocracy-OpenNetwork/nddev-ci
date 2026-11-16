@@ -12,6 +12,12 @@ name: merge on green
 on:
   workflow_call:
     inputs:
+      required-checks:
+        description: All mandatory native and merge-stop check names, one per line; optional skips cannot replace their success.
+        type: string
+        default: |
+          check / short check
+          check / merge-stops / merge stops
       label:
         description: The label that asks for a merge on green.
         type: string
@@ -54,6 +60,7 @@ jobs:
         with:
           sha: ${{ github.event.workflow_run.head_sha }}
           label: ${{ inputs.label }}
+          required-checks: ${{ inputs.required-checks }}
 
       - name: Merge into the base branch
         if: steps.choose.outputs.state == 'ready'
