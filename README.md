@@ -348,6 +348,29 @@ jobs:
       statuses: read
 ```
 
+## Renovate SDK inputs
+
+The `renovate-sdk-inputs` preset tracks literal SDK versions passed to this library's
+fully qualified workflow and action calls. A consumer can extend
+`github>NDDev-Technocracy-OpenNetwork/nddev-ci:renovate-sdk-inputs#<release tag>`.
+Renovate continues to own action/workflow pins. Expression-valued, non-scalar and
+malformed inputs are not selected as literal SDK versions.
+
+The library's own `renovate.json` has a generated manager for its relative and self
+calls. Both forms come from `lib/renovate-sdk.mjs`; edit that definition and run
+`just fix`. `just check` checks freshness offline. Regeneration preserves unrelated
+repository settings and managers, and refuses duplicate ownership of the SDK block.
+The self block has no dependency on another release of this repository.
+
+The required Linux check runs native Renovate qualification through its existing
+isolated job Docker provider. Its pinned test image is declared in
+`tests/fixtures/renovate/Dockerfile`. Qualification resolves the public preset at
+the exact checked Git revision before testing extraction and actual replacements.
+It mounts only public fixture/configuration files and forwards no credential or
+host Docker socket to the engine. Docker-dependent qualification is separate from
+the portable `tests/*.test.mjs` suite. Native qualification requires a published
+source revision and network access to GitHub's public Contents API.
+
 ## Developing the library
 
 ```sh
