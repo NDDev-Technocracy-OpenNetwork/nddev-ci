@@ -169,8 +169,10 @@ runs:
           exit 0
         fi
         folder="$RUNNER_TEMP/nddev-ci/ssh"
+        rm -rf -- "$folder"
         mkdir -p "$folder"
         chmod 0700 "$folder"
+        trap 'read_status=$?; if [ "$read_status" -ne 0 ]; then rm -rf -- "$folder"; fi' EXIT
         # GitHub's published host keys, the same on github.com and on ssh.github.com:443.
         cat > "$folder/known_hosts" <<'KEYS'
         github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
@@ -188,10 +190,20 @@ runs:
             *"-----END OPENSSH PRIVATE KEY-----"*) ;;
             *) echo "::error::read-keys has no OpenSSH private key for $repository"; exit 1 ;;
           esac
-          alias="read-${repository//\//-}"
+          # Flattening owner/repository mixes identities for names such as a-b/c and a/b-c.
+          alias="read-$(CI_READ_REPOSITORY="$repository" node -e 'process.stdout.write(require("node:crypto").createHash("sha256").update(process.env.CI_READ_REPOSITORY.toLowerCase()).digest("hex"))')"
+          if [ -e "$folder/$alias" ]; then
+            echo "::error::read-keys repeats a repository identity"
+            exit 1
+          fi
           (umask 077 && printf '%s' "$key" > "$folder/$alias")
-          printf 'Host %s\n  HostName ssh.github.com\n  Port 443\n  User git\n  HostKeyAlias github.com\n  UserKnownHostsFile %s\n  StrictHostKeyChecking yes\n  IdentityFile %s\n  IdentitiesOnly yes\n' \
+          printf 'Host %s\n  HostName ssh.github.com\n  Port 443\n  User git\n  HostKeyAlias github.com\n  UserKnownHostsFile "%s"\n  StrictHostKeyChecking yes\n  IdentityFile "%s"\n  IdentitiesOnly yes\n  BatchMode yes\n  ConnectTimeout 15\n  ConnectionAttempts 1\n  ServerAliveInterval 15\n  ServerAliveCountMax 3\n' \
             "$alias" "$folder/known_hosts" "$folder/$alias" >> "$config"
+          if [ -n "${HTTPS_PROXY:-${https_proxy:-}}" ]; then
+            relay="$GITHUB_ACTION_PATH/../../lib/ssh-connect.mjs"
+            relay=${relay//%/%%}
+            printf '  ProxyCommand node %q %%h %%p\n' "$relay" >> "$config"
+          fi
           for address in "git@github.com:$repository" "ssh://git@github.com/$repository" "https://github.com/$repository"; do
             {
               echo "GIT_CONFIG_KEY_$count=url.$alias:$repository.insteadOf"
@@ -226,9 +238,10 @@ runs:
         add
         {
           echo "GIT_CONFIG_COUNT=$count"
-          echo "GIT_SSH_COMMAND=ssh -F $config"
+          printf 'GIT_SSH_COMMAND=env SHELL=%q ssh -F %q\n' "$(command -v sh)" "$config"
         } >> "$GITHUB_ENV"
         echo "Read keys for $((count / 3)) repositories."
+        trap - EXIT
 
     - name: Scoped App read token
       id: read-app-token
