@@ -107,6 +107,11 @@ runs:
         include-hidden-files: false
         retention-days: 14
 
+    - name: Remove read keys
+      if: always()
+      shell: bash
+      run: rm -rf -- "$RUNNER_TEMP/nddev-ci/ssh"
+
     - name: Revoke App read token
       if: always() && inputs.read-token != ''
       uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
