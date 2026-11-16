@@ -1,1 +1,0 @@
-FROM ghcr.io/renovatebot/renovate:44.236.4@sha256:c00542ee2c0ca5623fd9e98b3878ae175ddc7b6a695c7bd04aceba8a9b44d0e4

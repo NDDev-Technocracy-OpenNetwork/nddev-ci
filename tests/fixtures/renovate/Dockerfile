@@ -1,1 +1,4 @@
-FROM ghcr.io/renovatebot/renovate:44.234.1@sha256:7f97a190186bbb994ace854b17afe29e3c37c1f672a2b2d28ebd433c17a612df
+# The build argument is the local image imported from this qualified, digest-verified OCI artifact.
+# qualified-runtime: {"qualification":{"schema_version":1,"repository":"rldyourmnd/renovate","sha":"955bc7e6f11f781172eafc8792993d6159eaed10","workflowPath":".github/workflows/alias-runtime.yml","branch":"fix/jsonata-yaml-alias-runtime","event":"push","run_id":43813227486,"run_attempt":1,"run_number":5,"run_started_at":"2026-11-16T05:54:17Z"},"artifact":{"id":14201521210,"name":"temporary-alias-runtime-955bc7e6f11f781172eafc8792993d6159eaed10","digest":"sha256:c421f2b3854213613176a48e7fdd1163110244568f41d660ab9ceef461a1b667"},"version":"44.236.4-nddev.1","manifestDigest":"sha256:8854037d7bc43f12f607e659f7fe1797253a7a07e257b2eaa3f9a3ce22f73b49","configDigest":"sha256:6f181385c10e52bcbd67f77676c52a54408b70fed05ce60aa37020377331668d","archiveSha256":"sha256:a4e7cbe311e2c384ff7d14e029d00aeaa5acde8bf6864260bec8b4c81a49a787"}
+ARG RUNTIME_IMAGE
+FROM ${RUNTIME_IMAGE}

@@ -380,17 +380,24 @@ calls. Both forms come from `lib/renovate-sdk.mjs`; edit that definition and run
 repository settings and managers, and refuses duplicate ownership of the SDK block.
 The self block has no dependency on another release of this repository.
 
+Both SDK managers set `yamlMaxAliasCount: 0`. A file containing any YAML alias is
+excluded from SDK extraction, even when the alias is outside the matched input.
+Renovate reports the skipped file with a warning; literal files remain supported.
+
 The required Linux check runs native Renovate qualification through its existing
-isolated job Docker provider. Its pinned test image is declared in
-`tests/fixtures/renovate/Dockerfile`; a separate pinned candidate in
-`tests/fixtures/renovate-candidate/Dockerfile` runs the same mandatory suite without
-changing that dependency. Both directions of shared YAML aliases must be refused
-or left unchanged. Qualification resolves the public preset at
-the exact checked Git revision before testing extraction and actual replacements.
-It mounts only public fixture/configuration files and forwards no credential or
-host Docker socket to the engine. Docker-dependent qualification is separate from
-the portable `tests/*.test.mjs` suite. Native qualification requires a published
-source revision and network access to GitHub's public Contents API.
+isolated hosted job Docker provider. `tests/fixtures/renovate/Dockerfile` binds the
+qualified temporary OCI image to its source, successful run, artifact and image
+digests. The existing checked-artifact reader verifies and downloads that artifact;
+the fixture imports it without rebuilding the engine. Expired artifacts, missing
+read access or a changed qualification fail the check instead of selecting an old
+runtime.
+
+Qualification resolves the public preset at the exact checked Git revision before
+testing extraction and actual replacements. Both shared-alias ownership directions
+must refuse extraction before updates and report the skipped file. The container
+receives only public fixture/configuration files and the hosted job's short-lived
+public-read token; no host credential, private source or Docker socket is mounted.
+Docker-dependent qualification stays separate from the offline `just check`.
 
 ## Developing the library
 

@@ -28,7 +28,10 @@ memory.init();
 const file = ".github/workflows/ci.yml";
 const reference = `github>${source.repository}:renovate-sdk-inputs#${source.revision}`;
 // Native GitHub preset loading performs the real public Contents API read at this exact commit.
-// There is no seeded preset cache, source-loader replacement or credential input.
+// No preset cache or source loader is replaced. The hosted job supplies its short-lived public-read token.
+const fixtureHostRules = await import(engine + "util/host-rules.js");
+assert.ok(process.env.GITHUB_TOKEN, "the hosted job public-read token is required");
+fixtureHostRules.add({ hostType: "github", matchHost: `https://api.github.com/repos/${source.repository}`, readOnly: true, token: process.env.GITHUB_TOKEN });
 let consumer;
 nativeLogger.levels("stdout", "debug");
 try { ({ config: consumer } = await resolveConfigPresets({ extends: [reference] })); }
@@ -113,6 +116,7 @@ test("replacement selects the owned call without touching equal foreign values o
 });
 test("an aliased version shared with a foreign call is not silently rewritten", async () => {
   const content = ["jobs:", "  foreign:", "    uses: other/library/.github/workflows/check.yml@v1", "    with: &sdk", "      rust-version: '1.2.3'", "  ours:", `    uses: ${fq}`, "    with: *sdk", ""].join("\n");
+  assert.equal((await dependencies(content, consumer)).length, 0, "alias input must refuse extraction before any update");
   let changed;
   try { changed = await update(content, consumer); }
   catch (error) { assert.match(error.message, /file-update-failed/); return; }
@@ -123,6 +127,7 @@ const aliasYaml = (uses, direction) => direction === "owned alias"
   ? ["jobs:", "  foreign:", "    uses: other/library/.github/workflows/check.yml@v1", "    with: &sdk", "      rust-version: '1.2.3'", "  ours:", `    uses: ${uses}`, "    with: *sdk", ""].join("\n")
   : ["jobs:", "  ours:", `    uses: ${uses}`, "    with: &sdk", "      rust-version: '1.2.3'", "  foreign:", "    uses: other/library/.github/workflows/check.yml@v1", "    with: *sdk", ""].join("\n");
 async function unchangedOrRefused(content, config, options) {
+  assert.equal((await dependencies(content, config)).length, 0, "alias input must refuse extraction before any update");
   let changed;
   try { changed = await update(content, config, "1.2.4", options); }
   catch (error) { assert.match(error.message, /file-update-failed/); return; }
