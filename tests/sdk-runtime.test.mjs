@@ -49,7 +49,7 @@ function rustProfile() {
   environment.SDK_RUST_VERSION = compiler.match(/^release: (\d+\.\d+\.\d+)$/m)?.[1];
   assert.ok(environment.SDK_RUST_VERSION, compiler);
   environment.RUSTUP_TOOLCHAIN = environment.SDK_RUST_VERSION;
-  const host = compiler.match(/^host: ([a-z0-9-]+)$/m)?.[1];
+  const host = compiler.match(/^host: ([a-z0-9_-]+)$/m)?.[1];
   assert.ok(host, compiler);
   const inventory = (kind, installed = true) => read("rustup", [
     kind, "list", "--toolchain", environment.SDK_RUST_VERSION, "--quiet", ...(installed ? ["--installed"] : []),
@@ -67,7 +67,9 @@ test("a complete Rust profile verifies requested components and targets for the 
   if (components.includes("rust-src")) requested.push("rust-src");
   const root = mkdtempSync(path.join(tmpdir(), "managed-rust-sdk-"));
   try {
-    const receipt = verify({...environment, RUSTUP_TOOLCHAIN: "0.0.0", RUSTUP_AUTO_INSTALL: "0",
+    assert.throws(() => verify({...environment, RUSTUP_TOOLCHAIN: "0.0.0",
+      SDK_RUST_COMPONENTS: "rustfmt"}), /selected rust/);
+    const receipt = verify({...environment,
       SDK_RUST_COMPONENTS: requested.join(","), SDK_RUST_TARGETS: host});
     assert.equal(receipt.versions.rust, environment.SDK_RUST_VERSION);
     assert.deepEqual(inventory("component"), components);
