@@ -110,3 +110,22 @@ test("a present compiler cannot issue a receipt for a missing Rust component or 
     assert.deepEqual(inventory("target"), before.targets);
   } finally { rmSync(root, {recursive: true, force: true}); }
 });
+
+test("Java verification checks the installed runtime build rather than only its update", () => {
+  if (process.platform === "win32" && process.arch === "arm64") {
+    assert.throws(() => verify({...process.env, SDK_RUNNER_ENVIRONMENT: "github-hosted",
+      SDK_JAVA_VERSION: "25.0.5+9"}), /Windows on ARM64/);
+    return;
+  }
+  const measured = spawnSync("java", ["-XshowSettings:properties", "-version"], {
+    encoding: "utf8", windowsHide: true, timeout: 30000,
+  });
+  assert.equal(measured.status, 0, "The CI profile must supply its declared Java runtime.");
+  const full = measured.stderr.match(/^\s*java\.runtime\.version = (\d+(?:\.\d+){2,3}\+\d+)(?:-LTS)?\s*$/m)?.[1];
+  assert.ok(full, "The Java runtime must report an exact stable runtime build.");
+  const environment = {...process.env, SDK_RUNNER_ENVIRONMENT: "github-hosted", SDK_JAVA_VERSION: full};
+  assert.equal(verify(environment).versions.java, full);
+  const [version, build] = full.split("+");
+  assert.equal(verify({...environment, SDK_JAVA_VERSION: version}).versions.java, version);
+  assert.throws(() => verify({...environment, SDK_JAVA_VERSION: version + "+" + (Number(build) + 1)}), /selected java/);
+});

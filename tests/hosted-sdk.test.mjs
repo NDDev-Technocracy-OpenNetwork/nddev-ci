@@ -221,3 +221,29 @@ test("the actual SDK cache save condition admits only integration-branch writers
     }
   }
 });
+
+test("native Rust target lists preserve underscores and reject malformed lists", () => {
+  const base = {...hosted, SDK_RUST_VERSION: "1.99.1", SDK_RUST_COMPONENTS: "clippy"};
+  for (const targets of [
+    "aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios",
+    "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android",
+    "x86_64-unknown-linux-gnu",
+  ]) assert.deepEqual(selections({...base, SDK_RUST_TARGETS: targets}), {rust: "1.99.1"});
+  for (const targets of [",x86_64-apple-ios", "x86_64-apple-ios,", "aarch64-apple-ios,,x86_64-apple-ios",
+    "x86_64-apple-ios\n", " x86_64-apple-ios", "x86_64-apple-ios, x86_64-linux-android",
+    "--target=x86_64-apple-ios", "x86_64/apple/ios", "x86_64-apple-ios;echo", "$(command)", "*"]) {
+    assert.throws(() => selections({...base, SDK_RUST_TARGETS: targets}), targets);
+  }
+});
+
+test("exact Java update and build identifiers survive selection and cache planning", () => {
+  for (const version of ["25.0.5", "25.0.5+9", "25.0.4.1", "25.0.4.1+1"]) {
+    const selected = {...hosted, SDK_JAVA_VERSION: version};
+    assert.deepEqual(selections(selected), {java: version});
+    assert.deepEqual(cachePlan(selected), {key: "", paths: []});
+  }
+  for (const version of ["25", "25.0", "25.x", "latest", "stable", ">=25.0.4", "25.0.4-ea",
+    "25.0.4.1+1-ea", "25.0.4.1+", "25.0.4.1+01", "025.0.4", "25.00.4", "25.0.4\n", "25.0.4+1\n",
+    " 25.0.4.1+1", "25.0.4.1+1,26.0.0", "$(command)"])
+    assert.throws(() => selections({...hosted, SDK_JAVA_VERSION: version}), version);
+});
