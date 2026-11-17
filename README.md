@@ -4,9 +4,9 @@ Reusable checks, builds and publication through a project's own `just` commands.
 Projects own their checks and artifacts; this library prepares the execution tools,
 runs those commands and enforces the merge and release boundaries.
 
-Copy a caller from [examples](examples), pin a released commit with its version in
-the comment, and let the update bot (Renovate, or Dependabot) propose later releases. Input descriptions live in
-the linked workflow and action declarations.
+Copy a caller from [examples](examples) and replace `RELEASE_COMMIT` and `RELEASE_VERSION`
+with the commit SHA and tag of the [latest release](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-ci/releases/latest).
+Let Renovate or Dependabot update the pin. Each workflow and action declaration documents its inputs.
 
 ## Entry points
 
