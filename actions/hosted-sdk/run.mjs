@@ -88,14 +88,20 @@ export function cachePlan(environment, platform = process.platform) {
   };
 }
 
-/** Reads the reported update, or its full stable runtime build when requested. */
+/** Measures Java release/build identity in the selected SDK spelling. */
 export function javaVersion(text, requested) {
+  const canonical = (value) => /^[1-9][0-9]*(?:\.(?:0|[1-9][0-9]*)){0,3}$/.test(value ?? "")
+    ? value.replace(/(?:\.0)+$/, "") : undefined;
   const version = text.match(/^openjdk ([0-9][^\s]*)(?: |$)/m)?.[1];
-  if (!requested.includes("+")) return version;
-  // Java's first line omits the build; Temurin reports it in the runtime banner.
+  const actual = canonical(version), release = requested.split("+")[0];
+  if (!actual) return undefined;
+  // Runtime.Version omits trailing zero release fields; the SDK keeps its exact input tuple.
+  if (!requested.includes("+")) return actual === canonical(release) ? requested : version;
   const runtime = text.match(/^OpenJDK Runtime Environment[^\r\n]*\(build ([^)\s]+)\)/m)?.[1]
     ?.replace(/-LTS$/, "");
-  return runtime?.split("+")[0] === version ? runtime : undefined;
+  const parts = runtime?.match(/^([0-9.]+)\+(0|[1-9][0-9]*)$/);
+  if (!parts || canonical(parts[1]) !== actual) return undefined;
+  return actual === canonical(release) ? release + "+" + parts[2] : runtime;
 }
 
 function measure(name, environment) {

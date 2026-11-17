@@ -259,3 +259,12 @@ test("Java runtime banners preserve patch and build identity without accepting m
   assert.equal(javaVersion(output.replace("openjdk 25.0.4.1 ", "openjdk 25.0.4 "), "25.0.4.1+1"), undefined);
   assert.notEqual(javaVersion(output.replace(/\+1/g, "+1-ea"), "25.0.4.1+1"), "25.0.4.1+1");
 });
+
+test("Java VM omission of zero release fields preserves the exact selected SDK tuple", () => {
+  const ga = "openjdk 25 2025-09-16\nOpenJDK Runtime Environment Temurin-25+36 (build 25+36)\n";
+  assert.equal(javaVersion(ga, "25.0.0+36"), "25.0.0+36");
+  assert.equal(javaVersion(ga, "25.0.0"), "25.0.0");
+  assert.equal(javaVersion(ga.replace(/\+36/g, "+37"), "25.0.0+36"), "25.0.0+37");
+  assert.notEqual(javaVersion(ga.replace(/\+36/g, "+36+extra"), "25.0.0+36"), "25.0.0+36");
+  assert.notEqual(javaVersion(ga.replace(/25/g, "25.0.1"), "25.0.0+36"), "25.0.0+36");
+});
