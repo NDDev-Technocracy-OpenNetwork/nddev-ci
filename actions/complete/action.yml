@@ -107,6 +107,18 @@ runs:
         include-hidden-files: false
         retention-days: 14
 
+    - name: Remove only this job's image resources
+      id: images-cleanup
+      if: always()
+      shell: bash
+      env:
+        IMAGE_PRODUCER_ENTRY: ${{ github.action_path }}/../../lib/images.mjs
+      run: |
+        set -euo pipefail
+        if [ -e "$RUNNER_TEMP/nddev-ci/image-producer.json" ] || [ -L "$RUNNER_TEMP/nddev-ci/image-producer.json" ]; then
+          node "$IMAGE_PRODUCER_ENTRY" cleanup
+        fi
+
     - name: Remove read keys
       if: always()
       shell: bash
@@ -133,7 +145,7 @@ runs:
         task: ${{ inputs.task }}
         task-type: ${{ inputs.task-type }}
         # A passed job whose own artifact or reports then failed has failed.
-        status: ${{ (inputs.status == 'success' && (steps.artifact.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure')) && 'failure' || inputs.status }}
+        status: ${{ (inputs.status == 'success' && (steps.artifact.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure')) && 'failure' || inputs.status }}
         # The project's commands or reports, or the steps around them (nddev_ci.failure.layer).
-        failure-layer: ${{ (inputs.status == 'failure' || steps.artifact.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && ((inputs.project-outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && 'project' || 'library') || '' }}
+        failure-layer: ${{ (inputs.status == 'failure' || steps.artifact.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure') && ((inputs.project-outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && 'project' || 'library') || '' }}
         started-file: ${{ runner.temp }}/nddev-ci-started

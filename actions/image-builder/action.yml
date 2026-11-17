@@ -3,8 +3,11 @@ description: >-
   Prepare BuildKit for a job that builds images to test and scan them in the same job, with the
   image workflow's mirror policy: on a managed runner the package mirror, the registry mirrors
   and the pinned Buildx come from the runner's artifact registry. Build with
-  `docker buildx build $NDDEV_CI_IMAGE_BUILD_FLAGS --load`.
+  the fixed NDDEV_CI_IMAGES producer, or the existing NDDEV_CI_IMAGE_BUILD_FLAGS for direct builds.
 outputs:
+  producer:
+    description: Fixed Node entrypoint for a complete canonical image-artifact batch.
+    value: ${{ steps.producer.outputs.entrypoint }}
   arguments:
     description: The mirror's build arguments, one `NAME=value` a line; empty elsewhere.
     value: ${{ steps.mirror.outputs.arguments }}
@@ -135,3 +138,17 @@ runs:
           [[ "$line" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9.:/_,=+\ -]*$ ]] || { echo "::error::malformed build setting"; exit 1; }
         done
         printf '%s\n' "${lines[@]}" >> "$GITHUB_ENV"
+
+
+    - name: Prepare the image artifact producer
+      id: producer
+      shell: bash
+      env:
+        IMAGE_PRODUCER_ENTRY: ${{ github.action_path }}/../../lib/images.mjs
+        IMAGE_BUILD_ARGUMENTS: ${{ steps.mirror.outputs.arguments }}
+        IMAGE_BUILD_NETWORK: ${{ steps.mirror.outputs.network }}
+      # The entry and typed provider argv are validated before writing the job environment.
+      run: | # zizmor: ignore[github-env]
+        set -euo pipefail
+        node "$IMAGE_PRODUCER_ENTRY" initialize >> "$GITHUB_ENV"
+        printf 'entrypoint=%s\n' "$IMAGE_PRODUCER_ENTRY" >> "$GITHUB_OUTPUT"
