@@ -30,7 +30,7 @@ export function selections(environment) {
     const value = environment[`SDK_RUST_${name}`] ?? "";
     if (value === "") continue;
     if (!selected.rust || value.length > 1024 ||
-        !/^[a-z0-9][a-z0-9-]*(,[a-z0-9][a-z0-9-]*)*$/.test(value))
+        !/^[a-z0-9][a-z0-9_-]*(,[a-z0-9][a-z0-9_-]*)*$/.test(value))
       throw new ActionError("Rust components and targets require a selected toolchain and comma-separated names.");
   }
   return selected;
@@ -143,9 +143,37 @@ export function managedPython(environment, platform = process.platform, list = r
   return {bin, executable: path.join(bin, platform === "win32" ? "python.exe" : "python")};
 }
 
+function verifyRust(environment, toolchain) {
+  const components = (environment.SDK_RUST_COMPONENTS || "").split(",").filter(Boolean);
+  const targets = (environment.SDK_RUST_TARGETS || "").split(",").filter(Boolean);
+  if (!components.length && !targets.length) return;
+  function inspect(command, args) {
+    const result = spawnSync(command, args, {
+      env: environment, encoding: "utf8", timeout: 30000, maxBuffer: 65536, windowsHide: true,
+    });
+    if (result.error || result.status !== 0)
+      throw new ActionError("Cannot inspect the requested Rust capabilities for toolchain " + toolchain + ".");
+    return result.stdout.trim();
+  }
+  const host = inspect("rustc", ["-vV"]).match(/^host: ([a-z0-9_-]+)$/m)?.[1];
+  if (!host)
+    throw new ActionError("Cannot determine the Rust host for toolchain " + toolchain + ".");
+  for (const [kind, requested] of [["component", components], ["target", targets]]) {
+    if (!requested.length) continue;
+    const installed = new Set(inspect("rustup", [
+      kind, "list", "--installed", "--quiet", "--toolchain", toolchain + "-" + host,
+    ]).split(/\r?\n/));
+    for (const name of requested)
+      if (!installed.has(name) && !(kind === "component" && installed.has(name + "-" + host)))
+        throw new ActionError("The selected Rust toolchain " + toolchain + " is missing requested " + kind + " " + name + ".");
+  }
+}
+
 export function verify(environment) {
   const selected = selections(environment);
   supported(selected);
+  // Verification must not let rustup install a missing toolchain through a compiler proxy.
+  if (selected.rust) environment = {...environment, RUSTUP_AUTO_INSTALL: "0"};
   const versions = {};
   for (const [name, expected] of Object.entries(selected)) {
     const measured = measure(name, environment);
@@ -153,6 +181,7 @@ export function verify(environment) {
       throw new ActionError(`The selected ${name} executable does not provide version ${expected}.`);
     Object.assign(versions, measured);
   }
+  if (selected.rust) verifyRust(environment, selected.rust);
   const tools = {};
   for (const selection of (environment.SDK_TOOLS || "").split(",").filter(Boolean)) {
     const [name, expected] = selection.split("@");
