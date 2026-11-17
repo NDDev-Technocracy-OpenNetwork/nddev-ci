@@ -126,7 +126,7 @@ test("an interrupted page read can resume selection without a mutation or a manu
 });
 
 test("incomplete, inconsistent and misanchored comparison pages refuse before qualification", async () => {
-  for (const alter of [
+  for (const brokenPage of [1, 3]) for (const alter of [
     page => ({...page, total_commits: page.total_commits + 1}),
     page => ({...page, commits: []}),
     page => ({...page, base_commit: {sha: sha(9)}}),
@@ -137,7 +137,7 @@ test("incomplete, inconsistent and misanchored comparison pages refuse before qu
     const read = github.json;
     github.json = async (method, route) => {
       const value = await read(method, route);
-      return route.endsWith("&page=3") ? alter(value) : value;
+      return route.endsWith("&page=" + brokenPage) ? alter(value) : value;
     };
     await assert.rejects(select(github), /comparison/);
     assert.equal(github.calls.some(route => route.includes("/actions/workflows/")), false);
