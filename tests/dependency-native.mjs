@@ -210,3 +210,25 @@ test(
 			assert.doesNotMatch(result.stderr, /change introduces/);
 		}),
 );
+
+
+test(
+    "database preparation does not resolve packages beyond an exact requirements pin",
+    { timeout: 600000 },
+    () => fixture(({ write, commit, compare }) => {
+        write("README.md", "Inert native scanner input.\n");
+        const base = commit();
+        write("requirements.txt", "semgrep==1.182.1\n");
+        const head = commit();
+        const result = compare(base, head);
+        const receipt = result.stdout.trim().split("\n").map(line => JSON.parse(line)).find(entry => entry.schema_version === 1);
+        assert.ok(receipt, result.stderr);
+        assert.equal(receipt.basePackages, 0);
+        assert.equal(receipt.headPackages, 1);
+        assert.equal(receipt.inputs.head.length, 1);
+        assert.equal(receipt.inputs.head[0].path, "requirements.txt");
+        assert.equal(result.status, receipt.introduced.length ? 1 : 0, result.stderr);
+        if (receipt.introduced.length) assert.match(result.stderr, /critical dependency finding/);
+        assert.ok(receipt.databases.some(entry => entry.path.endsWith("PyPI/all.zip") && entry.size > 0));
+    }),
+);

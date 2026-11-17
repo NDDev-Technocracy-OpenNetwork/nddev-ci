@@ -56,6 +56,10 @@ const args = process.argv.slice(2);
 const db = args[args.indexOf("--local-db-path") + 1];
 const folder = args[args.indexOf("-r") + 1];
 const download = args.includes("--download-offline-databases");
+if (!args.includes("--offline")) {
+  process.stdout.write(JSON.stringify({ results: [{ source: { path: path.join(folder, "head/package-lock.json"), type: "unknown" }, packages: [] }] }));
+  process.exit(0);
+}
 fs.appendFileSync(path.join(path.dirname(db), "calls.log"), (download ? "download " : "offline ") + path.basename(folder) + "\\n");
 const file = path.join(db, "osv-scalibr", "npm", "all.zip");
 if (download) {
