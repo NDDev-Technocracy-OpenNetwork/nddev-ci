@@ -121,11 +121,13 @@ test("Java verification checks the installed runtime build rather than only its 
     encoding: "utf8", windowsHide: true, timeout: 30000,
   });
   assert.equal(measured.status, 0, "The CI profile must supply its declared Java runtime.");
-  const full = measured.stderr.match(/^\s*java\.runtime\.version = (\d+(?:\.\d+){2,3}\+\d+)(?:-LTS)?\s*$/m)?.[1];
+  const full = measured.stderr.match(/^\s*java\.runtime\.version = (\d+(?:\.\d+){0,3}\+\d+)(?:-LTS)?\s*$/m)?.[1];
   assert.ok(full, "The Java runtime must report an exact stable runtime build.");
-  const environment = {...process.env, SDK_RUNNER_ENVIRONMENT: "github-hosted", SDK_JAVA_VERSION: full};
-  assert.equal(verify(environment).versions.java, full);
-  const [version, build] = full.split("+");
+  const [reported, build] = full.split("+"), fields = reported.split(".");
+  while (fields.length < 3) fields.push("0");
+  const version = fields.join("."), selected = version + "+" + build;
+  const environment = {...process.env, SDK_RUNNER_ENVIRONMENT: "github-hosted", SDK_JAVA_VERSION: selected};
+  assert.equal(verify(environment).versions.java, selected);
   assert.equal(verify({...environment, SDK_JAVA_VERSION: version}).versions.java, version);
   assert.throws(() => verify({...environment, SDK_JAVA_VERSION: version + "+" + (Number(build) + 1)}), /selected java/);
 });
