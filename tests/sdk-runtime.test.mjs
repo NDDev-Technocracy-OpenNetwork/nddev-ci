@@ -84,9 +84,11 @@ test("a complete Rust profile verifies requested components and targets for the 
 });
 
 test("a present compiler cannot issue a receipt for a missing Rust component or target", () => {
-  const {environment, inventory} = rustProfile();
+  const {environment, host, inventory} = rustProfile();
   const before = {components: inventory("component"), targets: inventory("target")};
-  const component = inventory("component", false).find(name => !before.components.includes(name));
+  const missingComponent = inventory("component", false).find(name => !before.components.includes(name));
+  const component = missingComponent?.endsWith("-" + host)
+    ? missingComponent.slice(0, -host.length - 1) : missingComponent;
   const target = inventory("target", false).find(name => !before.targets.includes(name));
   assert.ok(component, "The CI profile must expose an uninstalled component for the negative case.");
   assert.ok(target, "The CI profile must expose an uninstalled target for the negative case.");
