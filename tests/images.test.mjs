@@ -39,7 +39,7 @@ test("prepared state replays only within its exact job and refuses linked state 
     assert.equal(initialize(env), first);
     assert.match(first, /NDDEV_CI_IMAGE_OWNER=[a-f0-9-]{36}/);
     assert.match(first, /--network","host","--allow","network.host"/);
-    for (const change of [{GITHUB_RUN_ATTEMPT: "2"}, {GITHUB_SHA: "b".repeat(40)}, {GITHUB_JOB: "other"}])
+    for (const change of [{GITHUB_RUN_ATTEMPT: "2"}, {GITHUB_SHA: "b".repeat(40)}, {GITHUB_JOB: "other"}, {DOCKER_HOST: "unix:///unrelated.sock"}])
       assert.throws(() => initialize({...env, ...change}), /another job/);
     assert.throws(() => initialize({...env, IMAGE_BUILD_NETWORK: "external"}), /network/);
     rmSync(path.join(temp, "nddev-ci"), {recursive: true});

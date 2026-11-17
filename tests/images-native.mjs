@@ -56,14 +56,14 @@ test("real canonical batch, replay, refusal, scans and exact resource cleanup", 
     await t.test("completed replay succeeds without any available builder and reuses exact files", async () => {
       const manifest = readFileSync(path.join(output, "images.json"));
       const mtime = statSync(path.join(output, row.archive)).mtimeMs;
-      const builder = process.env.BUILDX_BUILDER;
-      process.env.BUILDX_BUILDER = "no-rebuild-is-available";
+      const builder = f.env.BUILDX_BUILDER;
+      f.env.BUILDX_BUILDER = "no-rebuild-is-available";
       try {
         assert.deepEqual(await produce(f.plan, f.env), receipt);
         cleanup(f.env);
         assert.equal(present(reference), false);
         assert.deepEqual(await produce(f.plan, f.env), receipt);
-      } finally { process.env.BUILDX_BUILDER = builder; }
+      } finally { f.env.BUILDX_BUILDER = builder; }
       assert.deepEqual(readFileSync(path.join(output, "images.json")), manifest);
       assert.equal(statSync(path.join(output, row.archive)).mtimeMs, mtime);
     });
@@ -231,4 +231,19 @@ test("new input guards refuse changed tracked input or foreign receipt during a 
       assert.equal(call(["docker", "image", "ls", "--filter", "label=org.nddev.ci.image-owner=" + f.env.NDDEV_CI_IMAGE_OWNER, "-q"]), "");
     } finally { cleanup(f.env); rmSync(f.root, {recursive: true, force: true}); }
   });
+});
+
+test("declared Docker endpoint binds production, replay and cleanup without fallback", {timeout: 600000}, async () => {
+  const f = fixture();
+  try {
+    const receipt = await produce(f.plan, f.env), reference = receipt.images[0].reference;
+    const changed = {...f.env, DOCKER_HOST: "unix://" + path.join(f.root, "unrelated.sock")};
+    await assert.rejects(produce(f.plan, changed), /Docker endpoint/);
+    assert.throws(() => cleanup(changed), /Docker endpoint/);
+    assert.equal(present(reference), true);
+    f.env.BUILDX_BUILDER = "no-rebuild-is-available";
+    assert.deepEqual(await produce(f.plan, f.env), receipt);
+    cleanup(f.env);
+    assert.equal(present(reference), false);
+  } finally { cleanup(f.env); rmSync(f.root, {recursive: true, force: true}); }
 });
