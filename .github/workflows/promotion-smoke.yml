@@ -1,9 +1,14 @@
 name: long-history promotion fixture
 on:
   workflow_dispatch:
+    inputs:
+      target-branch:
+        description: Owned qualification/promotion-243-* branch pre-created at preserved history.
+        required: true
+        type: string
 permissions: {}
 env:
-  PROMOTION_FIXTURE: qualification/promotion-${{ github.run_id }}-${{ github.run_attempt }}
+  PROMOTION_FIXTURE: ${{ inputs.target-branch }}
 
 jobs:
   prepare:
@@ -11,7 +16,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      contents: write
+      contents: read
       actions: read
     outputs:
       target: ${{ steps.fixture.outputs.target }}
@@ -22,21 +27,19 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Create an owned target in accepted history and prove the old refusal
+      - name: Verify the owned preserved target and prove the old refusal
         id: fixture
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
+          [[ "$PROMOTION_FIXTURE" =~ ^qualification/promotion-243-[a-f0-9-]+$ ]] || { echo "Invalid owned fixture branch" >&2; exit 1; }
           source=$(git rev-parse origin/dev)
-          base=$(git rev-list --max-count=1 --skip=300 "$source")
-          test -n "$base"
+          base=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$PROMOTION_FIXTURE" --jq .object.sha)
           git merge-base --is-ancestor "$base" "$source"
           gh api "repos/$GITHUB_REPOSITORY/compare/$base...$source" \
             --jq 'if .ahead_by > 250 and .behind_by == 0 then .ahead_by else error("fixture needs a real long forward history") end'
-          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-            -f "ref=refs/heads/$PROMOTION_FIXTURE" -f "sha=$base" >/dev/null
           printf 'target=%s\n' "$PROMOTION_FIXTURE" >> "$GITHUB_OUTPUT"
           folder=$(mktemp -d)
           trap 'rm -rf -- "$folder"' EXIT
@@ -108,6 +111,7 @@ jobs:
           import assert from 'node:assert/strict';
           const repository = process.env.GITHUB_REPOSITORY;
           const target = process.env.PROMOTION_FIXTURE;
+          assert.match(target, /^qualification\/promotion-243-[a-f0-9-]+$/);
           const route = process.env.GITHUB_API_URL + '/repos/' + repository;
           const headers = {Authorization: 'Bearer ' + process.env.GH_TOKEN, Accept: 'application/vnd.github+json'};
           const request = async (path, method = 'GET') => {
