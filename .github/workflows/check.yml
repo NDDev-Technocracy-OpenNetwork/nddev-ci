@@ -7,6 +7,10 @@ name: check
 on:
   workflow_call:
     inputs:
+      registry-commit:
+        description: Exact commit of the protected registry input selected by the caller.
+        type: string
+        default: ''
       artifact-registry:
         description: Optional tool-download registry; empty uses the runner setting or official upstream sources.
         type: string
@@ -146,6 +150,18 @@ on:
         type: string
         default: ""
     secrets:
+      REGISTRY_SNAPSHOT_FIRST:
+        description: Protected environment snapshot fragment.
+        required: false
+      REGISTRY_SNAPSHOT_SECOND:
+        description: Protected environment snapshot fragment.
+        required: false
+      REGISTRY_SNAPSHOT_THIRD:
+        description: Protected environment snapshot fragment.
+        required: false
+      REGISTRY_SNAPSHOT_FOURTH:
+        description: Protected environment snapshot fragment.
+        required: false
       read-app-private-key:
         description: The App PEM key, used only while minting a scoped installation token.
         required: false
@@ -168,6 +184,7 @@ jobs:
       group: nddev-ci-check-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}-${{ inputs.hosted-runner }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
+    environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
     env:
       SDK_MANAGED: ${{ github.event.repository.private && !contains(github.event.pull_request.labels.*.name, 'runner:github') && !(github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github') }}
     permissions:
@@ -214,6 +231,17 @@ jobs:
           flutter-version: ${{ inputs.flutter-version }}
           tools: ${{ inputs.tools }}
           tool-assets: ${{ inputs.tool-assets }}
+
+      - name: Receive the protected registry input
+        if: inputs.registry-commit != ''
+        uses: $/actions/registry-input
+        with:
+          commit: ${{ inputs.registry-commit }}
+          sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
+          first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
+          second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
+          third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
+          fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
 
       - name: Check
         id: project

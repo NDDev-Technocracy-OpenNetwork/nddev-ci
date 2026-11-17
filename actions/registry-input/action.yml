@@ -1,0 +1,25 @@
+name: Receive protected registry input
+description: Read a commit-addressed registry snapshot from the job's protected environment.
+inputs:
+  commit:
+    description: Full registry commit selected by the caller's lock.
+    required: true
+  sha256:
+    description: SHA-256 of the uncompressed snapshot.
+    required: true
+  first:
+    description: First fragment of the encoded snapshot.
+    required: true
+  second:
+    description: Second fragment, if present.
+    default: ''
+  third:
+    description: Third fragment, if present.
+    default: ''
+  fourth:
+    description: Fourth fragment, if present.
+    default: ''
+runs:
+  using: node24
+  main: run.mjs
+  post: cleanup.mjs
