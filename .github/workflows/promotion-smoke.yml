@@ -1,0 +1,140 @@
+name: long-history promotion fixture
+on:
+  workflow_dispatch:
+permissions: {}
+env:
+  PROMOTION_FIXTURE: qualification/promotion-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      target: ${{ steps.fixture.outputs.target }}
+    steps:
+      - name: Outside telemetry off
+        uses: $/actions/telemetry
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Create an owned target in accepted history and prove the old refusal
+        id: fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source=$(git rev-parse origin/dev)
+          base=$(git rev-list --max-count=1 --skip=300 "$source")
+          test -n "$base"
+          git merge-base --is-ancestor "$base" "$source"
+          gh api "repos/$GITHUB_REPOSITORY/compare/$base...$source" \
+            --jq 'if .ahead_by > 250 and .behind_by == 0 then .ahead_by else error("fixture needs a real long forward history") end'
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/heads/$PROMOTION_FIXTURE" -f "sha=$base" >/dev/null
+          printf 'target=%s\n' "$PROMOTION_FIXTURE" >> "$GITHUB_OUTPUT"
+          folder=$(mktemp -d)
+          trap 'rm -rf -- "$folder"' EXIT
+          git archive ec97cb4e975a7bc62374075048bece857af68c45 lib | tar -x -C "$folder"
+          export BASELINE_FOLDER="$folder"
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import {pathToFileURL} from 'node:url';
+          const root = process.env.BASELINE_FOLDER;
+          const {selectPromotion} = await import(pathToFileURL(root + '/lib/promotion.mjs'));
+          const {client} = await import(pathToFileURL(root + '/lib/qualification.mjs'));
+          await assert.rejects(selectPromotion(client(process.env.GH_TOKEN, process.env.GITHUB_API_URL), {
+            repository: process.env.GITHUB_REPOSITORY, workflowPath: '.github/workflows/ci.yml',
+            source: 'dev', target: process.env.PROMOTION_FIXTURE,
+          }), /promote by hand/);
+          console.log('Published baseline refused the real long history as expected.');
+          JS
+
+  advance:
+    needs: prepare
+    uses: ./.github/workflows/promote.yml
+    with:
+      target-branch: ${{ needs.prepare.outputs.target }}
+      required-workflows: |
+        recipe-smoke.yml
+        qualification-smoke.yml
+        source-version-smoke.yml
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    permissions:
+      actions: write
+      contents: read
+
+  replay:
+    needs: [prepare, advance]
+    uses: ./.github/workflows/promote.yml
+    with:
+      target-branch: ${{ needs.prepare.outputs.target }}
+      required-workflows: |
+        recipe-smoke.yml
+        qualification-smoke.yml
+        source-version-smoke.yml
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    permissions:
+      actions: write
+      contents: read
+
+  verify-and-clean:
+    if: always() && github.ref == 'refs/heads/dev'
+    needs: [prepare, advance, replay]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Outside telemetry off
+        uses: $/actions/telemetry
+      - name: Read the real result and remove only the preserved fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADVANCE_RESULT: ${{ needs.advance.result }}
+          ADVANCE_STATE: ${{ needs.advance.outputs.state }}
+          ADVANCE_SHA: ${{ needs.advance.outputs.sha }}
+          REPLAY_RESULT: ${{ needs.replay.result }}
+          REPLAY_STATE: ${{ needs.replay.outputs.state }}
+          REPLAY_SHA: ${{ needs.replay.outputs.sha }}
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          const repository = process.env.GITHUB_REPOSITORY;
+          const target = process.env.PROMOTION_FIXTURE;
+          const route = process.env.GITHUB_API_URL + '/repos/' + repository;
+          const headers = {Authorization: 'Bearer ' + process.env.GH_TOKEN, Accept: 'application/vnd.github+json'};
+          const request = async (path, method = 'GET') => {
+            const response = await fetch(route + path, {method, headers});
+            if (response.status === 404 && method === 'GET') return null;
+            assert.ok(response.ok, method + ' ' + path + ': HTTP ' + response.status);
+            return response.status === 204 ? null : response.json();
+          };
+          const ref = await request('/git/ref/heads/' + encodeURIComponent(target));
+          if (!ref) throw Error('The long-history fixture was not created.');
+          const current = ref.object.sha;
+          try {
+            const preserved = await request('/compare/' + current + '...dev');
+            assert.equal(preserved.behind_by, 0, 'Fixture history must already be preserved by dev.');
+          } catch (error) {
+            throw Error('Fixture retained for inspection: ' + error.message);
+          }
+          await request('/git/refs/heads/' + encodeURIComponent(target), 'DELETE');
+          assert.equal(await request('/git/ref/heads/' + encodeURIComponent(target)), null);
+          assert.equal(process.env.ADVANCE_RESULT, 'success');
+          assert.equal(process.env.ADVANCE_STATE, 'ready');
+          assert.equal(process.env.REPLAY_RESULT, 'success');
+          if (process.env.REPLAY_STATE === 'current') assert.equal(current, process.env.ADVANCE_SHA);
+          else {
+            assert.equal(process.env.REPLAY_STATE, 'ready');
+            assert.equal(current, process.env.REPLAY_SHA);
+          }
+          console.log(JSON.stringify({fixture: target, advanced: process.env.ADVANCE_SHA,
+            replay: process.env.REPLAY_STATE, final: current, cleanup: 'removed-preserved-fixture'}));
+          JS
