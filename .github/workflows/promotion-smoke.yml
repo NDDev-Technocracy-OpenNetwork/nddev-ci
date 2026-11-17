@@ -16,6 +16,8 @@ jobs:
     outputs:
       target: ${{ steps.fixture.outputs.target }}
     steps:
+      - name: Outside telemetry off
+        uses: $/actions/telemetry
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
@@ -89,6 +91,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Outside telemetry off
+        uses: $/actions/telemetry
       - name: Read the real result and remove only the preserved fixture
         env:
           GH_TOKEN: ${{ github.token }}
