@@ -15,7 +15,10 @@ export function selections(environment) {
   for (const name of names) {
     const version = environment[key(name)] ?? "";
     if (version === "") continue;
-    if (!/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(version))
+    const exact = name === "java"
+      ? /^[1-9][0-9]*\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\.(0|[1-9][0-9]*))?(?:\+(0|[1-9][0-9]*))?$/
+      : /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+    if (!exact.test(version))
       throw new ActionError(`The ${name} selection must be an exact stable version.`);
     selected[name] = version;
   }
@@ -85,6 +88,16 @@ export function cachePlan(environment, platform = process.platform) {
   };
 }
 
+/** Reads the reported update, or its full stable runtime build when requested. */
+export function javaVersion(text, requested) {
+  const version = text.match(/^openjdk ([0-9][^\s]*)(?: |$)/m)?.[1];
+  if (!requested.includes("+")) return version;
+  // Java's first line omits the build; Temurin reports it in the runtime banner.
+  const runtime = text.match(/^OpenJDK Runtime Environment[^\r\n]*\(build ([^)\s]+)\)/m)?.[1]
+    ?.replace(/-LTS$/, "");
+  return runtime?.split("+")[0] === version ? runtime : undefined;
+}
+
 function measure(name, environment) {
   if (name === "flutter") {
     const result = spawnSync("flutter", ["--version", "--machine"], {
@@ -104,13 +117,13 @@ function measure(name, environment) {
   });
   if (result.error || result.status !== 0) return {};
   const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
+  if (name === "java") return {java: javaVersion(text, environment.SDK_JAVA_VERSION)};
   const expression = {
     node: /^v([^\s]+)$/m,
     bun: /^([^\s]+)$/m,
     rust: /^rustc ([^\s]+)(?: |$)/m,
     python: /^Python ([^\s]+)(?: |$)/m,
     uv: /^uv ([^\s]+)(?: |$)/m,
-    java: /^openjdk ([0-9][^\s]*)(?: |$)/m,
     go: /^go version go([^\s]+) /m,
   }[name];
   return {[name]: text.match(expression)?.[1]};

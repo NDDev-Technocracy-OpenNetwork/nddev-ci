@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { runInNewContext } from "node:vm";
 import path from "node:path";
-import { cachePlan, imageKey, main, managedPython, selections, supported, verify } from "../actions/hosted-sdk/run.mjs";
+import { cachePlan, imageKey, javaVersion, main, managedPython, selections, supported, verify } from "../actions/hosted-sdk/run.mjs";
 import { selectRelease } from "../actions/hosted-sdk/flutter.mjs";
 
 const hosted = {SDK_RUNNER_ENVIRONMENT: "github-hosted"};
@@ -246,4 +246,16 @@ test("exact Java update and build identifiers survive selection and cache planni
     "25.0.4.1+1-ea", "25.0.4.1+", "25.0.4.1+01", "025.0.4", "25.00.4", "25.0.4\n", "25.0.4+1\n",
     " 25.0.4.1+1", "25.0.4.1+1,26.0.0", "$(command)"])
     assert.throws(() => selections({...hosted, SDK_JAVA_VERSION: version}), version);
+});
+
+test("Java runtime banners preserve patch and build identity without accepting missing or conflicting builds", () => {
+  const output = "openjdk 25.0.4.1 2026-08-18\nOpenJDK Runtime Environment Temurin-25.0.4.1+1 (build 25.0.4.1+1)\n";
+  assert.equal(javaVersion(output, "25.0.4.1+1"), "25.0.4.1+1");
+  assert.equal(javaVersion(output, "25.0.4.1"), "25.0.4.1");
+  assert.equal(javaVersion(output.replace(/\n/g, "\r\n"), "25.0.4.1+1"), "25.0.4.1+1");
+  assert.equal(javaVersion(output.replace("(build 25.0.4.1+1)", "(build 25.0.4.1+1-LTS)"), "25.0.4.1+1"), "25.0.4.1+1");
+  assert.equal(javaVersion(output.replace("(build 25.0.4.1+1)", "(build 25.0.4.1+2)"), "25.0.4.1+1"), "25.0.4.1+2");
+  assert.equal(javaVersion(output.split("\n")[0], "25.0.4.1+1"), undefined);
+  assert.equal(javaVersion(output.replace("openjdk 25.0.4.1 ", "openjdk 25.0.4 "), "25.0.4.1+1"), undefined);
+  assert.notEqual(javaVersion(output.replace(/\+1/g, "+1-ea"), "25.0.4.1+1"), "25.0.4.1+1");
 });
