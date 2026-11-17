@@ -281,7 +281,10 @@ test("product promotion and publication refuse false checked metadata before any
       const body = Buffer.concat(parts), route = req.url;
       const json = (value, status = 200) => {res.writeHead(status, {"content-type": "application/json"});res.end(JSON.stringify(value));};
       if (req.method !== "GET") writes++;
-      if (route.includes("/compare/")) json({ahead_by: 1, behind_by: 0, total_commits: 1, commits: [{sha: where.sha}]});
+      if (route.endsWith("/branches/dev")) json({name: "dev", commit: {sha: where.sha}});
+      else if (route.endsWith("/branches/main")) json({name: "main", commit: {sha: "b".repeat(40)}});
+      else if (route.includes("/compare/")) json({ahead_by: 1, behind_by: 0, total_commits: 1,
+        base_commit: {sha: "b".repeat(40)}, merge_base_commit: {sha: "b".repeat(40)}, commits: [{sha: where.sha}]});
       else if (route.includes("/workflows/")) json(inventory());
       else if (route.endsWith("/artifacts?per_page=100")) json(artifacts(artifact({size_in_bytes: bytes.length, digest: `sha256:${digest(bytes)}`})));
       else if (route.endsWith("/artifacts/9/zip")) res.end(bytes);
@@ -307,7 +310,7 @@ test("product promotion and publication refuse false checked metadata before any
       if (variant === "valid") {
         const chosen = await choose(env); assert.equal(chosen.version, version);assert.equal(chosen.state, "ready");
       } else {
-        await assert.rejects(choose(env), undefined, variant);
+        await assert.rejects(choose(env), /metadata|version/i, variant);
         assert.equal(existsSync(env.GITHUB_OUTPUT), false, "a refused choice emits no ready commit");
       }
       assert.equal(writes, 0, "the promotion choice performs no mutation");
@@ -350,7 +353,10 @@ for (const variant of ["failed", "replaced", "foreign", "duplicate"])
         res.writeHead(404);res.end();return;
       }
       let value = inventory();
-      if (req.url.includes("/compare/")) value = {ahead_by: 1, behind_by: 0, total_commits: 1, commits: [{sha: where.sha}]};
+      if (req.url.endsWith("/branches/dev")) value = {name: "dev", commit: {sha: where.sha}};
+      else if (req.url.endsWith("/branches/main")) value = {name: "main", commit: {sha: "b".repeat(40)}};
+      else if (req.url.includes("/compare/")) value = {ahead_by: 1, behind_by: 0, total_commits: 1,
+        base_commit: {sha: "b".repeat(40)}, merge_base_commit: {sha: "b".repeat(40)}, commits: [{sha: where.sha}]};
       else if (req.url.endsWith("/matching-refs/tags/v")) value = [];
       else if (req.url.includes("/workflows/portable.yml/")) {
         secondaryReads++;
@@ -370,6 +376,8 @@ for (const variant of ["failed", "replaced", "foreign", "duplicate"])
       if (variant === "failed") assert.equal((await choose(env)).state, "unchecked");
       else {await assert.rejects(choose(env));assert.equal(existsSync(env.GITHUB_OUTPUT), false);}
       assert.equal(writes, 0);
+      assert.ok(secondaryReads > 0, "the negative case must reach required workflow qualification");
+      if (variant === "replaced") assert.ok(secondaryReads > 1, "the newer attempt must be rechecked");
       secondaryReads = 0;
       const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
         stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...env, GITHUB_OUTPUT: path.join(root, "outputs")},
