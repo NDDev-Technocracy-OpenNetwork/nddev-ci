@@ -1,0 +1,72 @@
+import assert from "node:assert/strict";
+import {mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync} from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import {runInNewContext} from "node:vm";
+import {admit, initialize, requireStore} from "../lib/images.mjs";
+
+const plan = () => ({schema: 1, output: "dist/images", images: [
+  {name: "application", dockerfile: "Dockerfile", context: ".", platform: "linux/amd64", public_build_args: {}},
+]});
+test("one complete image plan accepts literal public inputs, never arbitrary build operations", () => {
+  const value = plan();
+  value.images[0].public_build_args.PUBLIC_LABEL = "$(touch marker); literal value";
+  assert.equal(admit(value), value);
+  for (const change of [
+    (p) => p.images.push({...p.images[0]}),
+    (p) => p.images[0].flags = ["--push"],
+    (p) => p.images[0].platform = "linux/amd64,linux/arm64",
+    (p) => p.images[0].context = "../outside",
+    (p) => p.output = "/outside",
+    (p) => p.images[0].public_build_args.PUBLIC_LABEL = "first\nINJECTED=value",
+    (p) => p.images[0].public_build_config_digest = "sha256:wrong",
+    (p) => p.images = [],
+  ]) {
+    const invalid = plan(); change(invalid);
+    assert.throws(() => admit(invalid));
+  }
+});
+test("prepared state replays only within its exact job and refuses linked state directories", () => {
+  const root = mkdtempSync(path.join(process.env.RUNNER_TEMP ?? os.tmpdir(), "image-state-"));
+  try {
+    const workspace = path.join(root, "workspace"), temp = path.join(root, "temp");
+    mkdirSync(workspace); mkdirSync(temp);
+    const env = {RUNNER_TEMP: temp, GITHUB_WORKSPACE: workspace, GITHUB_REPOSITORY: "example/fixture",
+      GITHUB_SHA: "a".repeat(40), GITHUB_RUN_ID: "258", GITHUB_RUN_ATTEMPT: "1", GITHUB_JOB: "image",
+      IMAGE_BUILD_NETWORK: "host", IMAGE_BUILD_ARGUMENTS: "NPM_CONFIG_REGISTRY=http://127.0.0.1:1234/npm/"};
+    const first = initialize(env);
+    assert.equal(initialize(env), first);
+    assert.match(first, /NDDEV_CI_IMAGE_OWNER=[a-f0-9-]{36}/);
+    assert.match(first, /--network","host","--allow","network.host"/);
+    for (const change of [{GITHUB_RUN_ATTEMPT: "2"}, {GITHUB_SHA: "b".repeat(40)}, {GITHUB_JOB: "other"}])
+      assert.throws(() => initialize({...env, ...change}), /another job/);
+    assert.throws(() => initialize({...env, IMAGE_BUILD_NETWORK: "external"}), /network/);
+    rmSync(path.join(temp, "nddev-ci"), {recursive: true});
+    symlinkSync(workspace, path.join(temp, "nddev-ci"));
+    assert.throws(() => initialize(env), /symlink/);
+  } finally { rmSync(root, {recursive: true, force: true}); }
+});
+test("completion always cleans the fixed library entry after upload and records cleanup failure as library failure", () => {
+  const source = readFileSync(new URL("../actions/complete/action.yml", import.meta.url), "utf8");
+  assert.ok(source.indexOf("id: artifact") < source.indexOf("id: images-cleanup"));
+  assert.match(source, /id: images-cleanup\n\s+if: always\(\)/);
+  assert.match(source, /IMAGE_PRODUCER_ENTRY: .+github.action_path.+\/\.\.\/\.\.\/lib\/images.mjs/);
+  const expression = (key) => source.split("\n").find((line) => line.trimStart().startsWith(key + ": $")).
+    split(": $")[1].slice(2, -3).replace(/steps\.([a-z]+-[a-z-]+)/g, 'steps["$1"]').
+    replace(/inputs\.project-outcome/g, 'inputs["project-outcome"]');
+  const evaluate = (key, fail) => runInNewContext(expression(key), {
+    inputs: {status: "success", "project-outcome": "success"},
+    steps: {artifact: {outcome: "success"}, reports: {outcome: "success"},
+      "reports-kept": {outcome: "success"}, "images-cleanup": {outcome: fail ? "failure" : "success"}},
+  });
+  assert.equal(evaluate("status", false), "success");
+  assert.equal(evaluate("status", true), "failure");
+  assert.equal(evaluate("failure-layer", true), "library");
+});
+
+test("only the declared containerd store satisfies image production", () => {
+  assert.doesNotThrow(() => requireStore([["driver-type", "io.containerd.snapshotter.v1"]]));
+  for (const info of [[], [["Backing Filesystem", "extfs"]], null, {driver: "containerd"}])
+    assert.throws(() => requireStore(info), /execution profile/);
+});
