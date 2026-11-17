@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 
 // actionlint does not read actions and workflows referenced with $/, so this test checks what it
 // would: every call passes only declared inputs and every required one.
@@ -77,9 +78,8 @@ test("check and recipe begin with prepare and end with complete", () => {
   }
 });
 
-// A skipped job still creates a GitHub check. Its optional name must follow the same predicate
-// as execution; real work keeps its required context. Actual event transitions qualify this on
-// GitHub as well, because source assertions alone do not prove skipped-name evaluation.
+// Real GitHub event transitions also qualify the required-check contract; evaluating the source
+// expressions alone does not establish protected acceptance.
 function jobContract(workflow, id) {
   const source = read(`.github/workflows/${workflow}`);
   const block = source.split(`\n  ${id}:\n`)[1]?.split(/\n  [a-z][a-z0-9-]*:\n/)[0];
@@ -88,17 +88,23 @@ function jobContract(workflow, id) {
   return {name: value("name"), condition: value("if")};
 }
 
-test("unrelated labels cannot own the mandatory native context", () => {
-  const {name, condition} = jobContract("check.yml", "check");
-  assert.equal(condition, "github.event.action != 'labeled' || github.event.label.name == 'runner:github'");
-  assert.equal(name,
-    `\${{ (${condition}) && (github.event_name == 'pull_request' && 'short check' || 'full check') || 'ignored label' }}`,
-    "unrelated label must not own the mandatory short-check context");
-});
-
-test("non-executing merge stops cannot own the mandatory context", () => {
-  const {name, condition} = jobContract("merge-stops.yml", "merge-stops");
-  assert.equal(condition, "github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'runner:github')");
-  assert.equal(name, `\${{ (${condition}) && 'merge stops' || 'ignored merge stops' }}`,
-    "non-executing merge stops must not own the mandatory context");
+test("subscribed pull-request labels run the actual required workflows with stable names", () => {
+  const execute = (expression, github) => expression === undefined ? true
+    : runInNewContext(expression.startsWith("$") ? expression.slice(3, -2) : expression, {github});
+  for (const action of ["opened", "synchronize", "edited", "labeled"]) {
+    for (const label of ["merge-on-green", "runner:github", "documentation"]) {
+      const github = {event_name: "pull_request", event: {action, label: {name: label}}};
+      for (const [workflow, id] of [
+        ["check.yml", "check"], ["check.yml", "merge-stops"],
+        ["merge-stops.yml", "merge-stops"], ["recipe.yml", "recipe"], ["image.yml", "image"],
+      ]) assert.equal(execute(jobContract(workflow, id).condition, github), true, workflow + ":" + action + ":" + label);
+      assert.equal(execute(jobContract("check.yml", "check").name, github), "short check");
+      assert.equal(execute(jobContract("merge-stops.yml", "merge-stops").name, github), "merge stops");
+    }
+  }
+  const push = {event_name: "push", event: {}};
+  assert.equal(execute(jobContract("check.yml", "check").name, push), "full check");
+  for (const workflow of ["check.yml", "merge-stops.yml"])
+    assert.equal(execute(jobContract(workflow, "merge-stops").condition, push), false);
+  assert.equal(execute(jobContract("merge-stops.yml", "merge-stops").name, push), "ignored merge stops");
 });

@@ -170,7 +170,6 @@ permissions: {}
 jobs:
   recipe:
     # A new label reruns the job only when it chooses the runner.
-    if: github.event.action != 'labeled' || github.event.label.name == 'runner:github'
     # Public calls, and private ones the label runner:github or a manual github choice moves, run
     # on the given GitHub-hosted label; other private calls run on ours. A public call cannot
     # select a private label, and an unknown hosted label refuses scheduling.
