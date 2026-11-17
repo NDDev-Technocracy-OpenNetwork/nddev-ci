@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { runInNewContext } from "node:vm";
 import path from "node:path";
@@ -19,13 +19,59 @@ test("only exact caller versions can select SDK downloads", () => {
   assert.deepEqual(selections({...hosted, SDK_RUST_VERSION: "1.99.1", SDK_RUST_COMPONENTS: "clippy,rustfmt", SDK_RUST_TARGETS: "aarch64-apple-darwin"}), {rust: "1.99.1"});
 });
 
-test("managed private environments verify SDKs without a hosted download cache", () => {
+test("managed private environments have no hosted download cache", () => {
   const managed = {SDK_RUNNER_ENVIRONMENT: "self-hosted", SDK_NODE_VERSION: process.versions.node};
   assert.deepEqual(cachePlan(managed), {key: "", paths: []});
-  assert.deepEqual(verify({...process.env, ...managed}).versions, {node: process.versions.node});
-  assert.throws(() => verify({...process.env, ...managed, SDK_NODE_VERSION: "0.0.0"}));
   for (const kind of ["", undefined])
     assert.throws(() => selections({SDK_RUNNER_ENVIRONMENT: kind, SDK_NODE_VERSION: "26.13.0"}));
+});
+
+test("managed Node selects and verifies only the exact native tool-cache entry", {skip: process.platform === "win32"}, () => {
+  const root = mkdtempSync(path.join(tmpdir(), "managed-node-sdk-"));
+  try {
+    const cache = path.join(root, "prepared SDK");
+    const requested = process.versions.node;
+    const nativeBin = (version, arch = process.arch) => {
+      const bin = path.join(cache, "node", version, arch, "bin");
+      mkdirSync(bin, {recursive: true});
+      return bin;
+    };
+    const alternate = "0.0.0";
+    const defaultBin = nativeBin(alternate);
+    const defaultNode = path.join(defaultBin, "node");
+    writeFileSync(defaultNode, "#!/bin/sh\nprintf 'v0.0.0\\n'\n", {mode: 0o755});
+    const selectedBin = nativeBin(requested);
+    const selectedNode = path.join(selectedBin, "node");
+    copyFileSync(process.execPath, selectedNode);
+    chmodSync(selectedNode, 0o755);
+
+    const managed = {SDK_RUNNER_ENVIRONMENT: "self-hosted", RUNNER_TOOL_CACHE: cache,
+      PATH: defaultBin, SDK_NODE_VERSION: requested, GITHUB_PATH: path.join(root, "path"),
+      GITHUB_OUTPUT: path.join(root, "output")};
+    const readReceipt = (file) => JSON.parse(readFileSync(file, "utf8").trim().slice("receipt=".length));
+
+    main("verify", managed);
+    assert.deepEqual(readReceipt(managed.GITHUB_OUTPUT).versions, {node: requested});
+    assert.equal(readFileSync(managed.GITHUB_PATH, "utf8"), selectedBin + "\n");
+    assert.deepEqual(verify({...managed, SDK_NODE_VERSION: alternate}).versions, {node: alternate});
+
+    const untouched = {...managed, SDK_NODE_VERSION: "", GITHUB_PATH: path.join(root, "default-path"),
+      GITHUB_OUTPUT: path.join(root, "default-output")};
+    main("verify", untouched);
+    assert.deepEqual(readReceipt(untouched.GITHUB_OUTPUT).versions, {});
+    assert.equal(existsSync(untouched.GITHUB_PATH), false);
+
+    const otherArchitecture = process.arch === "arm64" ? "x64" : "arm64";
+    const wrongArchBin = nativeBin(requested, otherArchitecture);
+    renameSync(selectedNode, path.join(wrongArchBin, "node"));
+    const refusal = {...managed, PATH: wrongArchBin, GITHUB_PATH: path.join(root, "refused-path"),
+      GITHUB_OUTPUT: path.join(root, "refused-output")};
+    assert.throws(() => main("verify", refusal), /selected node executable/);
+    copyFileSync(defaultNode, selectedNode);
+    assert.throws(() => main("verify", refusal), /selected node executable/);
+    assert.equal(existsSync(refusal.GITHUB_PATH), false);
+    assert.equal(existsSync(refusal.GITHUB_OUTPUT), false);
+  } finally { rmSync(root, {recursive: true, force: true}); }
 });
 
 test("an explicitly selected external provider can prepare SDKs despite self-hosted classification", () => {

@@ -104,7 +104,7 @@ export function javaVersion(text, requested) {
   return actual === canonical(release) ? release + "+" + parts[2] : runtime;
 }
 
-function measure(name, environment) {
+function measure(name, environment, executable) {
   if (name === "flutter") {
     const result = spawnSync("flutter", ["--version", "--machine"], {
       env: environment, encoding: "utf8", timeout: 300000, maxBuffer: 1048576,
@@ -116,7 +116,7 @@ function measure(name, environment) {
       return {flutter: document.frameworkVersion, dart: document.dartSdkVersion?.split(" ")[0]};
     } catch { return {}; }
   }
-  const command = {rust: "rustc", java: "java"}[name] ?? name;
+  const command = executable ?? ({rust: "rustc", java: "java"}[name] ?? name);
   const args = name === "go" ? ["version"] : ["--version"];
   const result = spawnSync(command, args, {
     env: environment, encoding: "utf8", timeout: 30000, maxBuffer: 65536, windowsHide: true,
@@ -133,6 +133,18 @@ function measure(name, environment) {
     go: /^go version go([^\s]+) /m,
   }[name];
   return {[name]: text.match(expression)?.[1]};
+}
+
+// Managed Node releases are projected into the existing versioned tool cache. An explicit
+// selection must come from that entry, even if PATH happens to provide the same version.
+function managedNode(environment, version) {
+  if (!version || !managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) return null;
+  const root = environment.RUNNER_TOOL_CACHE ?? "";
+  if (!path.isAbsolute(root) || /[\r\n\0]/.test(root))
+    throw new ActionError("The managed RUNNER_TOOL_CACHE must be an absolute path.");
+  const bin = path.join(root, toolCacheNames.node, version, process.arch, "bin");
+  const executable = path.join(bin, process.platform === "win32" ? "node.exe" : "node");
+  return {bin, executable};
 }
 
 // A managed SDK keeps every Python line of the registry where uv finds its own installations,
@@ -188,14 +200,24 @@ function verifyRust(environment, toolchain) {
   }
 }
 
-export function verify(environment) {
+function prependPath(environment, bin) {
+  // Match Node's case-insensitive subprocess environment ordering on Windows.
+  const name = process.platform === "win32"
+    ? Object.keys(environment).sort().find((key) => key.toUpperCase() === "PATH") ?? "PATH"
+    : "PATH";
+  return {...environment, [name]: [bin, environment[name]].filter(Boolean).join(path.delimiter)};
+}
+
+function verifiedSelection(environment) {
   const selected = selections(environment);
   supported(selected);
+  const node = managedNode(environment, selected.node);
+  if (node) environment = prependPath(environment, node.bin);
   // Verification must not let rustup install a missing toolchain through a compiler proxy.
   if (selected.rust) environment = {...environment, RUSTUP_AUTO_INSTALL: "0"};
   const versions = {};
   for (const [name, expected] of Object.entries(selected)) {
-    const measured = measure(name, environment);
+    const measured = measure(name, environment, name === "node" ? node?.executable : undefined);
     if (measured[name] !== expected)
       throw new ActionError(`The selected ${name} executable does not provide version ${expected}.`);
     Object.assign(versions, measured);
@@ -212,7 +234,11 @@ export function verify(environment) {
       throw new ActionError(`The selected ${name} executable does not provide version ${expected}.`);
     tools[name] = measured;
   }
-  return {schema_version: 1, platform: process.platform, architecture: process.arch, versions, tools};
+  return {node, receipt: {schema_version: 1, platform: process.platform, architecture: process.arch, versions, tools}};
+}
+
+export function verify(environment) {
+  return verifiedSelection(environment).receipt;
 }
 
 export function main(mode, environment = process.env) {
@@ -227,14 +253,13 @@ export function main(mode, environment = process.env) {
   if (mode !== "verify") throw new ActionError("Unknown hosted SDK command.");
   selections(environment);
   const python = managedPython(environment);
-  const receipt = verify(python
-    ? {...environment, PATH: [python.bin, environment.PATH].filter(Boolean).join(path.delimiter)}
-    : environment);
+  const {node, receipt} = verifiedSelection(python ? prependPath(environment, python.bin) : environment);
   const variables = {BUN_DO_NOT_TRACK: "1", DO_NOT_TRACK: "1"};
-  if (python) {
-    variables.UV_PYTHON = python.executable;
-    if (environment.GITHUB_PATH) appendFileSync(environment.GITHUB_PATH, `${python.bin}\n`);
-  }
+  if (python) variables.UV_PYTHON = python.executable;
+  // GitHub prepends each entry. Keep the verified Node directory first, just as during measurement.
+  const paths = [python?.bin, node?.bin].filter(Boolean);
+  if (paths.length && environment.GITHUB_PATH)
+    appendFileSync(environment.GITHUB_PATH, paths.join("\n") + "\n");
   if (receipt.versions.uv && !managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) {
     if (!environment.RUNNER_TEMP || /[\r\n]/.test(environment.RUNNER_TEMP))
       throw new ActionError("A runner temporary directory is required.");

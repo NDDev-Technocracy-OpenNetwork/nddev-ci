@@ -5,7 +5,7 @@ inputs:
     description: Optional explicit SDK ownership; empty follows runner.environment.
     default: ''
   node-version:
-    description: Exact Node version, or empty to leave it unchanged.
+    description: Exact Node version from the managed tool cache or hosted setup, or empty to leave it unchanged.
     default: ''
   python-version:
     description: Exact Python version, or empty to leave it unchanged.

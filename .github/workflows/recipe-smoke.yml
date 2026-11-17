@@ -164,7 +164,7 @@ jobs:
         run: >-
           node --input-type=module -e "import {prepareFrontend} from './actions/recipe/run.mjs';
           await prepareFrontend({...process.env,RUNNER_ENVIRONMENT:'self-hosted',RUNNER_TEMP:''})"
-      - name: Verify the managed SDK path without a tool cache
+      - name: Verify the managed SDK path without installing tools
         env:
           SDK_RUNNER_ENVIRONMENT: self-hosted
           SDK_NODE_VERSION: ${{ steps.expected.outputs.SDK_NODE_VERSION }}
@@ -174,8 +174,18 @@ jobs:
           SDK_RUST_VERSION: ${{ steps.expected.outputs.SDK_RUST_VERSION }}
           SDK_TOOLS: ${{ steps.expected.outputs.SDK_TOOLS }}
         run: >-
-          node --input-type=module -e "import {main} from './actions/hosted-sdk/run.mjs';
-          const env={...process.env,RUNNER_TOOL_CACHE:''}; main('validate',env); main('verify',env)"
+          node --input-type=module -e "import fs from 'node:fs'; import path from 'node:path';
+          import {main} from './actions/hosted-sdk/run.mjs';
+          const env={...process.env,GITHUB_PATH:''};
+          main('validate',{...env,RUNNER_TOOL_CACHE:''});
+          const cache=fs.mkdtempSync(path.join(env.RUNNER_TEMP,'managed-sdk-'));
+          try {
+            const bin=path.join(cache,'node',process.versions.node,process.arch,'bin');
+            fs.mkdirSync(bin,{recursive:true});
+            const node=path.join(bin,process.platform==='win32'?'node.exe':'node');
+            fs.copyFileSync(process.execPath,node); fs.chmodSync(node,0o755);
+            main('verify',{...env,RUNNER_TOOL_CACHE:cache});
+          } finally {fs.rmSync(cache,{recursive:true,force:true});}"
       - name: Run a script recipe and its nested task runner
         uses: $/actions/recipe
         with:
