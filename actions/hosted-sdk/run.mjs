@@ -200,11 +200,19 @@ function verifyRust(environment, toolchain) {
   }
 }
 
+function prependPath(environment, bin) {
+  // Match Node's case-insensitive subprocess environment ordering on Windows.
+  const name = process.platform === "win32"
+    ? Object.keys(environment).sort().find((key) => key.toUpperCase() === "PATH") ?? "PATH"
+    : "PATH";
+  return {...environment, [name]: [bin, environment[name]].filter(Boolean).join(path.delimiter)};
+}
+
 function verifiedSelection(environment) {
   const selected = selections(environment);
   supported(selected);
   const node = managedNode(environment, selected.node);
-  if (node) environment = {...environment, PATH: [node.bin, environment.PATH].filter(Boolean).join(path.delimiter)};
+  if (node) environment = prependPath(environment, node.bin);
   // Verification must not let rustup install a missing toolchain through a compiler proxy.
   if (selected.rust) environment = {...environment, RUSTUP_AUTO_INSTALL: "0"};
   const versions = {};
@@ -245,9 +253,7 @@ export function main(mode, environment = process.env) {
   if (mode !== "verify") throw new ActionError("Unknown hosted SDK command.");
   selections(environment);
   const python = managedPython(environment);
-  const {node, receipt} = verifiedSelection(python
-    ? {...environment, PATH: [python.bin, environment.PATH].filter(Boolean).join(path.delimiter)}
-    : environment);
+  const {node, receipt} = verifiedSelection(python ? prependPath(environment, python.bin) : environment);
   const variables = {BUN_DO_NOT_TRACK: "1", DO_NOT_TRACK: "1"};
   if (python) variables.UV_PYTHON = python.executable;
   // GitHub prepends each entry. Keep the verified Node directory first, just as during measurement.
