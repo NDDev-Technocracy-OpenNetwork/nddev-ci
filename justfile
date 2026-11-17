@@ -29,6 +29,9 @@ check: (_tools "check")
     node --check tests/renovate-sdk-native.mjs
     node --check tests/fixtures/renovate/qualify.mjs
     node --check actions/artifact-registry/run.mjs
+    node --check actions/registry-input/run.mjs
+    node --check actions/registry-input/cleanup.mjs
+    node --check tests/registry-input.test.mjs
     node --check tests/artifact-registry.test.mjs
     node --check lib/runner-profile.mjs
     node --check tests/runner-profile.test.mjs

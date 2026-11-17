@@ -127,6 +127,20 @@ checks of the project's own private repository, such as a link check of its READ
 reads only that repository's contents; GitHub masks it in logs, and the project keeps it out of
 its reports.
 
+### Protected registry input
+
+Both `check.yml` and `recipe.yml` accept `registry-commit` when a recipe verifies
+its lock against a protected registry snapshot. Supply the exact commit from the
+source being checked. The trusted publisher prepares the repository's
+`registry-input-<commit>` environment before that source enters CI. It places the
+gzip-compressed, base64-encoded schema-1 snapshot in the environment secrets
+`REGISTRY_SNAPSHOT_FIRST` through `REGISTRY_SNAPSHOT_FOURTH` and records its
+uncompressed SHA-256 in the environment variable `REGISTRY_SNAPSHOT_SHA256`.
+
+The job verifies the digest and commit and exports the private regular file as
+`NDDEV_CI_REGISTRY_SNAPSHOT`. The project uses that file to verify the selected
+versions before installation. The input action removes the file after the job.
+
 ## Runners and SDKs
 
 Public projects use the selected GitHub-hosted runner. Private projects use `runner`:
