@@ -130,8 +130,13 @@ jobs:
           assert.equal(process.env.ADVANCE_RESULT, 'success');
           assert.equal(process.env.ADVANCE_STATE, 'ready');
           assert.equal(process.env.REPLAY_RESULT, 'success');
-          if (process.env.REPLAY_STATE === 'current') assert.equal(current, process.env.ADVANCE_SHA);
-          else {
+          if (['current', 'unchecked'].includes(process.env.REPLAY_STATE)) {
+            assert.equal(current, process.env.ADVANCE_SHA);
+            if (process.env.REPLAY_STATE === 'unchecked') {
+              const source = await request('/branches/dev');
+              assert.notEqual(source.commit.sha, current, 'Unchecked replay requires a newer source.');
+            }
+          } else {
             assert.equal(process.env.REPLAY_STATE, 'ready');
             assert.equal(current, process.env.REPLAY_SHA);
           }
