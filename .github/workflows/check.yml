@@ -160,10 +160,7 @@ permissions: {}
 
 jobs:
   check:
-    name: ${{ (github.event.action != 'labeled' || github.event.label.name == 'runner:github') && (github.event_name == 'pull_request' && 'short check' || 'full check') || 'ignored label' }}
-    # Keep an ignored result separate even if GitHub evaluates its skipped name expression.
-    # A new label reruns the check only when it chooses the runner.
-    if: github.event.action != 'labeled' || github.event.label.name == 'runner:github'
+    name: ${{ github.event_name == 'pull_request' && 'short check' || 'full check' }}
     # Public repositories always run on GitHub's runners; an unknown hosted label fails below.
     runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github')) && 'ubuntu-24.04' || inputs.runner }}
     # A new push to a pull request cancels its older check; dev and main check every commit.
@@ -261,7 +258,7 @@ jobs:
 
   merge-stops:
     # The merge stops, the same workflow a project with its own command jobs calls.
-    if: github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'runner:github')
+    if: github.event_name == 'pull_request'
     uses: $/.github/workflows/merge-stops.yml
     with:
       runner: ${{ inputs.runner }}
