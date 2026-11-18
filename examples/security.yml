@@ -6,9 +6,8 @@ on:
 permissions: {}
 jobs:
   security:
-    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/security.yml@18cc86d2679f0fce863dc7752c1cb2117606ca01 # v0.6.52
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/security.yml@RELEASE_COMMIT # RELEASE_VERSION
     permissions:
       contents: read
-      issues: write
     # with:
     #   license-policy: deny.toml
