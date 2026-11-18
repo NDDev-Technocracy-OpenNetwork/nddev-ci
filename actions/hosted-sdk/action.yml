@@ -28,6 +28,9 @@ inputs:
   go-version:
     description: Optional exact Go version, such as 1.27.3.
     default: ''
+  dart-version:
+    description: Optional exact standalone Dart SDK version.
+    default: ''
   flutter-version:
     description: Optional exact stable Flutter version; its Dart SDK comes with it.
     default: ''
@@ -63,6 +66,7 @@ runs:
         SDK_JAVA_VERSION: ${{ inputs.java-version }}
         SDK_GO_VERSION: ${{ inputs.go-version }}
         SDK_FLUTTER_VERSION: ${{ inputs.flutter-version }}
+        SDK_DART_VERSION: ${{ inputs.dart-version }}
         SDK_TOOLS: ${{ inputs.tools }}
       with:
         script: |
@@ -151,6 +155,20 @@ runs:
         set -euo pipefail
         flutter config --no-analytics --no-cli-animations
         dart --disable-analytics
+    - name: Prepare the exact standalone Dart SDK
+      if: steps.validate.outputs.bootstrap == 'true' && inputs.dart-version != ''
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        SDK_ACTION_PATH: ${{ github.action_path }}
+        SDK_DART_VERSION: ${{ inputs.dart-version }}
+      with:
+        script: |
+          const action = await import(require("node:url").pathToFileURL(process.env.SDK_ACTION_PATH + "/dart.mjs").href);
+          await action.install();
+    - name: Standalone Dart analytics off
+      if: steps.validate.outputs.bootstrap == 'true' && inputs.dart-version != ''
+      shell: bash
+      run: dart --disable-analytics
     # install-action verifies each archive against its checksum manifest; nothing is compiled
     # and no other source is tried.
     - name: Prepare the declared tools
@@ -177,6 +195,7 @@ runs:
         SDK_JAVA_VERSION: ${{ inputs.java-version }}
         SDK_GO_VERSION: ${{ inputs.go-version }}
         SDK_FLUTTER_VERSION: ${{ inputs.flutter-version }}
+        SDK_DART_VERSION: ${{ inputs.dart-version }}
         SDK_TOOLS: ${{ inputs.tools }}
         SDK_PYTHON_PATH: ${{ steps.python.outputs.python-path }}
         BUN_DO_NOT_TRACK: '1'

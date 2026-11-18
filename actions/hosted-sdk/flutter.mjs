@@ -2,24 +2,21 @@
 // verified by the manifest's SHA-256, in the runner's tool cache. flutter-action is not used:
 // it calls actions/cache by tag, which the organizations' commit pinning refuses.
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
   appendFileSync,
-  closeSync,
   existsSync,
   mkdirSync,
-  openSync,
   readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
-  writeSync,
 } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { archiveProgram } from "../../lib/native-member.mjs";
 import { ActionError } from "../../lib/release-asset.mjs";
+import { downloadArchive } from "./archive.mjs";
 
 const origin = "https://storage.googleapis.com/flutter_infra_release/releases";
 const systems = { linux: "linux", darwin: "macos", win32: "windows" };
@@ -51,25 +48,6 @@ export function selectRelease(document, version, platform, arch) {
   };
 }
 
-async function download(url, destination, expected) {
-  const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(1800000) });
-  if (!response.ok || !response.body)
-    throw new ActionError(`The Flutter archive download failed: HTTP ${response.status}.`);
-  const hash = createHash("sha256");
-  const output = openSync(destination, "wx", 0o600);
-  try {
-    for await (const chunk of response.body) {
-      hash.update(chunk);
-      let written = 0;
-      while (written < chunk.length) written += writeSync(output, chunk, written, chunk.length - written);
-    }
-  } finally {
-    closeSync(output);
-  }
-  if (hash.digest("hex") !== expected)
-    throw new ActionError("The Flutter archive differs from its published digest.");
-}
-
 export async function install(environment = process.env) {
   const version = environment.SDK_FLUTTER_VERSION ?? "";
   if (!version) return;
@@ -87,7 +65,7 @@ export async function install(environment = process.env) {
   if (!existsSync(marker) || readFileSync(marker, "utf8") !== release.sha256) {
     const archive = path.join(temp, `flutter-${release.sha256}${release.archive.endsWith(".zip") ? ".zip" : ".tar.xz"}`);
     rmSync(archive, { force: true });
-    await download(release.url, archive, release.sha256);
+    await downloadArchive(release.url, archive, release.sha256, "Flutter");
     const staging = `${root}.partial`;
     rmSync(staging, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });

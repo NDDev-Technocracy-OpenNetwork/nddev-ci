@@ -81,6 +81,9 @@ inputs:
   go-version:
     description: Optional exact Go version.
     default: ''
+  dart-version:
+    description: Optional exact standalone Dart SDK version.
+    default: ''
   flutter-version:
     description: Optional exact stable Flutter version for hosted runners, with its Dart SDK.
     default: ''
@@ -377,6 +380,7 @@ runs:
         rust-targets: ${{ inputs.rust-targets }}
         java-version: ${{ inputs.java-version }}
         go-version: ${{ inputs.go-version }}
+        dart-version: ${{ inputs.dart-version }}
         flutter-version: ${{ inputs.flutter-version }}
         tools: ${{ inputs.tools }}
 
