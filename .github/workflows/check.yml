@@ -62,7 +62,7 @@ on:
         type: boolean
         default: true
       sparse-merge-stops:
-        description: Keep only root files and .github in the independent merge-stop worktree.
+        description: Keep only .github and the policy files used by the independent merge stops.
         type: boolean
         default: false
       submodules:

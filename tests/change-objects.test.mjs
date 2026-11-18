@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -50,6 +50,8 @@ function fixture(body, { sparse = false } = {}) {
 		mkdirSync(path.join(origin, "project"));
 		commit({
 			"kept.txt": "kept\n",
+			".betterleaks.toml": "[extend]\nuseDefault = true\n",
+			"committed.toml": "subject_length = 72\n",
 			"base.txt": "base 1\n",
 			"change.txt": "change 1\n",
 			".github/workflows/ci.yml": "name: Fixture\n",
@@ -77,7 +79,9 @@ function fixture(body, { sparse = false } = {}) {
 		]);
 		assert.equal(clone.status, 0, clone.stderr);
 		if (sparse) {
-			const selection = run(checkout, ["sparse-checkout", "set", ".github"]);
+			const workflow = readFileSync(new URL("../.github/workflows/merge-stops.yml", import.meta.url), "utf8");
+			const patterns = [...workflow.matchAll(/inputs\.sparse-checkout && '([^']+)'/g)].map((match) => match[1]);
+			const selection = run(checkout, ["sparse-checkout", "set", "--no-cone", ...patterns]);
 			assert.equal(selection.status, 0, selection.stderr);
 		}
 		const out = run(checkout, ["checkout", "--quiet", "--detach", merge]);
@@ -126,9 +130,11 @@ test("sparse merge stops leave unchanged payloads outside the worktree and objec
 		};
 		checkRetained();
 		assert.equal(existsSync(path.join(checkout, ".github/workflows/ci.yml")), true);
-		assert.equal(existsSync(path.join(checkout, "kept.txt")), true);
+		assert.equal(existsSync(path.join(checkout, "kept.txt")), false);
+		assert.equal(existsSync(path.join(checkout, "committed.toml")), true);
+		assert.equal(existsSync(path.join(checkout, ".betterleaks.toml")), true);
 		const objects = missing(checkout, revisions);
-		assert.equal(objects.length, 4);
+		assert.equal(objects.length, 6);
 		fetch(checkout, objects);
 		for (const result of stops(checkout, revisions))
 			assert.equal(result.status, 0, result.stderr);

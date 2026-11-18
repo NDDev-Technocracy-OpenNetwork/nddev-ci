@@ -15,7 +15,7 @@ on:
         type: boolean
         default: false
       sparse-checkout:
-        description: Keep root files and .github. Use when workflow-local action metadata lives in those paths.
+        description: Keep .github and merge-stop policy files. Use when local action metadata is in .github.
         type: boolean
         default: false
       artifact-registry:
@@ -92,7 +92,14 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           filter: blob:none
-          sparse-checkout: ${{ inputs.sparse-checkout && '.github' || '' }}
+          sparse-checkout: |-
+            ${{ inputs.sparse-checkout && '/.github/' || '' }}
+            ${{ inputs.sparse-checkout && '/committed.toml' || '' }}
+            ${{ inputs.sparse-checkout && '/.betterleaks.toml' || '' }}
+            ${{ inputs.sparse-checkout && '/.betterleaksignore' || '' }}
+            ${{ inputs.sparse-checkout && '/.gitleaks.toml' || '' }}
+            ${{ inputs.sparse-checkout && '/.gitleaksignore' || '' }}
+          sparse-checkout-cone-mode: false
 
       - name: File contents of the change
         uses: $/actions/change-objects
