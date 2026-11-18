@@ -171,7 +171,7 @@ uses `ours` and `github`. A waiting job stays where it was sent. Native public m
 matrices use `recipe.yml`; supported hosted labels are in its declaration.
 
 [hosted-sdk](actions/hosted-sdk/action.yml) prepares only selected exact Node, Python,
-uv, Bun, Rust, Temurin Java, Go or stable Flutter versions and selected
+uv, Bun, Rust, Temurin Java, Go, standalone Dart or stable Flutter versions and selected
 `name@version` command-line tools. Managed runners verify those selections against
 their prepared SDK, without sudo or global installation. A managed SDK keeps every Python
 line in uv's `UV_PYTHON_INSTALL_DIR`; the selected line goes first on `PATH` and becomes
@@ -180,6 +180,8 @@ them through the pinned upstream actions. Preparation uses the embedded action
 runtime, so it requires no preinstalled Node SDK.
 
 Linux and Windows ARM64 reject Flutter; Windows ARM64 rejects Temurin Java.
+For standalone Dart, use `dart-version`. On hosted runners the stable archive is verified against
+its official SHA-256 before use. Managed runners verify their installed Dart executable.
 Native tools such as FFmpeg require a separately qualified provider and the project's
 complete acceptance tests. A language SDK or Python wrapper supplies neither.
 [release-assets](actions/release-assets/action.yml) prepares explicitly declared

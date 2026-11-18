@@ -6,6 +6,7 @@ import { runInNewContext } from "node:vm";
 import path from "node:path";
 import { cachePlan, imageKey, javaVersion, main, managedPython, selections, supported, verify } from "../actions/hosted-sdk/run.mjs";
 import { selectRelease } from "../actions/hosted-sdk/flutter.mjs";
+import { dartArchive, dartDigest } from "../actions/hosted-sdk/dart.mjs";
 
 const hosted = {SDK_RUNNER_ENVIRONMENT: "github-hosted"};
 
@@ -17,6 +18,34 @@ test("only exact caller versions can select SDK downloads", () => {
   assert.throws(() => selections({...hosted, SDK_RUST_COMPONENTS: "clippy"}));
   assert.throws(() => selections({...hosted, SDK_RUST_VERSION: "1.99.1", SDK_RUST_TARGETS: "--profile minimal"}));
   assert.deepEqual(selections({...hosted, SDK_RUST_VERSION: "1.99.1", SDK_RUST_COMPONENTS: "clippy,rustfmt", SDK_RUST_TARGETS: "aarch64-apple-darwin"}), {rust: "1.99.1"});
+});
+
+test("standalone Dart selects the official exact archive and its checksum", () => {
+  const {filename, url} = dartArchive("3.13.5", "linux", "x64");
+  assert.equal(filename, "dartsdk-linux-x64-release.zip");
+  assert.equal(url, "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.5/sdk/" + filename);
+  assert.equal(dartArchive("3.13.5", "win32", "arm64").filename, "dartsdk-windows-arm64-release.zip");
+  assert.throws(() => dartArchive("stable", "linux", "x64"));
+  assert.throws(() => dartArchive("3.13.5", "linux", "ia32"));
+  const hash = "ea864bc64df30a6b8bdf30b2e32550f7717d9a890de8f40293aeabb924fe232b";
+  const checksum = `${hash} *${filename}\n`;
+  assert.equal(dartDigest(checksum, filename), hash);
+  assert.throws(() => dartDigest(checksum, "dartsdk-linux-arm64-release.zip"));
+  assert.throws(() => dartDigest(checksum.repeat(2), filename));
+  assert.deepEqual(selections({...hosted, SDK_DART_VERSION: "3.13.5"}), {dart: "3.13.5"});
+});
+
+test("managed Dart verifies the selected stable executable", {skip: process.platform === "win32"}, () => {
+  const root = mkdtempSync(path.join(tmpdir(), "managed-dart-sdk-"));
+  try {
+    const dart = path.join(root, "dart");
+    writeFileSync(dart, "#!/bin/sh\nprintf 'Dart SDK version: 3.13.5 (stable) on linux_x64\\n' >&2\n", {mode: 0o755});
+    const managed = {SDK_RUNNER_ENVIRONMENT: "self-hosted", PATH: root, SDK_DART_VERSION: "3.13.5"};
+    assert.deepEqual(verify(managed).versions, {dart: "3.13.5"});
+    assert.throws(() => verify({...managed, SDK_DART_VERSION: "3.13.4"}));
+  } finally {
+    rmSync(root, {recursive: true, force: true});
+  }
 });
 
 test("managed private environments have no hosted download cache", () => {

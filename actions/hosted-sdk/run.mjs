@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { ActionError } from "../../lib/release-asset.mjs";
 import { managedRunner } from "../../lib/runner-profile.mjs";
 
-const names = ["node", "python", "uv", "bun", "rust", "java", "go", "flutter"];
+const names = ["node", "python", "uv", "bun", "rust", "java", "go", "flutter", "dart"];
 const key = (name) => `SDK_${name.toUpperCase()}_VERSION`;
 
 export function selections(environment) {
@@ -41,7 +41,7 @@ export function selections(environment) {
 
 // GitHub's tool cache keeps the SDKs that setup actions download from GitHub releases. One cache
 // entry per exact selection, runner image and architecture lets later jobs skip those downloads.
-export const toolCacheNames = Object.freeze({node: "node", python: "Python", uv: "uv", flutter: "flutter"});
+export const toolCacheNames = Object.freeze({node: "node", python: "Python", uv: "uv", flutter: "flutter", dart: "dart"});
 
 // Flutter publishes its SDK for Linux and Windows on x64 only, and for macOS on x64 and ARM64.
 // Temurin publishes no JDK for Windows on ARM64.
@@ -84,7 +84,7 @@ export function cachePlan(environment, platform = process.platform) {
     key: ["nddev-sdk-v1", image, environment.RUNNER_ARCH ?? process.arch,
       ...parts.map((name) => `${name}-${selected[name]}`)].join("-"),
     paths: parts.map((name) => path.join(root, toolCacheNames[name],
-      name === "flutter" ? `${selected[name]}-${process.arch}` : selected[name])),
+      ["flutter", "dart"].includes(name) ? `${selected[name]}-${process.arch}` : selected[name])),
   };
 }
 
@@ -131,6 +131,7 @@ function measure(name, environment, executable) {
     python: /^Python ([^\s]+)(?: |$)/m,
     uv: /^uv ([^\s]+)(?: |$)/m,
     go: /^go version go([^\s]+) /m,
+    dart: /^Dart SDK version: ([^\s]+) \(stable\)(?: |$)/m,
   }[name];
   return {[name]: text.match(expression)?.[1]};
 }
