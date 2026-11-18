@@ -130,8 +130,8 @@ its reports.
 ### Protected registry input
 
 Both `check.yml` and `recipe.yml` accept `registry-commit` when a recipe verifies
-its lock against a protected registry snapshot. Supply the exact commit from the
-source being checked. The trusted publisher prepares the repository's
+its lock against a protected registry snapshot. Use `select-registry-input.yml` to
+read the commit from the tracked lock and pass it to both checks. The trusted publisher prepares the repository's
 `registry-input-<commit>` environment before that source enters CI. It places the
 gzip-compressed, base64-encoded schema-1 snapshot in the environment secrets
 `REGISTRY_SNAPSHOT_FIRST` through `REGISTRY_SNAPSHOT_FOURTH` and records its
