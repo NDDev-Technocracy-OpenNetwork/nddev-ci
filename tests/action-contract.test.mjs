@@ -85,7 +85,8 @@ function jobContract(workflow, id) {
   const block = source.split(`\n  ${id}:\n`)[1]?.split(/\n  [a-z][a-z0-9-]*:\n/)[0];
   assert.ok(block, `${workflow}:${id} exists`);
   const value = (name) => block.match(new RegExp(`^    ${name}: (.+)$`, "m"))?.[1];
-  return {name: value("name"), condition: value("if")};
+  const concurrency = block.match(/\n    concurrency:\n      group: (.+)\n      cancel-in-progress: (.+)/);
+  return {name: value("name"), condition: value("if"), concurrency};
 }
 
 test("subscribed pull-request labels run the actual required workflows with stable names", () => {
@@ -107,4 +108,40 @@ test("subscribed pull-request labels run the actual required workflows with stab
   for (const workflow of ["check.yml", "merge-stops.yml"])
     assert.equal(execute(jobContract(workflow, "merge-stops").condition, push), false);
   assert.equal(execute(jobContract("merge-stops.yml", "merge-stops").name, push), "ignored merge stops");
+});
+
+test("retained checks and merge stops keep separate groups for every run", () => {
+  function evaluate(value, github, retain) {
+    const inputs = { retain, hosted: "ubuntu-24.04" };
+    const format = (template, value) => template.replace("{0}", value);
+    return value.replace(/\$\{\{ (.*?) \}\}/g, (_, expression) =>
+      String(runInNewContext(expression
+        .replaceAll("inputs.retain-runs", "inputs.retain")
+        .replaceAll("inputs.hosted-runner", "inputs.hosted"), { github, inputs, format })),
+    );
+  }
+
+  const github = {
+    workflow: "ci", ref: "refs/pull/8/merge", event_name: "pull_request",
+    event: { pull_request: { number: 8 } },
+  };
+  for (const [workflow, job] of [["check.yml", "check"], ["merge-stops.yml", "merge-stops"]]) {
+    const [, group, cancel] = jobContract(workflow, job).concurrency;
+    const first = { ...github, run_id: "101" };
+    const second = { ...github, run_id: "102" };
+    assert.equal(evaluate(group, first, false), evaluate(group, second, false), workflow);
+    assert.equal(evaluate(cancel, first, false), "true", workflow);
+    assert.notEqual(evaluate(group, first, true), evaluate(group, second, true), workflow);
+    assert.equal(evaluate(cancel, first, true), "false", workflow);
+  }
+
+  const [, group, cancel] = jobContract("check.yml", "check").concurrency;
+  const firstPush = { ...github, ref: "refs/heads/dev", event_name: "push", run_id: "103" };
+  const nextPush = { ...firstPush, run_id: "104" };
+  assert.equal(evaluate(group, firstPush, false), evaluate(group, nextPush, false));
+  assert.equal(evaluate(cancel, firstPush, false), "false");
+  assert.notEqual(evaluate(group, firstPush, true), evaluate(group, nextPush, true));
+  assert.equal(evaluate(cancel, firstPush, true), "false");
+  assert.match(read(".github/workflows/check.yml"),
+    /uses: \$\/\.github\/workflows\/merge-stops\.yml\n    with:\n      retain-runs: \$\{\{ inputs\.retain-runs \}\}/);
 });
