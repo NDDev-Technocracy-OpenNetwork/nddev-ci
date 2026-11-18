@@ -74,6 +74,11 @@ Each matrix platform gives its artifact a distinct name. An artifact is kept for
 `artifact-days`, 14 by default: long enough for `main` to release the checked `dev`
 commit. A deployment that takes an older build sets more.
 
+Use `retain-runs: true` when a project requires a verdict for every run. This gives
+`check.yml` and its merge stops a separate concurrency group for each run. A project
+with native command jobs passes it directly to `merge-stops.yml` and owns concurrency
+for its own jobs.
+
 Subscribe the caller's pull request trigger to opened, synchronize, reopened, labeled and edited
 events, as in the example. Editing a title or description must rerun its metadata checks.
 The authorship stop rejects generated assistant signatures and machine coauthor trailers in

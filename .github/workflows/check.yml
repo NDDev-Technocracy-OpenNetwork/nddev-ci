@@ -7,6 +7,10 @@ name: check
 on:
   workflow_call:
     inputs:
+      retain-runs:
+        description: Give each run its own concurrency group and let it finish.
+        type: boolean
+        default: false
       registry-commit:
         description: Exact commit of the protected registry input selected by the caller.
         type: string
@@ -182,8 +186,8 @@ jobs:
     # A new push to a pull request cancels its older check. On a branch one check runs, and the
     # newest push waits behind it and replaces any push that was already waiting.
     concurrency:
-      group: nddev-ci-check-${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}-${{ inputs.hosted-runner }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+      group: nddev-ci-check-${{ github.workflow }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}-${{ inputs.hosted-runner }}
+      cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
     env:
@@ -290,6 +294,7 @@ jobs:
     if: github.event_name == 'pull_request'
     uses: $/.github/workflows/merge-stops.yml
     with:
+      retain-runs: ${{ inputs.retain-runs }}
       runner: ${{ inputs.runner }}
       artifact-registry: ${{ inputs.artifact-registry }}
       hosted-runner: ${{ inputs.hosted-runner }}
