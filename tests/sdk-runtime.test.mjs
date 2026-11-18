@@ -11,7 +11,8 @@ test("the actual SDK phase scripts work without a Node SDK on PATH", () => {
   const action = readFileSync(new URL("../actions/hosted-sdk/action.yml", import.meta.url), "utf8");
   const scripts = [...action.matchAll(/        script: \|\n((?:          [^\n]*\n)+)/g)]
     .map((match) => match[1].split("\n").map((line) => line.slice(10)).join("\n"));
-  assert.equal(scripts.length, 4);
+  const modules = scripts.map((script) => script.match(/SDK_ACTION_PATH \+ "\/([^"]+\.mjs)"/)?.[1]);
+  assert.deepEqual(modules, ["run.mjs", "bun.mjs", "flutter.mjs", "dart.mjs", "run.mjs"]);
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   for (const script of scripts) new AsyncFunction("require", script);
   const root = mkdtempSync(path.join(tmpdir(), "sdk-action-runtime-"));
@@ -25,7 +26,7 @@ test("the actual SDK phase scripts work without a Node SDK on PATH", () => {
         SDK_ACTION_PATH: fileURLToPath(new URL("../actions/hosted-sdk", import.meta.url)),
         SDK_RUNNER_ENVIRONMENT: "self-hosted", SDK_MANAGED: "true", SDK_NODE_VERSION: "", SDK_PYTHON_VERSION: "",
         SDK_BUN_VERSION: "", SDK_UV_VERSION: "", SDK_RUST_VERSION: "", SDK_JAVA_VERSION: "", SDK_GO_VERSION: "",
-        SDK_FLUTTER_VERSION: "", SDK_TOOLS: "", SDK_RUST_COMPONENTS: "", SDK_RUST_TARGETS: "",
+        SDK_FLUTTER_VERSION: "", SDK_DART_VERSION: "", SDK_TOOLS: "", SDK_RUST_COMPONENTS: "", SDK_RUST_TARGETS: "",
         GITHUB_OUTPUT: output, GITHUB_ENV: path.join(root, "environment")}});
       assert.equal(result.status, 0, result.stderr);
       const text = readFileSync(output, "utf8");
@@ -38,7 +39,7 @@ test("the actual SDK phase scripts work without a Node SDK on PATH", () => {
 function rustProfile() {
   const environment = {...process.env, SDK_RUNNER_ENVIRONMENT: "self-hosted", SDK_MANAGED: "true",
     SDK_NODE_VERSION: "", SDK_PYTHON_VERSION: "", SDK_UV_VERSION: "", SDK_BUN_VERSION: "",
-    SDK_JAVA_VERSION: "", SDK_GO_VERSION: "", SDK_FLUTTER_VERSION: "", SDK_TOOLS: "",
+    SDK_JAVA_VERSION: "", SDK_GO_VERSION: "", SDK_FLUTTER_VERSION: "", SDK_DART_VERSION: "", SDK_TOOLS: "",
     SDK_RUST_COMPONENTS: "", SDK_RUST_TARGETS: "", RUSTUP_AUTO_INSTALL: "0"};
   function read(command, args) {
     const result = spawnSync(command, args, {env: environment, encoding: "utf8", windowsHide: true, timeout: 30000});
