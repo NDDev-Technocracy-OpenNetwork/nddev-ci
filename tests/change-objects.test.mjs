@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -24,7 +24,7 @@ function run(cwd, args, env = {}) {
 
 // A repository that serves partial clones, with a pull request of two commits beside a base
 // that moved on, and a checkout of the proposed merge that holds the history without contents.
-function fixture(body) {
+function fixture(body, { sparse = false } = {}) {
 	const root = mkdtempSync(path.join(tmpdir(), "ci-change-objects-"));
 	const origin = path.join(root, "origin");
 	const checkout = path.join(root, "checkout");
@@ -45,10 +45,26 @@ function fixture(body) {
 		git("init", "--initial-branch=dev");
 		git("config", "uploadpack.allowFilter", "true");
 		git("config", "uploadpack.allowAnySHA1InWant", "true");
-		commit({ "kept.txt": "kept\n", "base.txt": "base 1\n", "change.txt": "change 1\n" });
+		mkdirSync(path.join(origin, ".github/workflows"), { recursive: true });
+		mkdirSync(path.join(origin, "retained"));
+		mkdirSync(path.join(origin, "project"));
+		commit({
+			"kept.txt": "kept\n",
+			".betterleaks.toml": "[extend]\nuseDefault = true\n",
+			"committed.toml": "subject_length = 72\n",
+			"base.txt": "base 1\n",
+			"change.txt": "change 1\n",
+			".github/workflows/ci.yml": "name: Fixture\n",
+			"retained/opaque.bin": "unchanged retained content\n",
+			"project/package.json": '{"name":"fixture","version":"1.0.0"}\n',
+		});
 		git("checkout", "-b", "change");
 		commit({ "change.txt": "change 2\n" });
-		const head = commit({ "change.txt": "change 3\n", "new.txt": "new\n" });
+		const head = commit({
+			"change.txt": "change 3\n",
+			"new.txt": "new\n",
+			...(sparse ? { "project/package.json": '{"name":"fixture","version":"1.0.1"}\n' } : {}),
+		});
 		git("checkout", "dev");
 		const base = commit({ "base.txt": "base 2\n" });
 		git("merge", "--no-ff", "-m", "fixture merge", "change");
@@ -62,9 +78,19 @@ function fixture(body) {
 			checkout,
 		]);
 		assert.equal(clone.status, 0, clone.stderr);
+		if (sparse) {
+			const workflow = readFileSync(new URL("../.github/workflows/merge-stops.yml", import.meta.url), "utf8");
+			const patterns = [...workflow.matchAll(/inputs\.sparse-checkout && '([^']+)'/g)].map((match) => match[1]);
+			const selection = run(checkout, ["sparse-checkout", "set", "--no-cone", ...patterns]);
+			assert.equal(selection.status, 0, selection.stderr);
+		}
 		const out = run(checkout, ["checkout", "--quiet", "--detach", merge]);
 		assert.equal(out.status, 0, out.stderr);
-		body({ checkout, revisions: { base, head, merge } });
+		body({
+			checkout,
+			revisions: { base, head, merge },
+			retained: git("rev-parse", `${merge}:retained/opaque.bin`),
+		});
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -93,6 +119,32 @@ test("a checkout without contents gets what the merge stops read in one request"
 		// Nothing is asked when nothing is missing.
 		fetch(checkout, []);
 	});
+});
+
+test("sparse merge stops leave unchanged payloads outside the worktree and object database", () => {
+	fixture(({ checkout, retained, revisions }) => {
+		const offline = { GIT_NO_LAZY_FETCH: "1" };
+		const checkRetained = () => {
+			assert.equal(existsSync(path.join(checkout, "retained")), false);
+			assert.notEqual(run(checkout, ["cat-file", "-e", retained], offline).status, 0);
+		};
+		checkRetained();
+		assert.equal(existsSync(path.join(checkout, ".github/workflows/ci.yml")), true);
+		assert.equal(existsSync(path.join(checkout, "kept.txt")), false);
+		assert.equal(existsSync(path.join(checkout, "committed.toml")), true);
+		assert.equal(existsSync(path.join(checkout, ".betterleaks.toml")), true);
+		const objects = missing(checkout, revisions);
+		assert.equal(objects.length, 6);
+		fetch(checkout, objects);
+		for (const result of stops(checkout, revisions))
+			assert.equal(result.status, 0, result.stderr);
+		const manifest = run(checkout, ["show", `${revisions.merge}:project/package.json`], offline);
+		assert.equal(manifest.status, 0, manifest.stderr);
+		assert.equal(JSON.parse(manifest.stdout).version, "1.0.1");
+		assert.equal(existsSync(path.join(checkout, "project")), false);
+		assert.deepEqual(missing(checkout, revisions), []);
+		checkRetained();
+	}, { sparse: true });
 });
 
 test("a commit identity that is not exact is refused", () => {

@@ -95,8 +95,11 @@ runs no project installers, and scans both against the same vulnerability data.
 Existing findings remain diagnostics. Native source packages without a registry version stay
 counted and appear explicitly in the receipt; matched advisories are checked normally.
 Missing or malformed metadata and unavailable scanners still fail.
-The stops check out the history without file contents and fetch the contents of the change
-alone, so a large repository costs them no more than a small one.
+The stops fetch complete history for authorship and the exact blob contents needed for the change.
+Use `sparse-merge-stops: true` with `check.yml`, or `sparse-checkout: true` directly with
+`merge-stops.yml`, to keep only `.github` and the root merge-stop policy files in its worktree.
+Use this for repositories with retained payloads when their local action metadata lives in
+`.github`. The project check's own sparse checkout is configured independently.
 The message rules leave out a commit whose author is exactly Dependabot: it writes one long line
 for a grouped update and offers no setting for it. A repository's own `committed.toml` replaces
 the default rules whole.

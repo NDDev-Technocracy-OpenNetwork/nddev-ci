@@ -61,6 +61,10 @@ on:
         description: Reads sparse-checkout as cone directories; false reads gitignore-style patterns.
         type: boolean
         default: true
+      sparse-merge-stops:
+        description: Keep only .github and the policy files used by the independent merge stops.
+        type: boolean
+        default: false
       submodules:
         description: "'true' checks out the submodules at their recorded commits, 'recursive' theirs too; they must be readable with the job's token, as public repositories are."
         type: string
@@ -298,5 +302,6 @@ jobs:
       runner: ${{ inputs.runner }}
       artifact-registry: ${{ inputs.artifact-registry }}
       hosted-runner: ${{ inputs.hosted-runner }}
+      sparse-checkout: ${{ inputs.sparse-merge-stops }}
     permissions:
       contents: read
