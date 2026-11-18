@@ -303,7 +303,7 @@ jobs:
               if not source:
                   print("::notice::this runner holds no registry/terms.toml (NDDEV_CI_TERMS); the text is not checked here")
                   return 0
-              if source.startswith("/"):
+              if "://" not in source:
                   with open(source, encoding="utf-8") as stream:
                       terms = tomllib.loads(stream.read())
               else:
