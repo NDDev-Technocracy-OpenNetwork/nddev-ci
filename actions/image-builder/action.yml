@@ -33,6 +33,7 @@ runs:
           exit 0
         fi
         [[ "$mirror" =~ ^http://127\.0\.0\.1:[0-9]{2,5}$ ]] || { echo "::error::the runner's package mirror must be a loopback HTTP address"; exit 1; }
+        source_proxy="${HTTPS_PROXY:-${https_proxy:-}}"
         {
           echo "network=host"
           echo "driver=network=host"
@@ -48,6 +49,9 @@ runs:
           echo "GOPROXY=$mirror/goproxy"
           echo "PUB_HOSTED_URL=$mirror/pub"
           echo "http_proxy=$mirror"
+          if [[ "$source_proxy" =~ ^http://127\.0\.0\.1:[0-9]{2,5}$ ]]; then
+            echo "https_proxy=$source_proxy"
+          fi
           echo "no_proxy=127.0.0.1,localhost"
           echo "ARGUMENTS"
           host="${mirror#http://}"
