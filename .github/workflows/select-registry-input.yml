@@ -1,0 +1,39 @@
+name: Select protected registry input
+on:
+  workflow_call:
+    inputs:
+      lock-file:
+        description: The tracked JSON lock that selects the registry commit.
+        type: string
+        required: true
+    outputs:
+      commit:
+        description: The exact commit to use for the protected registry input.
+        value: ${{ jobs.select.outputs.commit }}
+permissions: {}
+jobs:
+  select:
+    runs-on: ${{ github.event.repository.private && 'nddev-linux-small' || 'ubuntu-24.04' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.lock.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read the selected registry commit
+        id: lock
+        env:
+          LOCK: ${{ inputs.lock-file }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$LOCK" =~ ^[A-Za-z0-9_-][A-Za-z0-9._/-]*\.json$ ]]
+          case "/$LOCK/" in */../* | */./* | *//*) exit 1 ;; esac
+          commit=$(git show "HEAD:$LOCK" | jq -er '
+            select(.schema_version == 1) | .registry_commit |
+            strings | select(test("^[0-9a-f]{40}$"))
+          ')
+          printf 'commit=%s\n' "$commit" >> "$GITHUB_OUTPUT"
