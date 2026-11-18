@@ -14,6 +14,10 @@ on:
         description: Give each run its own concurrency group and let it finish.
         type: boolean
         default: false
+      sparse-checkout:
+        description: Keep root files and .github. Use when workflow-local action metadata lives in those paths.
+        type: boolean
+        default: false
       artifact-registry:
         description: Optional tool-download registry; empty uses the runner setting or official upstream sources.
         type: string
@@ -81,14 +85,14 @@ jobs:
           fi
           date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
-      # The stops read every commit of every branch and the contents of the change alone, so the
-      # checkout takes the whole history without file contents and the next step fetches the
-      # contents the stops read. A repository's size does not decide the time of its stops.
+      # Keep full history for authorship and change checks. Metadata-only callers also restrict
+      # the worktree before checkout, so retained payloads outside .github stay unfetched.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout: ${{ inputs.sparse-checkout && '.github' || '' }}
 
       - name: File contents of the change
         uses: $/actions/change-objects
