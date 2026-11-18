@@ -1,7 +1,8 @@
 # The merge stops for a pull request: a secret in the change (Betterleaks), a
 # dangerous workflow (a broken file, an action not pinned by commit, a high-severity zizmor finding,
-# a poutine finding of warning or error level), a new critical dependency with a known fix, and the
-# change's commit messages, using committed. check.yml calls it; a
+# a poutine finding of warning or error level) and a new critical dependency with a known fix. The
+# change's commit messages and the pull request's text are checked as hints that never stop a
+# merge. check.yml calls it; a
 # project whose commands run in its own native jobs calls it beside them, so one implementation
 # applies the same stops everywhere.
 name: merge stops
@@ -175,8 +176,9 @@ jobs:
 
       - name: Commit messages
         id: commits
-        # A Conventional Commits subject in the imperative, up to 72 characters, lines up
-        # to 100, no fixup or WIP commit. A repository's own committed.toml takes the place of this.
+        # Hints, never a stop: a Conventional Commits subject in the imperative, up to 72 characters,
+        # lines up to 100, no fixup or WIP commit. A repository's own committed.toml takes the place
+        # of this.
         # Only the commits the change brings are checked: a merge commit is left out, and so is a
         # commit another branch already holds, such as main's commits when main is merged into dev.
         # Dependabot writes its own messages, with one long line for a grouped update, and nobody
@@ -213,25 +215,27 @@ jobs:
             if [ ! -f committed.toml ] \
               && [ "$(git log -1 --format='%an <%ae>' "$commit")" != "dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>" ] \
               && ! git log -1 --format=%B "$commit" | awk '
-                NR == 1 && length > 72 { printf "::error::%s: the subject has %d characters, more than 72\n", c, length; bad = 1 }
-                NR > 1 && length > 100 { printf "::error::%s: line %d has %d characters, more than 100\n", c, NR, length; bad = 1 }
+                NR == 1 && length > 72 { printf "::warning::%s: the subject has %d characters, more than 72\n", c, length; bad = 1 }
+                NR > 1 && length > 100 { printf "::warning::%s: line %d has %d characters, more than 100\n", c, NR, length; bad = 1 }
                 END { exit bad }' c="${commit:0:7}"; then
               failed=1
             fi
           done
-          exit "$failed"
+          if [ "$failed" -ne 0 ]; then
+            echo "::warning::the commit messages above differ from the commit rules; the merge is not stopped"
+          fi
 
       - name: Pull request text
         id: text
-        # The title and description use the standards' terms (registry/terms.toml), as the owner
-        # decided on 12 November 2026; a pull request of a bot passes.
+        # The title and description are compared with the configured terms as hints that never
+        # stop a merge; a pull request of a bot is not checked.
         shell: python3 {0}
         run: |
           """The words of a pull request's title and description, against the standards' registry/terms.toml.
 
-          Decision 4 of the owner (12 November 2026): titles and descriptions are checked automatically with
-          the words of terms.toml. The standards are private, so the runner names the file in NDDEV_CI_TERMS,
-          a path or an address; a runner without it says so and checks nothing. The rules are the standards checker's: an avoided word or phrase matches as
+          Titles and descriptions are compared with the words of terms.toml, and every difference is a
+          warning. The terms are private, so the runner names the file in NDDEV_CI_TERMS, a path or an
+          address; a runner without it says so and checks nothing. The rules are the standards checker's: an avoided word or phrase matches as
           a whole word in any case, and a word inside `code`, "quotes", a link target, a bare address or a
           fenced block is a mention, not a use. Pull requests of bots pass.
           """
@@ -309,11 +313,11 @@ jobs:
               found = list(problems(patterns, "title", request.get("title")))
               found += problems(patterns, "description", request.get("body"))
               for problem in found:
-                  print(f"::error::{problem}")
+                  print(f"::warning::{problem}")
               if found:
-                  print(f"{len(found)} word(s) of the pull request's text differ from {source}.")
-                  return 1
-              print("The pull request's title and description use the standards' terms.")
+                  print(f"{len(found)} word(s) of the pull request's text differ from {source}; edit the text, the merge is not stopped.")
+                  return 0
+              print("The pull request's title and description use the configured terms.")
               return 0
 
 
@@ -372,5 +376,5 @@ jobs:
           task-type: test
           status: ${{ job.status }}
           # A stop that judged the change, or the steps around them (nddev_ci.failure.layer).
-          failure-layer: ${{ job.status == 'failure' && ((steps.commits.outcome == 'failure' || steps.authorship.outcome == 'failure' || steps.text.outcome == 'failure' || steps.secrets.outcome == 'failure' || steps.dependencies.outcome == 'failure' || steps.workflows.outcome == 'failure') && 'project' || 'library') || '' }}
+          failure-layer: ${{ job.status == 'failure' && ((steps.authorship.outcome == 'failure' || steps.secrets.outcome == 'failure' || steps.dependencies.outcome == 'failure' || steps.workflows.outcome == 'failure') && 'project' || 'library') || '' }}
           started-file: ${{ runner.temp }}/nddev-ci-started

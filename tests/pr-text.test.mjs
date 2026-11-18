@@ -51,22 +51,22 @@ test("a title and description in the standards' terms pass", (t) => {
   assert.equal(result.status, 0, result.stdout + result.stderr);
 });
 
-test("an avoided word or machine phrase fails and names the term to write", (t) => {
+test("an avoided word or machine phrase warns, names the term to write and passes", (t) => {
   const result = check(t, {
     user: person,
     title: "fix: this PR is robust",
     body: "Open the repo in order to check.",
   });
-  assert.equal(result.status, 1);
-  assert.match(result.stdout, /::error::title:1: write "pull request" instead of "PR"/);
-  assert.match(result.stdout, /::error::title:1: "robust" reads as machine text/);
-  assert.match(result.stdout, /::error::description:1: write "repository" instead of "repo"/);
-  assert.match(result.stdout, /::error::description:1: "in order to" reads as machine text/);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /::warning::title:1: write "pull request" instead of "PR"/);
+  assert.match(result.stdout, /::warning::title:1: "robust" reads as machine text/);
+  assert.match(result.stdout, /::warning::description:1: write "repository" instead of "repo"/);
+  assert.match(result.stdout, /::warning::description:1: "in order to" reads as machine text/);
 });
 
 test("words match whole and in any case, and an empty description passes", (t) => {
-  assert.equal(check(t, { user: person, title: "feat: Repository and prs", body: null }).status, 1);
-  assert.equal(check(t, { user: person, title: "feat: express a prefix", body: null }).status, 0);
+  assert.match(check(t, { user: person, title: "feat: Repository and prs", body: null }).stdout, /::warning::title:1: write "pull request" instead of "prs"/);
+  assert.doesNotMatch(check(t, { user: person, title: "feat: express a prefix", body: null }).stdout, /::warning::/);
 });
 
 test("a runner without the terms says so and passes", (t) => {
@@ -90,7 +90,8 @@ test("the terms may be a plain file path", (t) => {
     env: { PATH: process.env.PATH, GITHUB_EVENT_PATH: join(root, "event.json"), NDDEV_CI_TERMS: join(root, "terms.toml") },
     encoding: "utf8",
   });
-  assert.equal(result.status, 1);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /::warning::title:1:/);
 });
 
 test("a bot's pull request passes", (t) => {

@@ -82,8 +82,9 @@ receive the same check. Human coauthors, cryptographic signatures, tool-version 
 quoted examples remain valid. It reads Git objects and event data without executing project code
 or requesting another permission.
 
-The PR merge stops scan secrets in the changed commits, dangerous workflows,
-commit messages and newly introduced fixed critical dependency vulnerabilities.
+The PR merge stops scan secrets in the changed commits, dangerous workflows and newly
+introduced fixed critical dependency vulnerabilities. Commit messages and the pull request's
+text are checked as warnings that never stop a merge.
 Dependency comparison reads the exact proposed merge and its own base from Git,
 runs no project installers, and scans both against the same vulnerability data.
 Existing findings remain diagnostics. Native source packages without a registry version stay
