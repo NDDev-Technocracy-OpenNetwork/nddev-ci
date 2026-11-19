@@ -17,7 +17,7 @@ jobs:
       hosted-runner: ${{ matrix.os }}
       node-version: '26.13.1'
       python-version: '3.15.2'
-      uv-version: '0.13.8'
+      uv-version: '0.13.9'
       bun-version: '1.4.4'
       rust-version: '1.100.0'
       rust-components: clippy,rustfmt
@@ -51,7 +51,7 @@ jobs:
         with:
           node-version: '26.13.1'
           python-version: '3.15.2'
-          uv-version: '0.13.8'
+          uv-version: '0.13.9'
           bun-version: '1.4.4'
           rust-version: '1.100.0'
           rust-components: clippy,rustfmt
@@ -104,7 +104,7 @@ jobs:
         with:
           node-version: '26.13.1'
           python-version: '3.15.2'
-          uv-version: '0.13.8'
+          uv-version: '0.13.9'
           java-version: ${{ (runner.os != 'Windows' || runner.arch != 'ARM64') && env.JAVA_VERSION || '' }}
       - name: Require the repeated preparation to measure the same versions
         env:
