@@ -7,7 +7,9 @@ import test from "node:test";
 import { main } from "../actions/plan/run.mjs";
 import { matrix, plan } from "../lib/verify-parts.mjs";
 
-// The planner reads what just itself dumps, so each case is a real justfile.
+// The planner reads what just itself dumps, so each case is a real justfile, run where just is: the
+// library's check job has it, its bare native test jobs do not.
+const withJust = {skip: spawnSync("just", ["--version"]).status === 0 ? false : "just is not on this runner's PATH"};
 function dump(justfile, modules = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "verify-parts-"));
   try {
@@ -22,14 +24,14 @@ function dump(justfile, modules = {}) {
 }
 const recipes = (...names) => names.map((name) => `${name}:\n    echo ${name}\n`).join("");
 
-test("each dependency of a plain verify is a part, in verify's order", () => {
+test("each dependency of a plain verify is a part, in verify's order", withJust, () => {
   const result = plan(dump(`verify: check test build\n${recipes("check", "test", "build")}`));
   assert.equal(result.split, true);
   assert.deepEqual(result.parts.map((part) => part.argv), [["check"], ["test"], ["build"]]);
   assert.deepEqual(matrix(result).map((job) => job.label), ["verify: check", "verify: test", "verify: build"]);
 });
 
-test("a part another part needs runs in that part's job, through any depth", () => {
+test("a part another part needs runs in that part's job, through any depth", withJust, () => {
   const result = plan(dump(`verify: check image test-image test-copy
 check:
     echo check
@@ -47,19 +49,19 @@ load: image
   assert.equal(result.parts[1].group, "image");
 });
 
-test("shared helpers of two parts do not join them", () => {
+test("shared helpers of two parts do not join them", withJust, () => {
   const result = plan(dump(`verify: a b\na: db\n    echo a\nb: db\n    echo b\n${recipes("db")}`));
   assert.deepEqual(result.parts.map((part) => part.name), ["a", "b"]);
 });
 
-test("literal arguments and module recipes keep their own invocation", () => {
+test("literal arguments and module recipes keep their own invocation", withJust, () => {
   const result = plan(dump(`mod tools\nverify: (test "unit") tools::lint\ntest scope:\n    echo {{scope}}\n`,
     {tools: "lint:\n    echo lint\n"}));
   assert.deepEqual(result.parts.map((part) => part.argv), [["test", "unit"], ["tools::lint"]]);
   assert.equal(result.parts[1].group, "tools--lint");
 });
 
-test("a verify that is more than independent parts runs whole", () => {
+test("a verify that is more than independent parts runs whole", withJust, () => {
   const cases = [
     ["other:\n    echo\n", "has no verify"],
     [`verify: check\n${recipes("check")}`, "fewer than two"],
@@ -79,7 +81,7 @@ test("a verify that is more than independent parts runs whole", () => {
   }
 });
 
-test("the plan step writes the jobs, honours a reason to run whole and survives an unreadable justfile", () => {
+test("the plan step writes the jobs, honours a reason to run whole and survives an unreadable justfile", withJust, () => {
   const root = mkdtempSync(path.join(tmpdir(), "plan-step-"));
   try {
     const environment = (whole = "") => {
