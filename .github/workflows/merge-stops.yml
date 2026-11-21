@@ -123,6 +123,9 @@ jobs:
         with:
           url: ${{ inputs.artifact-registry }}
 
+      - name: Gradle's home
+        uses: $/actions/gradle-home
+
       - name: Tools
         env:
           GH_TOKEN: ${{ github.token }}

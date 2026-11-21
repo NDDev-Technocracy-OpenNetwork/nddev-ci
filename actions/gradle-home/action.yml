@@ -1,0 +1,7 @@
+name: Gradle's home
+description: >-
+  Names each tracked line that sets GRADLE_USER_HOME, which replaces a managed runner's persistent
+  Gradle home. A warning; it never stops a merge.
+runs:
+  using: node24
+  main: run.mjs
