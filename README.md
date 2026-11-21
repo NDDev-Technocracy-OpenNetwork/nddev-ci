@@ -383,7 +383,8 @@ API with `GH_TOKEN` or the authenticated `gh` identity.
 ## Promotion
 
 [promote.yml](.github/workflows/promote.yml) moves `main` forward to the newest `dev` commit whose
-newest full check on a push passed, and starts the caller's release workflow on `main`. A newer
+newest full check on a push passed. The move is a push, so a release workflow that runs on a push to
+`main` starts once for it. A newer
 commit whose check failed or still runs waits for the next promotion. It never moves `main`
 backward or sideways: when `main` holds a commit `dev` lacks, it stops.
 

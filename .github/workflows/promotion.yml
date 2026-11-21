@@ -20,9 +20,8 @@ jobs:
         recipe-smoke.yml
         qualification-smoke.yml
         source-version-smoke.yml
-      release-workflow: publish.yml
     # The deploy key lives in the promotion environment, which only dev may use.
     secrets: inherit # zizmor: ignore[secrets-inherit]
     permissions:
-      actions: write
+      actions: read
       contents: read
