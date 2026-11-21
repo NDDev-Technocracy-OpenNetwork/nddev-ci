@@ -59,6 +59,9 @@ check: (_tools "check")
     node --check actions/dependency-guard/run.mjs
     node --check tests/dependency-report.test.mjs
     node --check tests/dependency-source.test.mjs
+    node --check lib/read-token.mjs
+    node --check actions/read-token/run.mjs
+    node --check tests/read-token.test.mjs
     node --check lib/authorship.mjs
     node --check actions/authorship/run.mjs
     node --check tests/authorship.test.mjs
