@@ -99,7 +99,11 @@ with native command jobs passes it directly to `merge-stops.yml` and owns concur
 for its own jobs.
 
 Subscribe the caller's pull request trigger to opened, synchronize, reopened, labeled and edited
-events, as in the example. Editing a title or description must rerun its metadata checks.
+events, as in the example. Editing a title or description must rerun its metadata checks. The
+short check does not run again for such an event: after it passes, it keeps a mark of the merge
+commit it checked in GitHub's cache, and an `edited` event or a label other than `runner:github`
+that finds the mark of the same merge passes at once. A new commit or a moved base makes a new
+merge commit, and `runner:github` moves the check to GitHub's runner, so both run in full.
 The authorship stop rejects generated assistant signatures and machine coauthor trailers in
 the introduced commits, including merge commits, and in the title/description. Bot requests
 receive the same check. Human coauthors, cryptographic signatures, tool-version discussion and
