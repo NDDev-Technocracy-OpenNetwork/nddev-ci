@@ -98,7 +98,8 @@ inputs:
     default: '.'
   images:
     description: >-
-      'true' prepares the image builder for images the job builds and tests itself.
+      'true' prepares the image builder for images the job builds and tests itself; 'auto' prepares
+      it on Linux when the checkout tracks a Dockerfile or Containerfile.
     default: 'false'
 outputs:
   read-token:
@@ -334,6 +335,24 @@ runs:
         managed: ${{ inputs.managed }}
         working-directory: ${{ inputs.working-directory }}
 
+    # A repository that tracks a Dockerfile builds images in its full check, so it gets the
+    # builder, and with it the slot's kept layers, without naming it.
+    - name: Image builds of the job
+      id: images
+      if: inputs.images == 'true' || inputs.images == 'auto'
+      shell: bash
+      env:
+        IMAGES: ${{ inputs.images }}
+      run: |
+        set -euo pipefail
+        if [ "$IMAGES" = true ]; then
+          echo "prepare=true" >> "$GITHUB_OUTPUT"
+        elif [ "$RUNNER_OS" = Linux ] && git ls-files -z -- ':(glob)**/Dockerfile' ':(glob)**/Dockerfile.*' \
+            ':(glob)**/*.Dockerfile' ':(glob)**/*.dockerfile' ':(glob)**/Containerfile' ':(glob)**/Containerfile.*' | grep -qz .; then
+          echo "The checkout tracks a Dockerfile: the job prepares the image builder."
+          echo "prepare=true" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Prepare in-job image builds
-      if: inputs.images == 'true'
+      if: steps.images.outputs.prepare == 'true'
       uses: $/actions/image-builder

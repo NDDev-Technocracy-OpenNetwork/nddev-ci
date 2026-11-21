@@ -141,8 +141,10 @@ runs:
         name: ${{ steps.state.outputs.name }}
         keep-state: ${{ steps.state.outputs.name != '' }}
         driver: docker-container
+        # A build that names no output loads its image into Docker, as Docker's own builder does.
         driver-opts: |
           image=${{ steps.state.outputs.image }}
+          default-load=true
           ${{ steps.mirror.outputs.driver }}
         buildkitd-flags: ${{ steps.mirror.outputs.flags }}
         buildkitd-config-inline: |

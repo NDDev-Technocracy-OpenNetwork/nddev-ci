@@ -306,8 +306,10 @@ arguments, so a recipe builds with `docker buildx build $NDDEV_CI_IMAGE_BUILD_FL
 the database variables of the daily package scan, `TRIVY_DB_REPOSITORY`,
 `TRIVY_JAVA_DB_REPOSITORY` and `GRYPE_DB_UPDATE_URL`, so the job's scans read the same copies. On
 a GitHub-hosted runner the flags and variables stay empty and each tool uses its public source.
-Set `images: true` on `check.yml` to prepare this builder for the full `just verify`, so the
-checked release image can use the same build outputs as the rest of the check. On
+A full check of `check.yml` prepares this builder by itself on Linux when the checkout tracks a
+Dockerfile or Containerfile, so the checked release image can use the same build outputs as the
+rest of the check and the slot's kept layers; `images: true` asks for it in any case. A build that
+names no output loads its image into Docker, as Docker's own builder does. On
 `recipe.yml` the input prepares the builder before the selected recipe.
 
 The builder keeps its layers between jobs on a managed runner. A slot's Docker starts empty in

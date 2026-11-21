@@ -34,7 +34,9 @@ on:
         type: number
         default: 30
       images:
-        description: Prepare the shared image builder for the full check's image recipes.
+        description: >-
+          Prepare the shared image builder for the full check's image recipes; a repository that
+          tracks a Dockerfile gets it without this input.
         type: boolean
         default: false
       artifact:
@@ -223,7 +225,7 @@ jobs:
         with:
           managed: ${{ env.SDK_MANAGED }}
           artifact-registry: ${{ inputs.artifact-registry }}
-          images: ${{ inputs.images && github.event_name != 'pull_request' }}
+          images: ${{ github.event_name != 'pull_request' && (inputs.images && 'true' || 'auto') || 'false' }}
           diagnostics: ${{ inputs.diagnostics }}
           reports: ${{ inputs.reports }}
           fetch-depth: ${{ inputs.fetch-depth }}
