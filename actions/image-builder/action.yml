@@ -93,18 +93,61 @@ runs:
         docker buildx version
         echo "version=" >> "$GITHUB_OUTPUT"
 
+    # A slot's Docker starts empty in every job, while its build cache root stays. BuildKit keeps
+    # its whole state, layers and cache mounts, in its builder's volume; bound into that root, a
+    # trusted job's builds find the slot's earlier layers with no flag of their own. Pull requests
+    # never write it. BuildKit's own collection keeps it within its share of the slot's area.
+    - name: Builder state of a trusted managed job
+      id: state
+      shell: bash
+      env:
+        BUILDKIT_IMAGE: moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
+      run: |
+        set -euo pipefail
+        echo "image=$BUILDKIT_IMAGE" >> "$GITHUB_OUTPUT"
+        root="${NDDEV_BUILD_CACHE_ROOT:-}"
+        if [ "$RUNNER_ENVIRONMENT" != self-hosted ] || [ "${NDDEV_CACHE_TRUST:-}" != trusted ] || [[ "$root" != /* ]] || [ ! -d "$root" ]; then
+          echo "BuildKit starts empty: only a trusted job of a managed runner keeps its layers."
+          exit 0
+        fi
+        # One state per BuildKit release, which may not read a newer release's state; another
+        # release's state leaves when this one first starts on the slot.
+        release="${BUILDKIT_IMAGE#*:}"
+        release="${release%%@*}"
+        parent="$root/nddev-ci/buildkit"
+        state="$parent/$release"
+        if [ ! -d "$state" ]; then
+          rm -rf -- "$parent"
+          mkdir -p -- "$state"
+        fi
+        name=nddev-ci-images
+        # buildx names the first node's state volume buildx_buildkit_<builder>0_state.
+        docker volume create --driver local --opt type=none --opt o=bind --opt "device=$state" \
+          "buildx_buildkit_${name}0_state" >/dev/null
+        {
+          echo "name=$name"
+          echo "config<<CONFIG"
+          printf '[worker.oci]\n  gc = true\n  maxUsedSpace = "40%%"\n  minFreeSpace = "25%%"\n'
+          echo "CONFIG"
+        } >> "$GITHUB_OUTPUT"
+        echo "BuildKit keeps its layers in the slot's build cache: $(du -sh -- "$state" | cut -f1) before this job."
+
     - name: BuildKit
       id: buildkit
       uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       with:
         version: ${{ steps.buildx.outputs.version }}
         cache-binary: false
+        name: ${{ steps.state.outputs.name }}
+        keep-state: ${{ steps.state.outputs.name != '' }}
         driver: docker-container
         driver-opts: |
-          image=moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
+          image=${{ steps.state.outputs.image }}
           ${{ steps.mirror.outputs.driver }}
         buildkitd-flags: ${{ steps.mirror.outputs.flags }}
-        buildkitd-config-inline: ${{ steps.mirror.outputs.config }}
+        buildkitd-config-inline: |
+          ${{ steps.mirror.outputs.config }}
+          ${{ steps.state.outputs.config }}
         use: true
 
     # A later step builds with these flags and scans with the same database routes as the daily
