@@ -69,7 +69,7 @@ jobs:
         source-version-smoke.yml
     secrets: inherit # zizmor: ignore[secrets-inherit]
     permissions:
-      actions: write
+      actions: read
       contents: read
 
   replay:
@@ -83,7 +83,7 @@ jobs:
         source-version-smoke.yml
     secrets: inherit # zizmor: ignore[secrets-inherit]
     permissions:
-      actions: write
+      actions: read
       contents: read
 
   verify-and-clean:

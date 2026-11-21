@@ -105,6 +105,26 @@ test("cancellation closes the tunnel and its child", { timeout: 10000 }, async (
 		}
 	});
 });
+test("the end of a finished session closes the tunnel quietly", { timeout: 10000, skip: process.platform === "win32" ? "Windows has no SIGHUP" : false }, async (t) => {
+	let accept;
+	const connected = new Promise((resolve) => { accept = resolve; });
+	const server = http.createServer();
+	server.on("connect", (_, socket) => { socket.write("HTTP/1.1 200 OK\r\n\r\n"); accept(socket); });
+	await fixture(server, async (port) => {
+		const { child, result } = client("ssh.github.com", 443, { HTTPS_PROXY: `http://127.0.0.1:${port}` });
+		t.after(() => child.kill("SIGKILL"));
+		const socket = await connected;
+		socket.resume();
+		socket.once("end", () => socket.end());
+		const closed = new Promise((resolve) => socket.once("close", resolve));
+		assert.equal(child.kill("SIGHUP"), true);
+		const { code, err } = await result;
+		await closed;
+		assert.equal(err, "");
+		assert.equal(code, 0);
+	});
+});
+
 test("invalid routes and injected destinations refuse without exposing the input", async () => {
 	for (const [host, port, address] of [["ssh.github.com", 443, "file:///private/secret"], ["bad\r\nheader", 443, "http://127.0.0.1:1"], ["ssh.github.com", 0, "http://127.0.0.1:1"]]) {
 		const { child, result } = client(host, port, { HTTPS_PROXY: address });

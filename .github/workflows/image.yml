@@ -99,99 +99,11 @@ jobs:
       - name: Outside telemetry off
         uses: $/actions/telemetry
 
-      # A managed runner offers a package mirror on its loopback. A build step reaches it only on
-      # the host network, and each package manager finds it by its own standard variable, which
-      # a Dockerfile takes by declaring that argument. On a GitHub-hosted runner none is set.
-      - name: Package mirror of a managed runner
-        id: mirror
-        run: |
-          set -euo pipefail
-          mirror="${NDDEV_CI_ARTIFACT_REGISTRY:-}"
-          mirror="${mirror%/}"
-          if [ "$RUNNER_ENVIRONMENT" != self-hosted ] || [ -z "$mirror" ]; then
-            exit 0
-          fi
-          [[ "$mirror" =~ ^http://127\.0\.0\.1:[0-9]{2,5}$ ]] || { echo "::error::the runner's package mirror must be a loopback HTTP address"; exit 1; }
-          {
-            echo "network=host"
-            echo "allow=network.host"
-            echo "driver=network=host"
-            echo "flags=--allow-insecure-entitlement network.host"
-            echo "arguments<<ARGUMENTS"
-            echo "CARGO_SOURCE_CRATES_IO_REPLACE_WITH=mirror"
-            echo "CARGO_SOURCE_MIRROR_REGISTRY=sparse+$mirror/crates-index/"
-            echo "RUSTUP_DIST_SERVER=$mirror/rustup"
-            echo "NPM_CONFIG_REGISTRY=$mirror/npm/"
-            echo "PIP_INDEX_URL=$mirror/pypi/simple/"
-            echo "PIP_TRUSTED_HOST=127.0.0.1"
-            echo "UV_DEFAULT_INDEX=$mirror/pypi/simple/"
-            echo "GOPROXY=$mirror/goproxy"
-            echo "PUB_HOSTED_URL=$mirror/pub"
-            # apt takes no mirror by a variable, but it follows the proxy variable for its
-            # plain-HTTP archives, and the mirror answers apt as that proxy. These two are
-            # predefined build arguments, so a Dockerfile declares nothing for them.
-            echo "http_proxy=$mirror"
-            echo "no_proxy=127.0.0.1,localhost"
-            echo "ARGUMENTS"
-            # The builder pulls base images itself and does not read the Docker daemon's mirrors,
-            # so it gets the same mirror for each registry the runner serves.
-            host="${mirror#http://}"
-            echo "config<<CONFIG"
-            for registry in docker.io ghcr.io gcr.io cgr.dev; do
-              printf '[registry."%s"]\n  mirrors = ["%s/%s"]\n' "$registry" "$host" "$registry"
-            done
-            printf '[registry."%s"]\n  http = true\n' "$host"
-            echo "CONFIG"
-          } >> "$GITHUB_OUTPUT"
-
-      # Buildx is one pinned release. A managed runner takes its binary through the artifact
-      # registry, which serves a release asset only by its digest, and installs it as the Docker
-      # plugin of this job; the next step then uses it as it is. Elsewhere that step downloads
-      # the same release itself.
-      - name: Buildx of a managed runner
-        id: buildx
-        env:
-          BUILDX_VERSION: v0.38.2
-          BUILDX_SHA256_X64: 7992ec09413b80ff57ba4e081f56fc833d7bac1d5e71143c6c809e7e6065f6d6
-          BUILDX_SHA256_ARM64: 46c0f334772de3cb0b341cc415caf7339fb5cfc8b8438ebcb5a10e7f23800d36
-        run: |
-          set -euo pipefail
-          mirror="${NDDEV_CI_ARTIFACT_REGISTRY:-}"
-          mirror="${mirror%/}"
-          if [ "$RUNNER_ENVIRONMENT" != self-hosted ] || [ -z "$mirror" ]; then
-            echo "version=$BUILDX_VERSION" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          case "$(uname -m)" in
-            x86_64) arch=amd64 digest=$BUILDX_SHA256_X64 ;;
-            aarch64 | arm64) arch=arm64 digest=$BUILDX_SHA256_ARM64 ;;
-            *) echo "::error::image builds on managed runners support Linux x64 and ARM64"; exit 1 ;;
-          esac
-          plugins="${DOCKER_CONFIG:-$HOME/.docker}/cli-plugins"
-          mkdir -p "$plugins"
-          curl -fsSL -o "$plugins/docker-buildx.download" \
-            "$mirror/github-releases/sha256/$digest/docker/buildx/releases/download/$BUILDX_VERSION/buildx-$BUILDX_VERSION.linux-$arch"
-          echo "$digest  $plugins/docker-buildx.download" | sha256sum --check --quiet
-          chmod 0755 "$plugins/docker-buildx.download"
-          mv "$plugins/docker-buildx.download" "$plugins/docker-buildx"
-          docker buildx version
-          # An empty version tells the next step to use the installed plugin.
-          echo "version=" >> "$GITHUB_OUTPUT"
-
-      - name: BuildKit
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-        with:
-          version: ${{ steps.buildx.outputs.version }}
-          # The pinned binary is downloaded and verified each time, never restored from a cache
-          # a pull request could have written.
-          cache-binary: false
-          driver: docker-container
-          driver-opts: |
-            image=moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
-            ${{ steps.mirror.outputs.driver }}
-          # The builder allows the host network only where the build uses it for the mirror.
-          buildkitd-flags: ${{ steps.mirror.outputs.flags }}
-          buildkitd-config-inline: ${{ steps.mirror.outputs.config }}
+      # The builder of every in-job image build: on a managed runner the package mirror for each
+      # package manager, the registry mirrors, the pinned Buildx and the slot's kept layers.
+      - name: Image builder
+        id: builder
+        uses: $/actions/image-builder
 
       - name: Container registry
         if: github.event_name != 'pull_request' && inputs.push
@@ -208,11 +120,12 @@ jobs:
           context: ${{ inputs.context }}
           file: ${{ inputs.dockerfile }}
           target: ${{ inputs.target }}
+          builder: ${{ steps.builder.outputs.builder }}
           build-args: |
             ${{ inputs.build-args }}
-            ${{ steps.mirror.outputs.arguments }}
-          network: ${{ steps.mirror.outputs.network }}
-          allow: ${{ steps.mirror.outputs.allow }}
+            ${{ steps.builder.outputs.arguments }}
+          network: ${{ steps.builder.outputs.network }}
+          allow: ${{ steps.builder.outputs.network != '' && 'network.host' || '' }}
           platforms: ${{ steps.name.outputs.platform }}
           push: ${{ github.event_name != 'pull_request' && inputs.push }}
           tags: ${{ steps.name.outputs.name }}:sha-${{ github.sha }}
@@ -222,7 +135,7 @@ jobs:
           provenance: mode=max
           sbom: true
           # GitHub's runners keep BuildKit layers in the repository's Actions cache; our runners
-          # use their own BuildKit state.
+          # keep them in the builder's state in the slot's build cache.
           cache-from: ${{ runner.environment == 'github-hosted' && format('type=gha,scope=image-{0}', inputs.image) || '' }}
           cache-to: ${{ runner.environment == 'github-hosted' && github.event_name != 'pull_request' && format('type=gha,mode=max,scope=image-{0}', inputs.image) || '' }}
 

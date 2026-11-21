@@ -1,0 +1,23 @@
+name: Scoped App read token
+description: >-
+  Mints a GitHub App installation token that reads only the contents of the named repositories of
+  the caller's organization, checks that it holds exactly that, and revokes it at once otherwise.
+inputs:
+  client-id:
+    description: The GitHub App client ID.
+    required: true
+  installation-id:
+    description: The App installation in the caller's organization.
+    required: true
+  repositories:
+    description: Explicit owner/repository names, one per line, granted contents-read access.
+    required: true
+  private-key:
+    description: The App PEM key, used only while minting the token.
+    required: true
+outputs:
+  token:
+    description: The verified contents-read token, masked in logs.
+runs:
+  using: node24
+  main: run.mjs

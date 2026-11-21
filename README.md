@@ -316,11 +316,11 @@ names no runner and no address. apt needs no argument: the workflow passes the m
 predefined `http_proxy`, and the mirror serves the Debian and Ubuntu archives in that form.
 Any other plain-HTTP address in a `RUN` step is refused there, so such a download uses HTTPS.
 
-[image-builder](actions/image-builder/action.yml) prepares the same builder inside a job that
-builds images to test and scan them there, such as a native recipe that builds several images,
-runs its own tests against them and keeps their SBOMs. It applies `image.yml`'s policy: on a
-managed runner the pinned Buildx from the first route, the registry mirrors for the builder and
-the host network. It exports `NDDEV_CI_IMAGE_BUILD_FLAGS`, the network and the mirror's build
+`image.yml` prepares its builder with [image-builder](actions/image-builder/action.yml), which
+also prepares it inside a job that builds images to test and scan them there, such as a native
+recipe that builds several images, runs its own tests against them and keeps their SBOMs. On a
+managed runner it takes the pinned Buildx from the first route, the registry mirrors for the
+builder and the host network. It exports `NDDEV_CI_IMAGE_BUILD_FLAGS`, the network and the mirror's build
 arguments, so a recipe builds with `docker buildx build $NDDEV_CI_IMAGE_BUILD_FLAGS --load`, and
 the database variables of the daily package scan, `TRIVY_DB_REPOSITORY`,
 `TRIVY_JAVA_DB_REPOSITORY` and `GRYPE_DB_UPDATE_URL`, so the job's scans read the same copies. On
@@ -328,6 +328,16 @@ a GitHub-hosted runner the flags and variables stay empty and each tool uses its
 Set `images: true` on `check.yml` to prepare this builder for the full `just verify`, so the
 checked release image can use the same build outputs as the rest of the check. On
 `recipe.yml` the input prepares the builder before the selected recipe.
+
+The builder keeps its layers between jobs on a managed runner. A slot's Docker starts empty in
+every job, while the slot's build cache root, `NDDEV_BUILD_CACHE_ROOT`, stays; the builder's
+whole BuildKit state, layers and cache mounts, lives there, one folder for each BuildKit release.
+So a build finds the slot's earlier layers whichever way the job builds, through the producer,
+`NDDEV_CI_IMAGE_BUILD_FLAGS` or a plain `docker buildx build`, and a project writes no cache flag.
+Only a trusted job keeps them, as the runner marks pushes, manual and scheduled runs of `dev`, `main` and the
+default branch with `NDDEV_CACHE_TRUST=trusted`; a pull request's build starts empty and writes
+nothing there. BuildKit's own collection keeps the state under 40% of the slot's area with a
+quarter of it free.
 
 Project setup must support its execution environment. Hosted setup uses the explicit
 SDK inputs and cannot require a private installer or private cache variable.
@@ -392,7 +402,8 @@ API with `GH_TOKEN` or the authenticated `gh` identity.
 ## Promotion
 
 [promote.yml](.github/workflows/promote.yml) moves `main` forward to the newest `dev` commit whose
-newest full check on a push passed, and starts the caller's release workflow on `main`. A newer
+newest full check on a push passed. The move is a push, so a release workflow that runs on a push to
+`main` starts once for it. A newer
 commit whose check failed or still runs waits for the next promotion. It never moves `main`
 backward or sideways: when `main` holds a commit `dev` lacks, it stops.
 
