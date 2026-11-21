@@ -52,6 +52,19 @@ test("pending qualification has a finite budget and malformed inventories cannot
   await assert.rejects(qualify({json: async () => inventory()}, {...where, event: "pull_request"}));
 });
 
+test("a run not listed yet waits within the budget, and stays missing without one", async () => {
+  let clock = 0, listings = 0;
+  const api = {json: async () => ++listings < 3 ? inventory([]) : inventory()};
+  const result = await qualify(api, where, {waitMinutes: 15, now: () => clock, sleep: async (ms) => {clock += ms;}});
+  assert.equal(result.run_id, 7);
+  assert.equal(listings, 3);
+  await assert.rejects(qualify({json: async () => inventory([])}, where, {waitMinutes: 0}), /No dev push check/);
+  clock = 0;
+  await assert.rejects(qualify({json: async () => inventory([])}, where, {waitMinutes: 1, now: () => clock,
+    sleep: async (ms) => {clock += ms;}}), /No dev push check/);
+  assert.equal(clock, 60000);
+});
+
 test("a new attempt invalidates an existing qualification receipt", async () => {
   assert.equal(receipt(qualified).run_id, 7);
   assert.throws(() => receipt({...qualified, run_attempt: 0}));
