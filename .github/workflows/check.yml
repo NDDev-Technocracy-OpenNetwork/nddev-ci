@@ -33,6 +33,10 @@ on:
         description: How long the check may run.
         type: number
         default: 30
+      images:
+        description: Prepare the shared image builder for the full check's image recipes.
+        type: boolean
+        default: false
       artifact:
         description: A file or folder the full check leaves for deployment, such as a release binary.
         type: string
@@ -219,6 +223,7 @@ jobs:
         with:
           managed: ${{ env.SDK_MANAGED }}
           artifact-registry: ${{ inputs.artifact-registry }}
+          images: ${{ inputs.images && github.event_name != 'pull_request' }}
           diagnostics: ${{ inputs.diagnostics }}
           reports: ${{ inputs.reports }}
           fetch-depth: ${{ inputs.fetch-depth }}
