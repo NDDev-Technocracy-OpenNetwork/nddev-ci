@@ -363,6 +363,13 @@ record in the job log. The execution controller owns the SDK, device and generat
 provenance added at collection. [telemetry](actions/telemetry/action.yml) disables
 outside telemetry in every job.
 
+`just times owner/repository` measures how long a repository's checks make an agent wait, from
+the newest 30 completed runs of each check (`--runs`, `--workflow ci.yml`, `--branch dev`). For the
+short check of pull requests and the full check of the branch it prints the median, 90th
+percentile and maximum of the answer, from the event to the job named `short check` or
+`full check`, of the longest wait of one job for a runner and of the longest job. It reads the
+API with `GH_TOKEN` or the authenticated `gh` identity.
+
 ## Promotion
 
 [promote.yml](.github/workflows/promote.yml) moves `main` forward to the newest `dev` commit whose

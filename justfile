@@ -92,6 +92,8 @@ check: (_tools "check")
     node --check tests/job-record.test.mjs
     node --check tools/repository-rules.mjs
     node --check tests/repository-rules.test.mjs
+    node --check tools/ci-times.mjs
+    node --check tests/ci-times.test.mjs
     node --check lib/qualification.mjs
     node --check lib/commit-status.mjs
     node --check actions/require-status/run.mjs
@@ -252,6 +254,10 @@ _tools mode:
 # Reconciles this library's declared required checks through the current administrator identity.
 repository-rules repository mode="plan":
     node tools/repository-rules.mjs {{ quote(repository) }} {{ quote(mode) }}
+
+# How long a repository's checks make an agent wait, from its newest completed runs.
+times repository *options:
+    node tools/ci-times.mjs {{ quote(repository) }} {{ options }}
 
 # Qualifies the actual secret scanner against the trusted-base policy boundary.
 secret-policy-smoke:
