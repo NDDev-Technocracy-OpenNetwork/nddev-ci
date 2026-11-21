@@ -93,6 +93,9 @@ check: (_tools "check")
     node --check tools/repository-rules.mjs
     node --check tests/repository-rules.test.mjs
     node --check tools/ci-times.mjs
+    node --check lib/verify-parts.mjs
+    node --check actions/plan/run.mjs
+    node --check tests/verify-parts.test.mjs
     node --check tests/ci-times.test.mjs
     node --check lib/qualification.mjs
     node --check lib/commit-status.mjs

@@ -9,6 +9,10 @@ struct Fixture(PathBuf);
 
 impl Fixture {
     fn run(source: &str, event: &str) -> (Self, Output) {
+        Self::run_part(source, event, "")
+    }
+
+    fn run_part(source: &str, event: &str, part: &str) -> (Self, Output) {
         let path = std::env::temp_dir().join(format!(
             "nddev-ci-recipes-{}-{}",
             std::process::id(),
@@ -32,6 +36,7 @@ impl Fixture {
         let output = Command::new("bash")
             .args(["-euo", "pipefail", "-c", &script])
             .env("EVENT", event)
+            .env("PART", part)
             .current_dir(&fixture.0)
             .output()
             .expect("execute actual recipe dispatch");
@@ -133,4 +138,45 @@ fn the_full_path_still_runs_verify() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(fixture.events(), ["verify"]);
+}
+
+#[test]
+fn a_part_of_the_full_check_runs_only_its_recipes_in_order() {
+    let (fixture, output) = Fixture::run_part(
+        "verify: check image test-image\ncheck:\n    @echo check >> events\nimage:\n    @echo image >> events\ntest-image: image\n    @echo test-image >> events\n",
+        "push",
+        r#"["image","test-image"]"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fixture.events(), ["image", "test-image"]);
+}
+
+#[test]
+fn a_part_passes_its_literal_arguments() {
+    let (fixture, output) = Fixture::run_part(
+        "test scope:\n    @echo test {{scope}} >> events\n",
+        "push",
+        r#"["test","unit tests"]"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fixture.events(), ["test unit tests"]);
+}
+
+#[test]
+fn a_failing_part_stays_a_failure() {
+    let (fixture, output) = Fixture::run_part(
+        "a:\n    @echo a >> events\n    @false\n",
+        "push",
+        r#"["a"]"#,
+    );
+    assert!(!output.status.success());
+    assert_eq!(fixture.events(), ["a"]);
 }
