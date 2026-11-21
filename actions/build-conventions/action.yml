@@ -1,0 +1,8 @@
+name: Build conventions
+description: >-
+  Names each tracked line that builds against what a managed runner gives a job: a Gradle home of
+  its own, an image build without the library's builder flags, or an exported local layer cache.
+  Warnings; they never stop a merge.
+runs:
+  using: node24
+  main: run.mjs
