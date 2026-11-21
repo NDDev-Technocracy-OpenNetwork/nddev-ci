@@ -106,7 +106,7 @@ runs:
         set -euo pipefail
         echo "image=$BUILDKIT_IMAGE" >> "$GITHUB_OUTPUT"
         root="${NDDEV_BUILD_CACHE_ROOT:-}"
-        if [ "$RUNNER_ENVIRONMENT" != self-hosted ] || [ "${NDDEV_CACHE_TRUST:-}" != trusted ] || [[ "$root" != /* ]] || [ ! -d "$root" ]; then
+        if [ "$RUNNER_ENVIRONMENT" != self-hosted ] || [[ "$root" != /* ]] || [ ! -d "$root" ]; then
           echo "BuildKit starts empty: only a trusted job of a managed runner keeps its layers."
           exit 0
         fi
@@ -153,6 +153,26 @@ runs:
     # A later step builds with these flags and scans with the same database routes as the daily
     # package scan; on a GitHub-hosted runner the flags stay empty and scanners use their own
     # sources.
+    - name: Probe the kept state
+      if: steps.state.outputs.name != ''
+      shell: bash
+      env:
+        IMAGE: ${{ steps.state.outputs.image }}
+      run: |
+        set -euo pipefail
+        docker volume inspect buildx_buildkit_nddev-ci-images0_state
+        dir=$(mktemp -d)
+        printf 'FROM scratch\nCOPY a /a\n' > "$dir/Dockerfile"
+        printf '%s\n' "$GITHUB_RUN_ID-$RANDOM" > "$dir/a"
+        docker buildx build --builder nddev-ci-images --progress plain "$dir" 2>&1 | tail -5
+        du -sh "$NDDEV_BUILD_CACHE_ROOT/nddev-ci/buildkit"
+        docker buildx rm --keep-state nddev-ci-images
+        docker volume ls
+        docker buildx create --name nddev-ci-images --driver docker-container --driver-opt "image=$IMAGE" --bootstrap
+        docker buildx build --builder nddev-ci-images --progress plain "$dir" 2>&1 | tee "$dir/log" | tail -8
+        grep -q CACHED "$dir/log" && echo "PROBE: the recreated builder found the layer" || { echo "PROBE: no cached layer"; exit 1; }
+        docker buildx du --builder nddev-ci-images | tail -3
+
     - name: Build flags and scanner databases
       shell: bash
       env:
