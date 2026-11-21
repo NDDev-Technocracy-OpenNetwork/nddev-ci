@@ -3,3 +3,16 @@ rules:
   dependabot-cooldown:
     config:
       days: 3
+  # The library's own top-level workflows call its reusable workflows with ./, which resolves at
+  # the same commit there: actionlint 1.7.12 does not parse $/ in a job-level uses (README,
+  # Developing the library). Actions and reusable workflows call each other with $/.
+  self-repository:
+    ignore:
+      - ci.yml
+      - promotion-smoke.yml
+      - promotion.yml
+      - publish.yml
+      - recipe-smoke.yml
+      - secret-policy-smoke.yml
+      - security-daily.yml
+      - source-version-smoke.yml
