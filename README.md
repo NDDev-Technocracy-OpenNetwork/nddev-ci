@@ -67,6 +67,25 @@ own steps, and records a later failure of its own artifact or reports as the job
 a failed command or invalid justfile fails the job. New PR pushes cancel their
 superseded checks. Each `dev` commit keeps its full check.
 
+### The full check in parts
+
+A full check runs the parts of `verify` as jobs of their own, side by side, and joins them into one
+result named `full check`. The parts are the recipes `verify` depends on, read from
+`just --dump --dump-format json` by a light first job: a project declares nothing beyond its
+justfile, and `just verify` stays the one command an agent runs.
+
+- A part that another part needs, directly or through its own dependencies, runs in that part's
+  job, as `just image test-image`, so nothing runs twice and the declared order holds. A part that
+  reads what another part leaves names that part as its dependency, as `just` itself requires of
+  a recipe run alone.
+- `verify` runs as one `full check` job when it has commands of its own, parameters, a recipe after
+  `&&`, a computed, variadic or option-like argument, fewer than two independent parts, or when
+  the caller names `reports`, which the job running `verify` must leave.
+- Every part takes the same inputs, setup, runner choice, SDKs and caches. One run of each part runs
+  on a branch at a time; a newer push's waiting part replaces an older waiting one.
+- The deployment `artifact` is kept by the part whose recipes left it; the joined result fails
+  unless exactly one part did. Diagnostics are kept per part. Promotion reads the run as before.
+
 Use `check.yml` for this standard path. A project with existing command jobs calls
 `merge-stops.yml` beside them. Use `recipe.yml` for a native matrix, with a declared
 recipe, optional preparation recipe and literal arguments as a JSON string array.

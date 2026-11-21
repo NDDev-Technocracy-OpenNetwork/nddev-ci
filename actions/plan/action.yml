@@ -1,0 +1,17 @@
+name: Plan a full check
+description: >-
+  Reads the project's `verify` recipe with `just --dump` and gives the full check its jobs: one job
+  for each part `verify` depends on, a part another part needs joined into that part's job, or one
+  `full check` job when `verify` is more than a list of independent parts. Nothing is evaluated.
+inputs:
+  whole:
+    description: A reason to run `verify` as one job whatever the justfile says; empty plans by it.
+    default: ''
+outputs:
+  split:
+    description: '`true` when the full check runs as parts and a joined result.'
+  matrix:
+    description: The jobs as a JSON array of `label`, `group` and the `argv` given to `just`.
+runs:
+  using: node24
+  main: run.mjs
