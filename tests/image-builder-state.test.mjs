@@ -11,6 +11,8 @@ const action = readFileSync(new URL("../actions/image-builder/action.yml", impor
 const block = action.split("    - name: Builder state of a trusted managed job\n")[1].split("\n    - name: ")[0];
 const image = block.match(/BUILDKIT_IMAGE: (\S+)/)[1];
 const version = image.split(":")[1].split("@")[0];
+// Image builds run on Linux runners only, so the step is exercised where it runs.
+const linux = {skip: process.platform === "linux" ? false : "image builds are Linux-only"};
 const script = block.split("      run: |\n")[1].split("\n").map((line) => line.replace(/^ {8}/, "")).join("\n");
 
 function run(environment, prepare = () => {}) {
@@ -38,7 +40,7 @@ function run(environment, prepare = () => {}) {
   }
 }
 
-test("a trusted managed job binds the builder's state into the slot's build cache", () => {
+test("a trusted managed job binds the builder's state into the slot's build cache", linux, () => {
   const result = run(() => ({}));
   assert.equal(result.status, 0, result.stderr);
   const args = result.docker.trim().split("\n");
@@ -52,7 +54,7 @@ test("a trusted managed job binds the builder's state into the slot's build cach
   assert.ok(result.kept(version));
 });
 
-test("a pull request, a hosted runner or a missing root starts BuildKit empty", () => {
+test("a pull request, a hosted runner or a missing root starts BuildKit empty", linux, () => {
   for (const environment of [
     () => ({NDDEV_CACHE_TRUST: "untrusted"}),
     () => ({NDDEV_CACHE_TRUST: ""}),
@@ -69,7 +71,7 @@ test("a pull request, a hosted runner or a missing root starts BuildKit empty", 
   }
 });
 
-test("the state of this BuildKit release stays, and another release's state leaves", () => {
+test("the state of this BuildKit release stays, and another release's state leaves", linux, () => {
   const layer = (cache, name) => {
     mkdirSync(path.join(cache, "nddev-ci", "buildkit", name), {recursive: true});
     writeFileSync(path.join(cache, "nddev-ci", "buildkit", name, "layer"), "kept");
