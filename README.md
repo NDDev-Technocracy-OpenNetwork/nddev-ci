@@ -108,7 +108,10 @@ or requesting another permission.
 
 The PR merge stops scan secrets in the changed commits, dangerous workflows and newly
 introduced fixed critical dependency vulnerabilities. Commit messages and the pull request's
-text are checked as warnings that never stop a merge.
+text are checked as warnings that never stop a merge, and so is a tracked line that sets
+`GRADLE_USER_HOME`: it replaces a managed runner's persistent Gradle home, so Gradle's settings go
+in `GRADLE_OPTS` as `-Dorg.gradle.*`, and a proxy as `-Dhttps.proxyHost` and `-Dhttps.proxyPort`,
+since the JVM ignores `HTTPS_PROXY`.
 Dependency comparison reads the exact proposed merge and its own base from Git,
 runs no project installers, and scans both against the same vulnerability data.
 Existing findings remain diagnostics. Native source packages without a registry version stay
