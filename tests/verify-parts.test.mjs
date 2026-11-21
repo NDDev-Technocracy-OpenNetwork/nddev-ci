@@ -47,6 +47,12 @@ load: image
   assert.deepEqual(result.parts.map((part) => part.name), ["check", "image + test-image + test-copy"]);
   assert.deepEqual(result.parts[1].argv, ["image", "test-image", "test-copy"]);
   assert.equal(result.parts[1].group, "image");
+  // The job record takes a short plain name, which a joined part's label is not.
+  const plain = /^[A-Za-z0-9][A-Za-z0-9 ._:/-]{0,79}$/;
+  assert.deepEqual(matrix(result).map((job) => job.task), ["verify: check", "verify: image/test-image/test-copy"]);
+  assert.ok(matrix(result).every((job) => plain.test(job.task)));
+  const long = {split: true, parts: [{name: Array.from({length: 9}, (_, i) => `recipe-number-${i}`).join(" + "), group: "g", argv: []}]};
+  assert.equal(matrix(long)[0].task, "verify: recipe-number-0 and 8 more");
 });
 
 test("shared helpers of two parts do not join them", withJust, () => {

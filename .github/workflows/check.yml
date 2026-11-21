@@ -389,7 +389,7 @@ jobs:
         with:
           status: ${{ job.status }}
           project-outcome: ${{ steps.project.outcome }}
-          task: ${{ matrix.part.label }}
+          task: ${{ matrix.part.task || matrix.part.label }}
           task-type: test
           name: ${{ github.job }}-${{ matrix.part.group }}
           artifact: ${{ (needs.plan.outputs.split != 'true' || steps.left.outputs.left == 'true') && inputs.artifact || '' }}
