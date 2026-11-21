@@ -108,10 +108,16 @@ or requesting another permission.
 
 The PR merge stops scan secrets in the changed commits, dangerous workflows and newly
 introduced fixed critical dependency vulnerabilities. Commit messages and the pull request's
-text are checked as warnings that never stop a merge, and so is a tracked line that sets
-`GRADLE_USER_HOME`: it replaces a managed runner's persistent Gradle home, so Gradle's settings go
-in `GRADLE_OPTS` as `-Dorg.gradle.*`, and a proxy as `-Dhttps.proxyHost` and `-Dhttps.proxyPort`,
-since the JVM ignores `HTTPS_PROXY`.
+text are checked as warnings that never stop a merge, and so are the tracked lines that build
+against what a managed runner gives a job ([build-conventions](actions/build-conventions/action.yml)):
+- setting `GRADLE_USER_HOME`, which replaces the runner's persistent Gradle home; Gradle's settings
+  go in `GRADLE_OPTS` as `-Dorg.gradle.*`, and a proxy as `-Dhttps.proxyHost` and
+  `-Dhttps.proxyPort`, since the JVM ignores `HTTPS_PROXY`;
+- an image build without `$NDDEV_CI_IMAGE_BUILD_FLAGS`, whose `RUN` steps take the slot's default
+  network past the package mirror, where a package manager can stall for minutes; set
+  `images: true` and build with the flags, as the in-job image builds below say;
+- an exported local layer cache, which costs its export on every run while the library's builder
+  keeps layers per slot.
 Dependency comparison reads the exact proposed merge and its own base from Git,
 runs no project installers, and scans both against the same vulnerability data.
 Existing findings remain diagnostics. Native source packages without a registry version stay
