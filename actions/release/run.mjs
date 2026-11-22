@@ -39,6 +39,7 @@ async function main() {
   const ref = environment("GITHUB_REF");
   const temp = environment("RUNNER_TEMP");
   const workflow = input("check-workflow") || "ci.yml";
+  const fallbackActorId = input("fallback-actor-id");
   const waitMinutes = Number(input("wait-minutes") || "30");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/.test(workflow))
     refuse("check-workflow must be a workflow file name in .github/workflows.");
@@ -50,9 +51,9 @@ async function main() {
 
   // 1. The newest full check of this exact commit on the integration branch.
   const qualifications = await qualifyWorkflows(github, {sha, repository, workflowPath: `.github/workflows/${workflow}`, branch: "dev"},
-    input("required-workflows"), {waitMinutes});
+    input("required-workflows"), {waitMinutes, fallbackActorId});
   const qualified = qualifications[0];
-  const recheckAll = () => Promise.all(qualifications.map((proof) => recheck(github, proof)));
+  const recheckAll = () => Promise.all(qualifications.map((proof) => recheck(github, proof, {fallbackActorId})));
   const run = {id: qualified.run_id, run_attempt: qualified.run_attempt,
     html_url: `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${repository}/actions/runs/${qualified.run_id}`};
   console.log(`Qualified by ${run.html_url} (attempt ${run.run_attempt}).`);
@@ -65,7 +66,7 @@ async function main() {
   let files = [];
   if (names.length) {
     const transferred = await transferArtifacts(github, qualified, names.join("\n"), folder,
-      {apiUrl: input("artifact-api-url"), token: input("artifact-token")});
+      {apiUrl: input("artifact-api-url"), token: input("artifact-token"), fallbackActorId});
     files = transferred.files;
   } else mkdirSync(folder, {recursive: true, mode: 0o700});
   const planned = checkFiles(files);

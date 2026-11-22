@@ -207,6 +207,12 @@ runner class.
 The supported profiles are Linux x64, Linux ARM64, macOS ARM64 and Windows x64. Each
 selects a standard GitHub-hosted image of the same platform.
 
+For branch release checks, set the caller's run name to `Hosted fallback` when the dispatch input
+`runner` equals `github`, as in the example. Give both promotion and release the scheduler's
+numeric GitHub user ID as `fallback-actor-id`. A replacement must follow the cancelled push and
+match its repository, workflow, branch and commit. The scheduler must be both the original and
+the triggering actor. The newest qualifying replacement supplies the same artifact receipt.
+
 The unqualified PR label `runner:github` and a manual `runner: github` without a profile move the
 whole check and its portable jobs. For a call without a profile, the manual selection keeps its
 legacy hosted label. Public calls always use GitHub-hosted runners. A public recipe can use
