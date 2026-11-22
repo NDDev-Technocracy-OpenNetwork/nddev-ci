@@ -347,24 +347,16 @@ Any other plain-HTTP address in a `RUN` step is refused there, so such a downloa
 
 `image.yml` prepares its builder with [image-builder](actions/image-builder/action.yml), which
 also prepares it inside a job that builds images to test and scan them there, such as a native
-recipe that builds several images, runs its own tests against them and keeps their SBOMs. On a
-managed runner it takes the pinned Buildx from the first route, the registry mirrors for the
-builder and the host network. It exports `NDDEV_CI_IMAGE_BUILD_FLAGS`, the network and the mirror's build
-arguments, so a recipe builds with `docker buildx build $NDDEV_CI_IMAGE_BUILD_FLAGS --load`, and
-the database variables of the daily package scan, `TRIVY_DB_REPOSITORY`,
-`TRIVY_JAVA_DB_REPOSITORY` and `GRYPE_DB_UPDATE_URL`, so the job's scans read the same copies. On
-a GitHub-hosted runner the flags and variables stay empty and each tool uses its public source.
-Set `images: true` on `check.yml` to prepare this builder for the full `just verify`, so the
-checked release image can use the same build outputs as the rest of the check. On
-`recipe.yml` the input prepares the builder before the selected recipe.
+recipe that builds several images, runs its own tests against them and keeps their SBOMs.
+Managed jobs use the persistent builder named by `BUILDX_BUILDER`. The runner provides Buildx
+and the builder's registry mirrors, host-network entitlement, storage and collection policy.
+The same machine-level BuildKit state supplies layers and cache mounts to concurrent jobs.
+GitHub-hosted jobs provision their own builder and use public package sources.
 
-The builder keeps its layers between jobs on a managed runner. A slot's Docker starts empty in
-every job, while the slot's build cache root, `NDDEV_BUILD_CACHE_ROOT`, stays; the builder's
-whole BuildKit state, layers and cache mounts, lives there, one folder for each BuildKit release.
-So a build finds the slot's earlier layers whichever way the job builds, through the producer,
-`NDDEV_CI_IMAGE_BUILD_FLAGS` or a plain `docker buildx build`, and a project writes no cache flag.
-Every managed job with a declared build cache root keeps the layers. BuildKit's own collection
-keeps the state under 40% of the slot's area with a quarter of it free.
+The action exports `NDDEV_CI_IMAGE_BUILD_FLAGS`, the network and the mirror's build arguments,
+so a recipe builds with `docker buildx build $NDDEV_CI_IMAGE_BUILD_FLAGS --load`. It also exports
+the daily scanner database routes on managed runners. Set `images: true` on `check.yml` or
+`recipe.yml` to make the builder available inside the project's recipe.
 
 Project setup must support its execution environment. Hosted setup uses the explicit
 SDK inputs and cannot require a private installer or private cache variable.

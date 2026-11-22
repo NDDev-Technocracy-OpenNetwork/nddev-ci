@@ -99,8 +99,7 @@ jobs:
       - name: Outside telemetry off
         uses: $/actions/telemetry
 
-      # The builder of every in-job image build: on a managed runner the package mirror for each
-      # package manager, the registry mirrors, the pinned Buildx and the slot's kept layers.
+      # Managed image jobs share the machine's builder and kept layers.
       - name: Image builder
         id: builder
         uses: $/actions/image-builder
@@ -135,7 +134,7 @@ jobs:
           provenance: mode=max
           sbom: true
           # GitHub's runners keep BuildKit layers in the repository's Actions cache; our runners
-          # keep them in the builder's state in the slot's build cache.
+          # keep them in the machine's persistent builder.
           cache-from: ${{ runner.environment == 'github-hosted' && format('type=gha,scope=image-{0}', inputs.image) || '' }}
           cache-to: ${{ runner.environment == 'github-hosted' && github.event_name != 'pull_request' && format('type=gha,mode=max,scope=image-{0}', inputs.image) || '' }}
 
