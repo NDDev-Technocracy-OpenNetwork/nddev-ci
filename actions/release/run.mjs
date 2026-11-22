@@ -39,7 +39,7 @@ async function main() {
   const ref = environment("GITHUB_REF");
   const temp = environment("RUNNER_TEMP");
   const workflow = input("check-workflow") || "ci.yml";
-  const fallbackActorId = input("fallback-actor-id");
+  const fallbackActorId = process.env.NDDEV_BRANCH_FALLBACK_ACTOR_ID || "";
   const waitMinutes = Number(input("wait-minutes") || "30");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/.test(workflow))
     refuse("check-workflow must be a workflow file name in .github/workflows.");
