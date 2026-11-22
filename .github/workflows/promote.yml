@@ -43,7 +43,7 @@ on:
         default: nddev-linux-small
     outputs:
       state:
-        description: ready, current or unchecked.
+        description: ready, current, unchecked or unversioned (the source still declares the newest released version).
         value: ${{ jobs.promote.outputs.state }}
       sha:
         description: The commit the target branch moved to.
