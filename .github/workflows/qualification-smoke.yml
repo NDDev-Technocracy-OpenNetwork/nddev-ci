@@ -41,4 +41,5 @@ jobs:
         with:
           task: qualified artifact
           status: ${{ job.status }}
+          check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

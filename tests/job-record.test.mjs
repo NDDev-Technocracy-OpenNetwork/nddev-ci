@@ -41,6 +41,15 @@ test("the record uses OpenTelemetry CI/CD and VCS names and maps the job status"
   assert.throws(() => record({ ...base, "INPUT_TASK-TYPE": "lint" }), /task-type/);
 });
 
+test("the job's numeric GitHub ID joins the record to its job, beside the job's key", () => {
+  const document = record({ ...base, "INPUT_CHECK-RUN-ID": "61234567890" });
+  assert.equal(document["nddev_ci.job.check_run_id"], "61234567890");
+  assert.equal(document["cicd.pipeline.task.run.id"], "check");
+  assert.equal(Object.hasOwn(record(base), "nddev_ci.job.check_run_id"), false);
+  for (const id of ["0", "12a", "-1", "1".repeat(17)])
+    assert.throws(() => record({ ...base, "INPUT_CHECK-RUN-ID": id }), /check-run-id/);
+});
+
 test("duration comes from the start file and compiler-cache counters from sccache", () => {
   const root = mkdtempSync(path.join(tmpdir(), "job-record-"));
   try {

@@ -14,6 +14,11 @@ inputs:
   status:
     description: The job's status at this point, normally job.status.
     required: true
+  check-run-id:
+    description: >-
+      The job's numeric GitHub ID, normally job.check_run_id, recorded as nddev_ci.job.check_run_id
+      so a record joins the GitHub job exactly; empty records none.
+    default: ''
   started-file:
     description: A file holding the job's start as Unix seconds; empty measures nothing.
     default: ''
