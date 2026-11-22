@@ -10,6 +10,7 @@ const helper = "(inputs.runner == 'nddev-macos' && 'linux-arm64' || " +
 const lightRunner = "(inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || " +
   "(inputs.runner == 'nddev-linux-standart' || " + nonLinux + ") && 'nddev-linux-small' || inputs.runner)";
 
+const defaultImage = "'" + profileHostedLabels["linux-x64"] + "'";
 const privateRepo = "github.event.repository.private";
 const dispatch = "github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github'";
 const dispatchProfile = "github.event.inputs['runner-profile']";
@@ -24,12 +25,12 @@ function route(file, { profile = work, managed = "inputs.runner", recipe = false
   const labelsForPublic = JSON.stringify(hostedLabels[entryLabels[file]]);
   const configured = "contains(fromJSON('" + labelsForPublic + "'), inputs.hosted-runner) && inputs.hosted-runner";
   const publicImage = recipe
-    ? "(inputs.hosted-runner == '' && (" + image(profile) + " || 'ubuntu-24.04') || " + configured + ")"
-    : "(" + configured + " || 'ubuntu-24.04')";
+    ? "(inputs.hosted-runner == '' && (" + image(profile) + " || " + defaultImage + ") || " + configured + ")"
+    : "(" + configured + " || " + defaultImage + ")";
   // Keep an invalid explicit hosted label from sending a public or manually hosted recipe to
   // a managed runner.
   const managedRoute = recipe ? "!" + manual + " && " + managed : managed;
-  const legacyImage = recipe ? publicImage : "'ubuntu-24.04'";
+  const legacyImage = recipe ? publicImage : defaultImage;
   return [
     "$" + "{{",
     "!" + privateRepo + " && " + publicImage,
