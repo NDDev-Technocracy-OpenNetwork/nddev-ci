@@ -101,9 +101,9 @@ for its own jobs.
 Subscribe the caller's pull request trigger to opened, synchronize, reopened, labeled and edited
 events, as in the example. Editing a title or description must rerun its metadata checks. The
 short check does not run again for such an event: after it passes, it keeps a mark of the merge
-commit it checked in GitHub's cache, and an `edited` event or a label other than `runner:github`
-that finds the mark of the same merge passes at once. A new commit or a moved base makes a new
-merge commit, and `runner:github` moves the check to GitHub's runner, so both run in full.
+commit and runner it checked in GitHub's cache. An `edited` event or an unrelated label can reuse
+a pass of the same merge on the same runner platform and provider. A new merge commit or a label
+that selects the job's hosted route runs the check in full.
 The authorship stop rejects generated assistant signatures and machine coauthor trailers in
 the introduced commits, including merge commits, and in the title/description. Bot requests
 receive the same check. Human coauthors, cryptographic signatures, tool-version discussion and
@@ -196,11 +196,21 @@ Public projects use the selected GitHub-hosted runner. Private projects use `run
 The jobs of the last column are light by their nature, so they leave the standard class to a
 project's own builds and tests.
 
-Only the explicit PR label `runner:github` moves a private check, its merge stops and
-its recipe jobs to GitHub's runners; a recipe job takes its `hosted-runner` label there. Other labels do not rerun them. A caller may also select
-`runner: github` explicitly for a manual full check; its `workflow_dispatch` choice list
-uses `ours` and `github`. A waiting job stays where it was sent. Native public macOS and Windows
-matrices use `recipe.yml`; supported hosted labels are in its declaration.
+Configure `runner-profile` for each private `check.yml` or `recipe.yml` call that supports
+automatic fallback. The caller listens for PR `labeled` events and declares the optional string
+`runner-profile` alongside its `runner` choice in `workflow_dispatch`. A scheduler restarts the
+run using `runner:github:<profile>` on a PR or `runner=github` plus `runner-profile=<profile>`
+on a branch. Only matching jobs use a GitHub-hosted runner in the replacement run. Other jobs
+continue to target their managed labels. Lightweight Linux jobs use the profile of their own
+runner class.
+
+The supported profiles are Linux x64, Linux ARM64, macOS ARM64 and Windows x64. Each
+selects a standard GitHub-hosted image of the same platform.
+
+The unqualified PR label `runner:github` and a manual `runner: github` without a profile move the
+whole check and its portable jobs. For a call without a profile, the manual selection keeps its
+legacy hosted label. Public calls always use GitHub-hosted runners. A public recipe can use
+`runner-profile` to select a standard image or set `hosted-runner` explicitly.
 
 [hosted-sdk](actions/hosted-sdk/action.yml) prepares only selected exact Node, Python,
 uv, Bun, Rust, Temurin Java, Go, standalone Dart or stable Flutter versions and selected
