@@ -37,7 +37,8 @@ inputs:
   tools:
     description: >-
       Optional comma-separated name@exact-version command-line tools from their official
-      checksummed releases, such as cargo-nextest@0.9.151,cargo-deny@0.20.2.
+      checksummed releases, such as cargo-nextest@0.9.151,cargo-deny@0.20.2. A managed runner
+      takes each from its SDK and puts the declared line first on PATH.
     default: ''
   rust-targets:
     description: Optional comma-separated Rust targets for the selected toolchain.

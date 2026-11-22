@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { appendFileSync, readFileSync, readdirSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -175,6 +175,19 @@ export function managedPython(environment, platform = process.platform, list = r
   return {bin, executable: path.join(bin, platform === "win32" ? "python.exe" : "python")};
 }
 
+// A managed SDK keeps each registry line of a declared tool in its own tool-cache folder,
+// <tool>/<version>/<architecture>, so two lines can stand side by side while projects move from
+// one to the other. The declared line's folder goes first on PATH; a missing folder leaves PATH as
+// it is, and the measurement below decides.
+export function managedTools(environment, exists = existsSync) {
+  const tools = (environment.SDK_TOOLS || "").split(",").filter(Boolean);
+  if (!tools.length || !managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) return [];
+  const root = environment.RUNNER_TOOL_CACHE ?? "";
+  if (!path.isAbsolute(root) || /[\r\n\0]/.test(root))
+    throw new ActionError("The managed RUNNER_TOOL_CACHE must be an absolute path.");
+  return tools.map((tool) => path.join(root, ...tool.split("@"), process.arch)).filter((folder) => exists(folder));
+}
+
 function verifyRust(environment, toolchain) {
   const components = (environment.SDK_RUST_COMPONENTS || "").split(",").filter(Boolean);
   const targets = (environment.SDK_RUST_TARGETS || "").split(",").filter(Boolean);
@@ -224,6 +237,8 @@ function verifiedSelection(environment) {
     Object.assign(versions, measured);
   }
   if (selected.rust) verifyRust(environment, selected.rust);
+  const folders = managedTools(environment);
+  for (const folder of [...folders].reverse()) environment = prependPath(environment, folder);
   const tools = {};
   for (const selection of (environment.SDK_TOOLS || "").split(",").filter(Boolean)) {
     const [name, expected] = selection.split("@");
@@ -235,7 +250,7 @@ function verifiedSelection(environment) {
       throw new ActionError(`The selected ${name} executable does not provide version ${expected}.`);
     tools[name] = measured;
   }
-  return {node, receipt: {schema_version: 1, platform: process.platform, architecture: process.arch, versions, tools}};
+  return {node, folders, receipt: {schema_version: 1, platform: process.platform, architecture: process.arch, versions, tools}};
 }
 
 export function verify(environment) {
@@ -254,11 +269,11 @@ export function main(mode, environment = process.env) {
   if (mode !== "verify") throw new ActionError("Unknown hosted SDK command.");
   selections(environment);
   const python = managedPython(environment);
-  const {node, receipt} = verifiedSelection(python ? prependPath(environment, python.bin) : environment);
+  const {node, folders, receipt} = verifiedSelection(python ? prependPath(environment, python.bin) : environment);
   const variables = {BUN_DO_NOT_TRACK: "1", DO_NOT_TRACK: "1"};
   if (python) variables.UV_PYTHON = python.executable;
   // GitHub prepends each entry. Keep the verified Node directory first, just as during measurement.
-  const paths = [python?.bin, node?.bin].filter(Boolean);
+  const paths = [python?.bin, node?.bin, ...folders].filter(Boolean);
   if (paths.length && environment.GITHUB_PATH)
     appendFileSync(environment.GITHUB_PATH, paths.join("\n") + "\n");
   if (receipt.versions.uv && !managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) {

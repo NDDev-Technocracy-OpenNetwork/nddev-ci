@@ -4,7 +4,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSy
 import { tmpdir } from "node:os";
 import { runInNewContext } from "node:vm";
 import path from "node:path";
-import { cachePlan, imageKey, javaVersion, main, managedPython, selections, supported, verify } from "../actions/hosted-sdk/run.mjs";
+import { cachePlan, imageKey, javaVersion, main, managedPython, managedTools, selections, supported, verify } from "../actions/hosted-sdk/run.mjs";
 import { selectRelease } from "../actions/hosted-sdk/flutter.mjs";
 import { dartArchive, dartDigest } from "../actions/hosted-sdk/dart.mjs";
 
@@ -118,6 +118,33 @@ test("declared tools are measured before the project runs", () => {
   assert.deepEqual(verify(environment).tools, {node: process.versions.node});
   assert.throws(() => verify({...environment, SDK_TOOLS: "node@0.0.0"}), /selected node/);
   assert.throws(() => verify({...environment, SDK_TOOLS: "missing-ci-tool@1.0.0"}), /selected missing-ci-tool/);
+});
+
+test("a managed runner puts the declared line of a tool first when two lines stand side by side", {skip: process.platform === "win32"}, () => {
+  const root = mkdtempSync(path.join(tmpdir(), "managed-tools-sdk-"));
+  try {
+    const cache = path.join(root, "prepared SDK");
+    const tool = (version) => {
+      const folder = path.join(cache, "fixture-ci-tool", version, process.arch);
+      mkdirSync(folder, {recursive: true});
+      writeFileSync(path.join(folder, "fixture-ci-tool"), `#!/bin/sh\nprintf 'fixture-ci-tool ${version}\\n'\n`, {mode: 0o755});
+      return folder;
+    };
+    const older = tool("1.0.0");
+    const newer = tool("1.1.0");
+    const managed = {SDK_RUNNER_ENVIRONMENT: "self-hosted", RUNNER_TOOL_CACHE: cache,
+      PATH: `${older}:${process.env.PATH}`, GITHUB_PATH: path.join(root, "path"),
+      GITHUB_OUTPUT: path.join(root, "output")};
+    assert.deepEqual(managedTools({...managed, SDK_TOOLS: "fixture-ci-tool@1.1.0"}), [newer]);
+    assert.deepEqual(verify({...managed, SDK_TOOLS: "fixture-ci-tool@1.1.0"}).tools, {"fixture-ci-tool": "1.1.0"});
+    assert.deepEqual(verify({...managed, SDK_TOOLS: "fixture-ci-tool@1.0.0"}).tools, {"fixture-ci-tool": "1.0.0"});
+    main("verify", {...managed, SDK_TOOLS: "fixture-ci-tool@1.1.0"});
+    assert.equal(readFileSync(managed.GITHUB_PATH, "utf8"), newer + "\n");
+    assert.deepEqual(managedTools({...managed, SDK_TOOLS: "fixture-ci-tool@2.0.0"}), []);
+    assert.throws(() => verify({...managed, SDK_TOOLS: "fixture-ci-tool@2.0.0"}), /selected fixture-ci-tool/);
+    assert.deepEqual(managedTools({...managed, ...hosted, SDK_TOOLS: "fixture-ci-tool@1.1.0"}), []);
+    assert.throws(() => managedTools({...managed, RUNNER_TOOL_CACHE: "relative", SDK_TOOLS: "fixture-ci-tool@1.1.0"}), /RUNNER_TOOL_CACHE/);
+  } finally { rmSync(root, {recursive: true, force: true}); }
 });
 
 test("the actual executable is measured and a mismatched version refuses a receipt", () => {
