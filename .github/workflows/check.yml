@@ -233,10 +233,52 @@ jobs:
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started
 
+  registry-project:
+    name: technology registry
+    if: >-
+      inputs.registry-commit != '' && github.event.repository.private &&
+      ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/dev'))
+    runs-on: nddev-linux-small
+    timeout-minutes: 10
+    environment: ${{ format('registry-input-{0}', inputs.registry-commit) }}
+    permissions:
+      contents: read
+    steps:
+      - name: Start
+        run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Receive the protected registry input
+        uses: $/actions/registry-input
+        with:
+          commit: ${{ inputs.registry-commit }}
+          sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
+          first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
+          second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
+          third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
+          fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+      - name: Check direct choices
+        uses: $/actions/registry-project
+        with:
+          base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          block: ${{ github.event_name == 'pull_request' }}
+      - name: Job record
+        if: always()
+        uses: $/actions/job-record
+        with:
+          task: technology registry
+          task-type: test
+          status: ${{ job.status }}
+          check-run-id: ${{ job.check_run_id }}
+          started-file: ${{ runner.temp }}/nddev-ci-started
+
   # The short check of a pull request, or a job of the full check: `verify` whole or one of its parts.
   check:
     name: ${{ matrix.part.label }}
-    needs: plan
+    needs: [plan, registry-project]
     if: ${{ !cancelled() && (github.event_name == 'pull_request' || needs.plan.result == 'success') }}
     strategy:
       fail-fast: false
@@ -256,6 +298,14 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Require the registry result
+        if: >-
+          inputs.registry-commit != '' &&
+          (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/dev')) &&
+          needs.registry-project.result != 'success'
+        run: |
+          echo "::error::The managed technology registry check did not pass. See the technology registry job for its findings or execution error."
+          exit 1
       - name: Hosted runner label
         if: ${{ !github.event.repository.private }}
         env:
