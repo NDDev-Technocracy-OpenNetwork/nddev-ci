@@ -190,6 +190,10 @@ on:
 
 permissions: {}
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # The full check's jobs, read from the project's justfile: a part for each recipe `verify` depends
   # on, or `verify` whole. A light job: it evaluates nothing and needs no SDK.
