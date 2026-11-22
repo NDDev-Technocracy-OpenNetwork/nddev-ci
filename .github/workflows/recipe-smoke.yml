@@ -200,6 +200,7 @@ jobs:
         with:
           task: portable smoke
           status: ${{ job.status }}
+          check-run-id: ${{ job.check_run_id }}
       - name: Require one valid record
         if: always()
         env:

@@ -126,4 +126,5 @@ jobs:
           task: promotion
           task-type: deploy
           status: ${{ job.status }}
+          check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

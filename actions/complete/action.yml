@@ -9,6 +9,9 @@ inputs:
   status:
     description: The job's status before this action, normally job.status.
     required: true
+  check-run-id:
+    description: The job's numeric GitHub ID, normally job.check_run_id, for the job record.
+    default: ''
   project-outcome:
     description: The outcome of the project's own command steps, success or failure.
     default: ''
@@ -148,4 +151,5 @@ runs:
         status: ${{ (inputs.status == 'success' && (steps.artifact.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure')) && 'failure' || inputs.status }}
         # The project's commands or reports, or the steps around them (nddev_ci.failure.layer).
         failure-layer: ${{ (inputs.status == 'failure' || steps.artifact.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure') && ((inputs.project-outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && 'project' || 'library') || '' }}
+        check-run-id: ${{ inputs.check-run-id }}
         started-file: ${{ runner.temp }}/nddev-ci-started

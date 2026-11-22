@@ -62,6 +62,11 @@ export function record(environment, now = new Date()) {
     if (!["project", "library"].includes(layer)) throw new Error("failure-layer must be project or library");
     if (status === "failure") document["nddev_ci.failure.layer"] = layer;
   }
+  const job = input("check-run-id");
+  if (job !== "") {
+    if (!/^[1-9]\d{0,15}$/.test(job)) throw new Error("check-run-id must be the job's numeric GitHub ID");
+    document["nddev_ci.job.check_run_id"] = job;
+  }
   const started = input("started-file");
   const queued = environment.NDDEV_CI_QUEUE_SECONDS || "";
   if (queued !== "") {

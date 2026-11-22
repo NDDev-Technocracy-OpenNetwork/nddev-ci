@@ -395,4 +395,5 @@ jobs:
           task: daily security
           task-type: test
           status: ${{ job.status }}
+          check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

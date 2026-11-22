@@ -230,6 +230,7 @@ jobs:
           task: plan the full check
           task-type: test
           status: ${{ job.status }}
+          check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started
 
   # The short check of a pull request, or a job of the full check: `verify` whole or one of its parts.
@@ -388,6 +389,7 @@ jobs:
         uses: $/actions/complete
         with:
           status: ${{ job.status }}
+          check-run-id: ${{ job.check_run_id }}
           project-outcome: ${{ steps.project.outcome }}
           task: ${{ matrix.part.task || matrix.part.label }}
           task-type: test
@@ -452,6 +454,7 @@ jobs:
           task: full check
           task-type: test
           status: ${{ job.status }}
+          check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started
 
   merge-stops:

@@ -393,6 +393,7 @@ jobs:
           task: merge stops
           task-type: test
           status: ${{ job.status }}
+          check-run-id: ${{ job.check_run_id }}
           # A stop that judged the change, or the steps around them (nddev_ci.failure.layer).
           failure-layer: ${{ job.status == 'failure' && ((steps.authorship.outcome == 'failure' || steps.secrets.outcome == 'failure' || steps.dependencies.outcome == 'failure' || steps.workflows.outcome == 'failure') && 'project' || 'library') || '' }}
           started-file: ${{ runner.temp }}/nddev-ci-started

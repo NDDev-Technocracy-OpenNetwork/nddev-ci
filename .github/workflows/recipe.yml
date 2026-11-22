@@ -271,6 +271,7 @@ jobs:
         uses: $/actions/complete
         with:
           status: ${{ job.status }}
+          check-run-id: ${{ job.check_run_id }}
           project-outcome: ${{ (steps.dependencies.outcome == 'failure' || steps.project.outcome == 'failure') && 'failure' || 'success' }}
           task: just ${{ inputs.recipe }}
           task-type: ${{ inputs.artifact != '' && 'build' || 'test' }}
