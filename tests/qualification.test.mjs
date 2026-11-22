@@ -322,6 +322,10 @@ test("product promotion and publication refuse false checked metadata before any
         "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", INPUT_ARTIFACTS: "build", "INPUT_RELEASE-METADATA": "linux.json\nmac.json"};
       if (variant === "valid") {
         const chosen = await choose(env); assert.equal(chosen.version, version);assert.equal(chosen.state, "ready");
+      } else if (variant === "consumed") {
+        // The source still declares the newest release: promotion waits for its next version.
+        const chosen = await choose(env); assert.equal(chosen.state, "unversioned");
+        assert.equal(readFileSync(env.GITHUB_OUTPUT, "utf8"), "state=unversioned\nsha=\n");
       } else {
         await assert.rejects(choose(env), /metadata|version/i, variant);
         assert.equal(existsSync(env.GITHUB_OUTPUT), false, "a refused choice emits no ready commit");

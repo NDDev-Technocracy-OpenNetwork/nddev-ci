@@ -33,7 +33,7 @@ export async function main(environment = process.env) {
           sha: result.sha, files, metadata: input("release-metadata")});
       } catch (error) {
         if (!(error instanceof UnversionedError)) throw error;
-        Object.assign(result, {state: "unversioned", reason: error.message});
+        Object.assign(result, {state: "unversioned", reason: error.message, sha: null});
       } finally { rmSync(parent, {recursive: true, force: true}); }
     }
     if (result.state === "ready") await Promise.all(qualifications.map((qualified) => recheck(github, qualified)));
