@@ -23,6 +23,7 @@ check: (_tools "check")
     just --fmt --check
     rustfmt --edition 2024 --check tests/recipe-routing.rs
     node tools/renovate-sdk.mjs --check
+    node tools/runner-profiles.mjs --check
     node --check lib/renovate-sdk.mjs
     node --check tools/renovate-sdk.mjs
     node --check tests/renovate-sdk.test.mjs
@@ -139,6 +140,7 @@ verify: check test
 fix:
     just --fmt
     node tools/renovate-sdk.mjs --write
+    node tools/runner-profiles.mjs --write
 
 # Prepares only verified source generations; checks never download or change retained tools.
 tools: (_tools "setup")

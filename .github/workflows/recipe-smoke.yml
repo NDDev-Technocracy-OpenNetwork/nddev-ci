@@ -25,6 +25,25 @@ jobs:
       recipe: script-probe
       justfile: tests/fixtures/portable.just
       arguments: '["path with spaces","$(must-stay-literal)","مرحبا-Ә-测试"]'
+  profile:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: linux-x64
+            platform: linux-x64
+          - profile: linux-arm64
+            platform: linux-arm64
+          - profile: macos-arm64
+            platform: darwin-arm64
+          - profile: windows-x64
+            platform: win32-x64
+    uses: ./.github/workflows/recipe.yml
+    with:
+      runner-profile: ${{ matrix.profile }}
+      recipe: profile-probe
+      justfile: tests/fixtures/portable.just
+      arguments: ${{ format('["{0}"]', matrix.platform) }}
   native:
     env:
       JAVA_VERSION: '25.0.4.1+1'

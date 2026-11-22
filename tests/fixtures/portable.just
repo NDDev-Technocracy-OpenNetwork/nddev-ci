@@ -22,3 +22,6 @@ script-probe first second third:
     test {{ quote(second) }} = '$(must-stay-literal)'
     test {{ quote(third) }} = 'مرحبا-Ә-测试'
     node -e 'const {execFileSync}=require("node:child_process"); const p=require("./actions/recipe/just.json"); if(execFileSync("just",["--version"],{encoding:"utf8"}).trim()!=="just "+p.version)process.exit(1)'
+
+profile-probe platform:
+    @test "$(node -p 'process.platform + "-" + process.arch')" = {{ quote(platform) }}
