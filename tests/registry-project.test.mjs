@@ -19,8 +19,10 @@ test("the protected asset selector requires exact numeric identities and digest"
 test("the managed gateway's bytes must match the protected digest", async () => {
   let responseBytes = bytes;
   const requests = [];
+  const authorization = [];
   const server = createServer((request, response) => {
     requests.push(request.url);
+    authorization.push(request.headers.authorization);
     response.end(responseBytes);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -30,6 +32,7 @@ test("the managed gateway's bytes must match the protected digest", async () => 
     responseBytes = Buffer.from("unverified archive bytes");
     await assert.rejects(downloadArchive(gateway, asset), /protected SHA-256/);
     assert.deepEqual(requests, [asset.path, asset.path]);
+    assert.deepEqual(authorization, [undefined, undefined]);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
