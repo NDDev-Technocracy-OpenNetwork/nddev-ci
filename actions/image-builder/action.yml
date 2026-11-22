@@ -67,9 +67,9 @@ runs:
       id: buildx
       shell: bash
       env:
-        BUILDX_VERSION: v0.38.2
-        BUILDX_SHA256_X64: 7992ec09413b80ff57ba4e081f56fc833d7bac1d5e71143c6c809e7e6065f6d6
-        BUILDX_SHA256_ARM64: 46c0f334772de3cb0b341cc415caf7339fb5cfc8b8438ebcb5a10e7f23800d36
+        BUILDX_VERSION: v0.39.1
+        BUILDX_SHA256_X64: 903090816da68f8bc1a2ff5346dd163a5adacfce4548d003c75df42cd47a9bf4
+        BUILDX_SHA256_ARM64: 05c88e0f9152825e609a1cdb391faf14d5f94d23d071eaecb87bae69d98da8b8
       run: |
         set -euo pipefail
         mirror="${NDDEV_CI_ARTIFACT_REGISTRY:-}"
@@ -100,7 +100,7 @@ runs:
       id: state
       shell: bash
       env:
-        BUILDKIT_IMAGE: moby/buildkit:v0.34.2@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
+        BUILDKIT_IMAGE: moby/buildkit:v0.35.1@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
       run: |
         set -euo pipefail
         echo "image=$BUILDKIT_IMAGE" >> "$GITHUB_OUTPUT"
