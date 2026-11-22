@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { UnversionedError } from "../lib/release.mjs";
 import { productVersion, releaseVersion } from "../lib/release-version.mjs";
 
 const sha = "a".repeat(40), other = "b".repeat(40);
@@ -55,8 +56,9 @@ test("a product release uses its checked version and reconciles that same commit
   const fields = {repository: "owner/project", sha, files: [file("metadata.json", record("1.5.0"))], metadata: "metadata.json"};
   assert.equal(await releaseVersion(api([tag("1.2.3")]), fields), "1.5.0");
   assert.equal(await releaseVersion(api([tag("1.2.3"), tag("1.5.0", sha)]), fields), "1.5.0");
-  for (const tags of [[tag("1.5.0")], [tag("1.6.0")], [tag("1.4.0", sha)], [tag("1.5.0", sha), tag("1.5.1", sha)]])
-    await assert.rejects(releaseVersion(api(tags), fields));
+  await assert.rejects(releaseVersion(api([tag("1.2.3"), tag("1.5.0")]), fields), UnversionedError);
+  for (const tags of [[tag("1.6.0")], [tag("1.5.0"), tag("1.6.0")], [tag("1.4.0", sha)], [tag("1.5.0", sha), tag("1.5.1", sha)]])
+    await assert.rejects(releaseVersion(api(tags), fields), (error) => !(error instanceof UnversionedError));
   await assert.rejects(releaseVersion(api([]), {...fields, explicit: "1.6.0"}), /differs/);
 }));
 

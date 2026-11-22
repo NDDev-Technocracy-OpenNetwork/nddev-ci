@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { client, qualifyWorkflows, qualificationWorkflows, recheck, transferArtifacts } from "../../lib/qualification.mjs";
+import { UnversionedError } from "../../lib/release.mjs";
 import { releaseVersion } from "../../lib/release-version.mjs";
 import { selectPromotion } from "../../lib/promotion.mjs";
 
@@ -30,14 +31,18 @@ export async function main(environment = process.env) {
         const {files} = await transferArtifacts(github, qualifications[0], input("artifacts"), path.join(parent, "checked"));
         result.version = await releaseVersion(github, {repository: environment.GITHUB_REPOSITORY,
           sha: result.sha, files, metadata: input("release-metadata")});
+      } catch (error) {
+        if (!(error instanceof UnversionedError)) throw error;
+        Object.assign(result, {state: "unversioned", reason: error.message});
       } finally { rmSync(parent, {recursive: true, force: true}); }
     }
-    await Promise.all(qualifications.map((qualified) => recheck(github, qualified)));
+    if (result.state === "ready") await Promise.all(qualifications.map((qualified) => recheck(github, qualified)));
   }
   for (const {sha, state, reason} of result.skipped ?? []) console.log(`Passed over ${sha}: ${state}. ${reason}`);
   appendFileSync(environment.GITHUB_OUTPUT, `state=${result.state}\nsha=${result.sha ?? ""}\n`);
   console.log(result.state === "ready" ? `Promoting ${result.sha}, checked by run ${result.run_id}.`
     : result.state === "current" ? "Nothing new to promote."
+    : result.state === "unversioned" ? `::notice::${result.reason}`
     : "No new commit has a passed check yet.");
   return result;
 }
