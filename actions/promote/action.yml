@@ -3,6 +3,9 @@ description: >-
   Finds the newest commit of the source branch, ahead of the target, whose newest full check on a
   push passed. It moves nothing; the promote workflow does.
 inputs:
+  fallback-actor-id:
+    description: Numeric actor ID of the scheduler allowed to replace a cancelled push check.
+    default: ''
   required-workflows:
     description: Additional workflow file names that must qualify the same exact source, one per line.
     default: ''
