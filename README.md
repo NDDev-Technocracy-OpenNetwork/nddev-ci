@@ -347,10 +347,8 @@ every job, while the slot's build cache root, `NDDEV_BUILD_CACHE_ROOT`, stays; t
 whole BuildKit state, layers and cache mounts, lives there, one folder for each BuildKit release.
 So a build finds the slot's earlier layers whichever way the job builds, through the producer,
 `NDDEV_CI_IMAGE_BUILD_FLAGS` or a plain `docker buildx build`, and a project writes no cache flag.
-Only a trusted job keeps them, as the runner marks pushes, manual and scheduled runs of `dev`, `main` and the
-default branch with `NDDEV_CACHE_TRUST=trusted`; a pull request's build starts empty and writes
-nothing there. BuildKit's own collection keeps the state under 40% of the slot's area with a
-quarter of it free.
+Every managed job with a declared build cache root keeps the layers. BuildKit's own collection
+keeps the state under 40% of the slot's area with a quarter of it free.
 
 Project setup must support its execution environment. Hosted setup uses the explicit
 SDK inputs and cannot require a private installer or private cache variable.

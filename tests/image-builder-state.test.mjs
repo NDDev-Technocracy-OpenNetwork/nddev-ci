@@ -8,7 +8,7 @@ import test from "node:test";
 // The image builder's state step, run as the runner runs it, with a docker that only records its
 // arguments.
 const action = readFileSync(new URL("../actions/image-builder/action.yml", import.meta.url), "utf8");
-const block = action.split("    - name: Builder state of a trusted managed job\n")[1].split("\n    - name: ")[0];
+const block = action.split("    - name: Builder state of a managed job\n")[1].split("\n    - name: ")[0];
 const image = block.match(/BUILDKIT_IMAGE: (\S+)/)[1];
 const version = image.split(":")[1].split("@")[0];
 // Image builds run on Linux runners only, so the step is exercised where it runs.
@@ -28,7 +28,7 @@ function run(environment, prepare = () => {}) {
     const result = spawnSync("bash", ["-euo", "pipefail", "-c", script], {
       encoding: "utf8",
       env: {PATH: `${bin}:${process.env.PATH}`, GITHUB_OUTPUT: path.join(root, "output"), BUILDKIT_IMAGE: image,
-        RUNNER_ENVIRONMENT: "self-hosted", NDDEV_CACHE_TRUST: "trusted", NDDEV_BUILD_CACHE_ROOT: cache, ...environment(cache)},
+        RUNNER_ENVIRONMENT: "self-hosted", NDDEV_BUILD_CACHE_ROOT: cache, ...environment(cache)},
     });
     const read = (name) => existsSync(path.join(root, name)) ? readFileSync(path.join(root, name), "utf8") : "";
     const state = path.join(cache, "nddev-ci", "buildkit");
@@ -40,7 +40,7 @@ function run(environment, prepare = () => {}) {
   }
 }
 
-test("a trusted managed job binds the builder's state into the slot's build cache", linux, () => {
+test("a managed job binds the builder's state into the slot's build cache", linux, () => {
   const result = run(() => ({}));
   assert.equal(result.status, 0, result.stderr);
   const args = result.docker.trim().split("\n");
@@ -54,10 +54,15 @@ test("a trusted managed job binds the builder's state into the slot's build cach
   assert.ok(result.kept(version));
 });
 
-test("a pull request, a hosted runner or a missing root starts BuildKit empty", linux, () => {
+test("an earlier runner trust marker does not prevent a managed job from sharing state", linux, () => {
+  const result = run(() => ({NDDEV_CACHE_TRUST: "untrusted"}));
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.output, /^name=nddev-ci-images$/m);
+  assert.ok(result.kept(version));
+});
+
+test("a hosted runner or a missing root starts BuildKit empty", linux, () => {
   for (const environment of [
-    () => ({NDDEV_CACHE_TRUST: "untrusted"}),
-    () => ({NDDEV_CACHE_TRUST: ""}),
     () => ({RUNNER_ENVIRONMENT: "github-hosted"}),
     () => ({NDDEV_BUILD_CACHE_ROOT: ""}),
     () => ({NDDEV_BUILD_CACHE_ROOT: "relative/cache"}),

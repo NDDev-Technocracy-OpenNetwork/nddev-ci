@@ -93,11 +93,10 @@ runs:
         docker buildx version
         echo "version=" >> "$GITHUB_OUTPUT"
 
-    # A slot's Docker starts empty in every job, while its build cache root stays. BuildKit keeps
-    # its whole state, layers and cache mounts, in its builder's volume; bound into that root, a
-    # trusted job's builds find the slot's earlier layers with no flag of their own. Pull requests
-    # never write it. BuildKit's own collection keeps it within its share of the slot's area.
-    - name: Builder state of a trusted managed job
+    # A slot's Docker starts empty in every job, while its declared build cache root stays.
+    # Bind the builder's state into that root so every managed job can use the earlier layers
+    # and cache mounts. BuildKit's collection keeps the state within its share of the slot's area.
+    - name: Builder state of a managed job
       id: state
       shell: bash
       env:
@@ -106,8 +105,8 @@ runs:
         set -euo pipefail
         echo "image=$BUILDKIT_IMAGE" >> "$GITHUB_OUTPUT"
         root="${NDDEV_BUILD_CACHE_ROOT:-}"
-        if [ "$RUNNER_ENVIRONMENT" != self-hosted ] || [ "${NDDEV_CACHE_TRUST:-}" != trusted ] || [[ "$root" != /* ]] || [ ! -d "$root" ]; then
-          echo "BuildKit starts empty: only a trusted job of a managed runner keeps its layers."
+        if [ "$RUNNER_ENVIRONMENT" != self-hosted ] || [[ "$root" != /* ]] || [ ! -d "$root" ]; then
+          echo "BuildKit starts empty: the managed runner has no available build cache root."
           exit 0
         fi
         # One state per BuildKit release, which may not read a newer release's state; another
