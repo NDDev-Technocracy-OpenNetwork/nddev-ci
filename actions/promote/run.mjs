@@ -12,7 +12,7 @@ export async function main(environment = process.env) {
   if (!token) throw new Error("A read token is required to choose the commit.");
   const github = client(token, environment.GITHUB_API_URL);
   const workflows = qualificationWorkflows(`.github/workflows/${input("check-workflow") || "ci.yml"}`, input("required-workflows"));
-  const fallbackActorId = input("fallback-actor-id");
+  const fallbackActorId = environment.NDDEV_BRANCH_FALLBACK_ACTOR_ID || "";
   const result = await selectPromotion(github, {
     fallbackActorId,
     repository: environment.GITHUB_REPOSITORY,

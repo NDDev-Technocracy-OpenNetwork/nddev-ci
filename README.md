@@ -207,11 +207,12 @@ runner class.
 The supported profiles are Linux x64, Linux ARM64, macOS ARM64 and Windows x64. Each
 selects a standard GitHub-hosted image of the same platform.
 
-For branch release checks, set the caller's run name to `Hosted fallback` when the dispatch input
-`runner` equals `github`, as in the example. Give both promotion and release the scheduler's
-numeric GitHub user ID as `fallback-actor-id`. A replacement must follow the cancelled push and
-match its repository, workflow, branch and commit. The scheduler must be both the original and
-the triggering actor. The newest qualifying replacement supplies the same artifact receipt.
+For branch release checks, set the caller's run name to `Contour hosted fallback` when the
+dispatch selects both `runner=github` and a nonempty `runner-profile`, as in the example.
+The `NDDEV_BRANCH_FALLBACK_ACTOR_ID` configuration variable holds the scheduler App's numeric
+bot user ID. A push or a dispatch with that run name and both matching actor IDs qualifies the
+same exact repository, workflow, branch and commit. Promotion and release check the newest
+eligible run and revalidate its attempt before consuming the artifact receipt.
 
 The unqualified PR label `runner:github` and a manual `runner: github` without a profile move the
 whole check and its portable jobs. For a call without a profile, the manual selection keeps its
