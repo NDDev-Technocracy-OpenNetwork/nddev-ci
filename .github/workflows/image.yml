@@ -127,6 +127,8 @@ jobs:
           allow: ${{ steps.builder.outputs.network != '' && 'network.host' || '' }}
           platforms: ${{ steps.name.outputs.platform }}
           push: ${{ github.event_name != 'pull_request' && inputs.push }}
+          # The built-in Docker builder would otherwise load a build-only image into the host store.
+          outputs: ${{ runner.environment == 'self-hosted' && (github.event_name == 'pull_request' || !inputs.push) && 'type=cacheonly' || '' }}
           tags: ${{ steps.name.outputs.name }}:sha-${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
