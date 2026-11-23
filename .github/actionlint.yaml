@@ -6,3 +6,6 @@ paths:
     ignore:
       - 'specifying action "\$/actions/[a-z0-9-]+" in invalid format because ref is missing'
       - 'reusable workflow call "\$/\.github/workflows/[a-z0-9-]+\.yml" at "uses" is not following the format'
+
+self-hosted-runner:
+  labels: [nddev-linux-small]

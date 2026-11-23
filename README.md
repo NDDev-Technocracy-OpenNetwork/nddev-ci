@@ -178,10 +178,22 @@ gzip-compressed, base64-encoded schema-1 snapshot in the environment secrets
 `REGISTRY_SNAPSHOT_FIRST` through `REGISTRY_SNAPSHOT_FOURTH` and records its
 uncompressed SHA-256 in the environment variable `REGISTRY_SNAPSHOT_SHA256`.
 
+Map all four `REGISTRY_SNAPSHOT_*` names in the caller job's `secrets` section.
+The called job loads the values from its selected protected environment.
+
 The job verifies the digest and commit and exports the private regular file as
 `NDDEV_CI_REGISTRY_SNAPSHOT`. The project uses that file to verify the selected
 versions before installation. The input action removes the file after the job.
 
+For a pull request or a push to `dev`, `check.yml` runs a separate, managed Linux x64
+technology registry job when a protected registry commit is selected. This input is for
+private repositories and pull requests from branches in the same repository. The snapshot supplies the
+CLI settings and the numeric repository, release and asset IDs with the archive's SHA-256.
+The job downloads from the runner's gateway, verifies the compressed bytes, then reads the
+checked source and its exact comparison commit. New unregistered choices and declarations outside
+the accepted lines fail a pull request. Existing findings and findings on a `dev` push are
+reported. An invalid snapshot, failed download or failed scan fails the check. The registry job
+uses the managed runner even when the other jobs move to a GitHub-hosted runner.
 
 ### Gradle on a managed runner
 
