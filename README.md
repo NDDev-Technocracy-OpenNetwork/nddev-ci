@@ -136,6 +136,21 @@ Use this for repositories with retained payloads when their local action metadat
 The message rules leave out a commit whose author is exactly Dependabot: it writes one long line
 for a grouped update and offers no setting for it. A repository's own `committed.toml` replaces
 the default rules whole.
+
+The release's `scan-before-push.zip` contains a local Git pre-push entry point. Install
+`nddev-ci/tools/scan-before-push.mjs` with its adjacent library files and pass Git's remote name,
+destination and ref updates to it. It uses Node 24, Python 3.11 or later and Betterleaks 1.10.1.
+Existing ref updates exclude their advertised old commits. New refs use the remote's default
+branch as their base. Both the local hook and the PR stop scan commit patches, including merge
+commits, and load the scanner policy from the published base.
+
+For a reviewed, deliberately synthetic fixture that has to be checked in, add one
+`[[allowlists]]` entry to the base branch's `.betterleaks.toml`. Set `condition = "AND"`, match
+the exact fixture path in `paths` and match the exact fake value in `regexes`. Anchor both
+patterns with `^` and `$` and escape any regular expression metacharacters. Merge the
+policy change first so that both scans can read it from the base. Prefer generating
+fixture credentials at test runtime when their literal value has no purpose.
+
 Daily security findings go to the run summary and the `security-report-<attempt>` artifact,
 retained for 14 days. The artifact contains `security-report.json` with `schema_version: 1`,
 the run URL and every finding's scanner, kind, identifier, package/ecosystem, installed version,
@@ -145,6 +160,14 @@ upstream range data, not a qualified upgrade recommendation. Secret rows contain
 and source-location metadata, never the matched value. The bounded summary may omit rows that
 remain in JSON and the full run log. The workflow opens, edits and closes no issue; existing
 findings remain report-only and scanner execution errors still fail the run.
+
+The first attempt of a fixed daily UTC security schedule reports the nominal cron slot and
+how late the security job started. The runner's measured queue time is shown separately when
+available. To see GitHub's run creation delay and the time from creation to the first job, run
+`just security-schedule owner/repository '17 3 * * *'` with an authenticated `gh`. An optional date
+and workflow filename select a past slot or a caller whose workflow file has a different name.
+Until a scheduled run appears in GitHub, the command reports that it may still be delayed.
+
 The default licence list is declared in `security.yml`; a caller's `license-policy`
 can supply its own `[licenses].allow`. OSV accepts identifiers, so a `WITH` entry
 requires its base to be independently allowed too; exception-only policies fail. Unchanged
@@ -466,6 +489,10 @@ newest full check on a push passed. The move is a push, so a release workflow th
 `main` starts once for it. A newer
 commit whose check failed or still runs waits for the next promotion. It never moves `main`
 backward or sideways: when `main` holds a commit `dev` lacks, it stops.
+
+Promotion retries transient GitHub API read failures up to three attempts within the request's
+time limit. If the read still fails, the error names the last transport cause. The fast-forward
+push runs separately.
 
 GitHub's job token cannot move a branch onto commits that change workflow files, so the move
 pushes with a deploy key that has write access. The caller keeps it as `PROMOTION_KEY` in an

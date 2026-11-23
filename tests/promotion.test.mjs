@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { main as promote } from "../actions/promote/run.mjs";
 import { comparisonPageSize, selectPromotion } from "../lib/promotion.mjs";
-import { qualify, recheck } from "../lib/qualification.mjs";
+import { client, qualify, recheck } from "../lib/qualification.mjs";
 
 const repository = "fixture/library";
 const workflowPath = ".github/workflows/ci.yml";
@@ -110,21 +116,93 @@ test("older comparison pages are searched without truncating the qualified fallb
   assert.equal(github.calls.filter(route => route.includes("/branches/")).length, 2);
 });
 
-test("an interrupted page read can resume selection without a mutation or a manual exit", async () => {
+async function listen(t, handler) {
+  const server = createServer(handler).listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => {
+    server.closeAllConnections();
+    return new Promise((resolve) => server.close(resolve));
+  });
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+test("the promotion action retries an interrupted API page and chooses the qualified commit", async (t) => {
   const ahead = Array.from({length: 251}, (_, n) => sha(n + 1));
   const github = api({ahead, runs: {[ahead.at(-1)]: [run(ahead.at(-1))]}});
-  const read = github.json;
-  let interrupted = false;
-  github.json = async (method, route) => {
-    assert.equal(method, "GET");
-    if (!interrupted && route.endsWith("&page=3")) {
-      interrupted = true;
-      throw new Error("connection lost");
+  const requests = [];
+  let pageAttempts = 0;
+  const url = await listen(t, async (request, response) => {
+    requests.push(request.method);
+    if (request.url.endsWith("&page=3") && ++pageAttempts === 1) {
+      request.socket.destroy();
+      return;
     }
-    return read(method, route);
-  };
-  await assert.rejects(select(github), /connection lost/);
-  assert.equal((await select(github)).sha, ahead.at(-1));
+    response.end(JSON.stringify(await github.json(request.method, request.url)));
+  });
+  const directory = mkdtempSync(path.join(tmpdir(), "promotion-api-"));
+  t.after(() => rmSync(directory, {recursive: true, force: true}));
+  const output = path.join(directory, "output");
+  await promote({
+    "INPUT_GITHUB-TOKEN": "fixture",
+    GITHUB_API_URL: url,
+    GITHUB_REPOSITORY: repository,
+    GITHUB_OUTPUT: output,
+  });
+  assert.equal(readFileSync(output, "utf8"), `state=ready\nsha=${ahead.at(-1)}\n`);
+  assert.equal(pageAttempts, 2);
+  assert.ok(requests.every((method) => method === "GET"));
+});
+
+test("promotion reads retry interrupted bodies and report the final cause when recovery fails", async (t) => {
+  let partial = 0, gateway = 0, broken = 0;
+  const url = await listen(t, (request, response) => {
+    if (request.url === "/partial") {
+      if (++partial === 1) {
+        response.writeHead(200, {"Content-Length": 100});
+        response.write('{"truncated":', () => request.socket.destroy());
+      } else response.end('{"complete":true}');
+    } else if (request.url === "/gateway") {
+      response.writeHead(++gateway < 3 ? 502 : 504).end();
+    } else {
+      broken++;
+      request.socket.destroy();
+    }
+  });
+  const github = client("fixture", url, {retryReads: true});
+  assert.deepEqual(await github.json("GET", "/partial"), {complete: true});
+  assert.equal(partial, 2);
+  await assert.rejects(github.json("GET", "/gateway"), /after 3 attempts \(HTTP 504\)/);
+  assert.equal(gateway, 3);
+  await assert.rejects(github.json("GET", "/broken"), /after 3 attempts \(UND_ERR_SOCKET\)/);
+  assert.equal(broken, 3);
+});
+
+test("promotion does not retry writes, malformed JSON, authorization failures or rate limits", async (t) => {
+  const calls = [];
+  const url = await listen(t, (request, response) => {
+    calls.push([request.method, request.url]);
+    if (request.method === "POST") {
+      request.socket.destroy();
+    } else if (request.url === "/denied") {
+      response.writeHead(403).end();
+    } else if (request.url === "/limited") {
+      response.writeHead(503, {"Retry-After": "30"}).end();
+    } else response.end("{");
+  });
+  const github = client("fixture", url, {retryReads: true});
+  await assert.rejects(github.json("POST", "/write"), /transport did not complete/);
+  await assert.rejects(github.json("GET", "/denied"), /HTTP 403/);
+  await assert.rejects(github.json("GET", "/limited"), /HTTP 503/);
+  await assert.rejects(github.json("GET", "/malformed"), /malformed JSON/);
+  assert.deepEqual(calls, [["POST", "/write"], ["GET", "/denied"], ["GET", "/limited"], ["GET", "/malformed"]]);
+});
+
+test("promotion does not start a retry after the request budget runs out", async (t) => {
+  let attempts = 0;
+  const url = await listen(t, () => { attempts++; });
+  const github = client("fixture", url, {retryReads: true});
+  await assert.rejects(github.json("GET", "/slow", {timeout: 120}), /after 1 attempt \(request timeout\)/);
+  assert.equal(attempts, 1);
 });
 
 test("incomplete, inconsistent and misanchored comparison pages refuse before qualification", async () => {

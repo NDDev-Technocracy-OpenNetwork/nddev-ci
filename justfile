@@ -81,7 +81,9 @@ check: (_tools "check")
     node --check tests/daily-sbom.test.mjs
     node --check tests/secret-policy-native.mjs
     node --check lib/secret-policy.mjs
+    node --check lib/secret-scan.mjs
     node --check actions/secret-scan/run.mjs
+    node --check tools/scan-before-push.mjs
     node --check lib/security-policy.mjs
     node --check tests/license-policy.test.mjs
     node --check tests/security-report.test.mjs
@@ -102,6 +104,9 @@ check: (_tools "check")
     node --check tools/qualify-merge.mjs
     node --check tests/repository-rules.test.mjs
     node --check tools/ci-times.mjs
+    node --check lib/security-schedule.mjs
+    node --check tools/security-schedule.mjs
+    node --check tests/security-schedule.test.mjs
     node --check lib/verify-parts.mjs
     node --check actions/plan/run.mjs
     node --check tests/verify-parts.test.mjs
@@ -138,12 +143,13 @@ test:
     node --test tests/daily-sbom-native.mjs
 
 # Package the checked source for services running outside GitHub Actions.
-package-qualifier:
+package-tools:
     mkdir -p dist
     git archive --format=zip --prefix=nddev-ci/ --output=dist/qualify-merge.zip HEAD tools/qualify-merge.mjs lib/merge-on-green.mjs lib/qualification.mjs lib/release.mjs
+    git archive --format=zip --prefix=nddev-ci/ --output=dist/scan-before-push.zip HEAD tools/scan-before-push.mjs lib/secret-scan.mjs lib/secret-policy.mjs lib/security-policy.mjs
 
 # Everything the full check on dev runs.
-verify: check test package-qualifier
+verify: check test package-tools
 
 # Applies formatting.
 fix:
@@ -276,6 +282,10 @@ repository-rules repository mode="plan":
 # How long a repository's checks make an agent wait, from its newest completed runs.
 times repository *options:
     node tools/ci-times.mjs {{ quote(repository) }} {{ options }}
+
+# Reads GitHub's creation time and the first job for a fixed daily UTC security schedule.
+security-schedule repository cron date="" workflow="security.yml":
+    node tools/security-schedule.mjs {{ quote(repository) }} --cron {{ quote(cron) }} --date {{ quote(date) }} --workflow {{ quote(workflow) }}
 
 # Qualifies the actual secret scanner against the trusted-base policy boundary.
 secret-policy-smoke:
