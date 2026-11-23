@@ -32,7 +32,7 @@ inputs:
     default: build
   artifact-days:
     description: How many days the artifact is kept.
-    default: '14'
+    default: '3'
   reports:
     description: Workspace-relative reports, one per line, kept whatever the result; a missing one fails the job.
     default: ''

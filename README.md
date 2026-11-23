@@ -89,9 +89,10 @@ justfile, and `just verify` stays the one command an agent runs.
 Use `check.yml` for this standard path. A project with existing command jobs calls
 `merge-stops.yml` beside them. Use `recipe.yml` for a native matrix, with a declared
 recipe, optional preparation recipe and literal arguments as a JSON string array.
-Each matrix platform gives its artifact a distinct name. An artifact is kept for
-`artifact-days`, 14 by default: long enough for `main` to release the checked `dev`
-commit. A deployment that takes an older build sets more.
+Each matrix platform gives its artifact a distinct name. Workflow artifacts that carry a
+checked build to release or deployment are kept for three days by default. Use
+`artifact-days` for a deployment that needs a longer handoff. GitHub also applies the
+repository's retention limit.
 
 Use `retain-runs: true` when a project requires a verdict for every run. This gives
 `check.yml` and its merge stops a separate concurrency group for each run. A project
