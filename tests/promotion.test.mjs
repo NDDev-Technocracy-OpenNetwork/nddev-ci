@@ -205,6 +205,16 @@ test("promotion does not start a retry after the request budget runs out", async
   assert.equal(attempts, 1);
 });
 
+test("a timed-out first attempt leaves enough of the read budget to recover", async (t) => {
+  let attempts = 0;
+  const url = await listen(t, (request, response) => {
+    if (++attempts === 2) response.end('{"recovered":true}');
+  });
+  const github = client("fixture", url, {retryReads: true});
+  assert.deepEqual(await github.json("GET", "/temporary-delay", {timeout: 2000}), {recovered: true});
+  assert.equal(attempts, 2);
+});
+
 test("incomplete, inconsistent and misanchored comparison pages refuse before qualification", async () => {
   for (const brokenPage of [1, 3]) for (const alter of [
     page => ({...page, total_commits: page.total_commits + 1}),
