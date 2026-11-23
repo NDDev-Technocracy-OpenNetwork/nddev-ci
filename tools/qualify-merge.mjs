@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { selectMerge } from "../lib/merge-on-green.mjs";
 import { client } from "../lib/qualification.mjs";
 
