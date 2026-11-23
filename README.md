@@ -488,8 +488,9 @@ commit whose check failed or still runs waits for the next promotion. It never m
 backward or sideways: when `main` holds a commit `dev` lacks, it stops.
 
 Promotion retries transient GitHub API read failures up to three attempts within the request's
-time limit. If the read still fails, the error names the last transport cause. The fast-forward
-push runs separately.
+time limit. Reads of checked artifact metadata and bytes follow the same policy. An interrupted
+download is discarded before the next attempt. If a read still fails, the error names the last
+transport cause. The fast-forward push runs separately.
 
 GitHub's job token cannot move a branch onto commits that change workflow files, so the move
 pushes with a deploy key that has write access. The caller keeps it as `PROMOTION_KEY` in an
