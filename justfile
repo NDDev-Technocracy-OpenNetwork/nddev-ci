@@ -80,7 +80,9 @@ check: (_tools "check")
     node --check tests/daily-sbom.test.mjs
     node --check tests/secret-policy-native.mjs
     node --check lib/secret-policy.mjs
+    node --check lib/secret-scan.mjs
     node --check actions/secret-scan/run.mjs
+    node --check tools/scan-before-push.mjs
     node --check lib/security-policy.mjs
     node --check tests/license-policy.test.mjs
     node --check tests/security-report.test.mjs
@@ -137,12 +139,13 @@ test:
     node --test tests/daily-sbom-native.mjs
 
 # Package the checked source for services running outside GitHub Actions.
-package-qualifier:
+package-tools:
     mkdir -p dist
     git archive --format=zip --prefix=nddev-ci/ --output=dist/qualify-merge.zip HEAD tools/qualify-merge.mjs lib/merge-on-green.mjs lib/qualification.mjs lib/release.mjs
+    git archive --format=zip --prefix=nddev-ci/ --output=dist/scan-before-push.zip HEAD tools/scan-before-push.mjs lib/secret-scan.mjs lib/secret-policy.mjs lib/security-policy.mjs
 
 # Everything the full check on dev runs.
-verify: check test package-qualifier
+verify: check test package-tools
 
 # Applies formatting.
 fix:
