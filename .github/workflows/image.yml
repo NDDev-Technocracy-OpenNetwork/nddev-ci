@@ -104,6 +104,16 @@ jobs:
         id: builder
         uses: $/actions/image-builder
 
+      - name: Central build cache
+        if: runner.environment == 'self-hosted'
+        id: cache
+        env:
+          IMAGE_PRODUCER: ${{ steps.builder.outputs.producer }}
+          IMAGE: ${{ inputs.image }}
+          TARGET: ${{ inputs.target }}
+          PLATFORM: ${{ steps.name.outputs.platform }}
+        run: node "$IMAGE_PRODUCER" cache "$IMAGE" "$TARGET" "$PLATFORM" >> "$GITHUB_OUTPUT"
+
       - name: Container registry
         if: github.event_name != 'pull_request' && inputs.push
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
@@ -135,10 +145,8 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           provenance: mode=max
           sbom: true
-          # GitHub's runners keep BuildKit layers in the repository's Actions cache; our runners
-          # keep them in the machine's persistent builder.
-          cache-from: ${{ runner.environment == 'github-hosted' && format('type=gha,scope=image-{0}', inputs.image) || '' }}
-          cache-to: ${{ runner.environment == 'github-hosted' && github.event_name != 'pull_request' && format('type=gha,mode=max,scope=image-{0}', inputs.image) || '' }}
+          cache-from: ${{ steps.cache.outputs.from || (runner.environment == 'github-hosted' && format('type=gha,scope=image-{0}', inputs.image)) || '' }}
+          cache-to: ${{ steps.cache.outputs.to || (runner.environment == 'github-hosted' && github.event_name != 'pull_request' && format('type=gha,mode=max,scope=image-{0}', inputs.image)) || '' }}
 
       - name: Image reference
         id: reference
