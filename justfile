@@ -103,6 +103,9 @@ check: (_tools "check")
     node --check tools/qualify-merge.mjs
     node --check tests/repository-rules.test.mjs
     node --check tools/ci-times.mjs
+    node --check lib/security-schedule.mjs
+    node --check tools/security-schedule.mjs
+    node --check tests/security-schedule.test.mjs
     node --check lib/verify-parts.mjs
     node --check actions/plan/run.mjs
     node --check tests/verify-parts.test.mjs
@@ -278,6 +281,10 @@ repository-rules repository mode="plan":
 # How long a repository's checks make an agent wait, from its newest completed runs.
 times repository *options:
     node tools/ci-times.mjs {{ quote(repository) }} {{ options }}
+
+# Reads GitHub's creation time and the first job for a fixed daily UTC security schedule.
+security-schedule repository cron date="" workflow="security.yml":
+    node tools/security-schedule.mjs {{ quote(repository) }} --cron {{ quote(cron) }} --date {{ quote(date) }} --workflow {{ quote(workflow) }}
 
 # Qualifies the actual secret scanner against the trusted-base policy boundary.
 secret-policy-smoke:

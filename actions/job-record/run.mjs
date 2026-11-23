@@ -1,5 +1,6 @@
 // Writes a job's summary and its structured record. The record uses OpenTelemetry's CI/CD and
 // VCS attribute names; it holds no secret, token, path of a credential or command output.
+import { dailySlot, elapsedSeconds, elapsedTime } from "../../lib/security-schedule.mjs";
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, lstatSync, readFileSync } from "node:fs";
 import os from "node:os";
@@ -76,8 +77,16 @@ export function record(environment, now = new Date()) {
   }
   if (started && existsSync(started)) {
     const seconds = Number(readFileSync(started, "utf8").trim());
-    if (Number.isSafeInteger(seconds) && seconds > 0)
+    if (Number.isSafeInteger(seconds) && seconds > 0) {
       document["nddev_ci.duration_seconds"] = Math.max(0, Math.round(now.getTime() / 1000) - seconds);
+      if (document["nddev_ci.event"] === "schedule" && document["nddev_ci.run_attempt"] === 1) {
+        const slot = dailySlot(input("schedule"), seconds * 1000);
+        if (slot !== null) {
+          document["nddev_ci.schedule.expected_at"] = new Date(slot).toISOString();
+          document["nddev_ci.schedule.job_start_delay_seconds"] = elapsedSeconds(slot, seconds * 1000);
+        }
+      }
+    }
   }
   const wrapper = environment.RUSTC_WRAPPER;
   if (wrapper && path.basename(wrapper).startsWith("sccache") && existsSync(wrapper)) {
@@ -105,6 +114,16 @@ export function main(environment = process.env) {
       `| ${document["cicd.worker.name"]} (${document["nddev_ci.runner.environment"]}) | ${document["os.type"]} ${document["host.arch"]} | ${queue === undefined ? "unknown" : `${queue}s`} | ${seconds === undefined ? "unknown" : `${Math.floor(seconds / 60)}m ${seconds % 60}s`} | ${cache || "none"} |`,
       "",
     ].join("\n"));
+  const slot = document["nddev_ci.schedule.expected_at"];
+  if (slot && environment.GITHUB_STEP_SUMMARY) {
+    const delay = document["nddev_ci.schedule.job_start_delay_seconds"];
+    const start = delay >= 60 ? `The job started late by ${elapsedTime(delay)}.` : "The job started in the scheduled minute.";
+    const measured = queue === undefined ? "Runner wait was unavailable." : `Measured runner wait was ${elapsedTime(Math.floor(queue))}.`;
+    appendFileSync(environment.GITHUB_STEP_SUMMARY, `\nDaily security slot: ${slot}. ${start} ${measured}\n\n`);
+  } else if (environment["INPUT_SCHEDULE"] && environment.GITHUB_STEP_SUMMARY &&
+      document["nddev_ci.event"] === "schedule" && document["nddev_ci.run_attempt"] === 1) {
+    appendFileSync(environment.GITHUB_STEP_SUMMARY, "\nDaily security schedule timing is unavailable.\n\n");
+  }
   // Our runners name a telemetry file the contour collects; GitHub's runners leave this unset.
   const sink = environment.NDDEV_CI_TELEMETRY_FILE ?? "";
   if (sink) {
