@@ -53,12 +53,12 @@ jobs:
           dependencies { implementation "org.apache.commons:commons-lang3:${dependencyVersion}" }
           tasks.register('verifySources') {
               doLast {
-                  assert repositories[0].url.toString() == 'https://repo.maven.apache.org/maven2/'
+                  assert repositories[0].url.toString().replaceFirst('/+$', '') == 'https://repo.maven.apache.org/maven2'
                   assert configurations.runtimeClasspath.singleFile.name == "commons-lang3-${dependencyVersion}.jar"
               }
           }
           BUILD
-      - uses: ./actions/gradle-mirror
+      - uses: $/actions/gradle-mirror
         env:
           NDDEV_CI_ARTIFACT_REGISTRY: http://127.0.0.1:9
         with:
