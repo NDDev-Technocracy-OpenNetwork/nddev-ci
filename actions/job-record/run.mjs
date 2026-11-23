@@ -62,7 +62,7 @@ export function record(environment, now = new Date()) {
     if (!["project", "library"].includes(layer)) throw new Error("failure-layer must be project or library");
     if (status === "failure") {
       const reason = input("runner-reason");
-      const attributed = layer === "project" && runnerFailureReasons.has(reason);
+      const attributed = runnerFailureReasons.has(reason);
       document["nddev_ci.failure.layer"] = attributed ? "runner" : layer;
       if (attributed) document["nddev_ci.failure.reason"] = reason;
     }

@@ -15,6 +15,9 @@ outputs:
   builder:
     description: The selected BuildKit builder.
     value: ${{ steps.managed-builder.outputs.name || steps.hosted-builder.outputs.name }}
+  runner-reason:
+    description: A failure of the runner's declared builder or package mirror.
+    value: ${{ steps.mirror.outputs.runner-reason || steps.managed-builder.outputs.runner-reason }}
 runs:
   using: composite
   steps:
@@ -30,7 +33,11 @@ runs:
         if [ "$RUNNER_ENVIRONMENT" != self-hosted ] || [ -z "$mirror" ]; then
           exit 0
         fi
-        [[ "$mirror" =~ ^http://127\.0\.0\.1:[0-9]{2,5}$ ]] || { echo "::error::the runner's package mirror must be a loopback HTTP address"; exit 1; }
+        if [[ ! "$mirror" =~ ^http://127\.0\.0\.1:[0-9]{2,5}$ ]]; then
+          echo "::error::the runner's package mirror must be a loopback HTTP address"
+          echo "runner-reason=cache-unavailable" >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
         source_proxy="${HTTPS_PROXY:-${https_proxy:-}}"
         {
           echo "network=host"
@@ -58,23 +65,25 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        unavailable() {
+          echo "::error::$1"
+          echo "runner-reason=docker-unavailable" >> "$GITHUB_OUTPUT"
+          exit 1
+        }
         builder="${BUILDX_BUILDER:-}"
         if [[ ! "$builder" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
-          echo "::error::the runner must set BUILDX_BUILDER to its persistent builder"
-          exit 1
+          unavailable "the runner must set BUILDX_BUILDER to its persistent builder"
         fi
         if [[ "${BUILDX_CONFIG:-}" != /* ]]; then
-          echo "::error::the runner must set an absolute BUILDX_CONFIG path for this job"
-          exit 1
+          unavailable "the runner must set an absolute BUILDX_CONFIG path for this job"
         fi
         if ! details=$(docker buildx inspect -- "$builder"); then
-          echo "::error::the runner's persistent builder is unavailable"
-          exit 1
+          unavailable "the runner's persistent builder is unavailable"
         fi
         driver=$(awk '$1 == "Driver:" {print $2}' <<< "$details")
         case "$driver" in
           docker|remote) ;;
-          *) echo "::error::the runner must use its Docker engine or its own BuildKit service"; exit 1 ;;
+          *) unavailable "the runner must use its Docker engine or its own BuildKit service" ;;
         esac
         printf 'name=%s\n' "$builder" >> "$GITHUB_OUTPUT"
 

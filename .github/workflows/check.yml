@@ -448,7 +448,7 @@ jobs:
           status: ${{ job.status }}
           check-run-id: ${{ job.check_run_id }}
           project-outcome: ${{ steps.project.outcome }}
-          runner-reason: ${{ steps.project.outputs.runner-reason }}
+          runner-reason: ${{ steps.setup.outputs.runner-reason || steps.project.outputs.runner-reason }}
           task: ${{ matrix.part.task || matrix.part.label }}
           task-type: test
           name: ${{ github.job }}-${{ matrix.part.group }}

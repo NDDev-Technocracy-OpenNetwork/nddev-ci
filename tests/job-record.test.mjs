@@ -100,14 +100,15 @@ test("a failed job names whose failure it is, and only a failed job", () => {
   assert.throws(() => record({ ...failed, "INPUT_FAILURE-LAYER": "runner" }), /failure-layer/);
 });
 
-test("a runner reason changes attribution only for a failed project command", () => {
+test("a fixed runner reason changes attribution only for a failed job", () => {
   const source = {"INPUT_FAILURE-LAYER": "project", "INPUT_RUNNER-REASON": "docker-timeout"};
   const failed = record({...base, ...source, INPUT_STATUS: "failure"});
   assert.equal(failed["cicd.pipeline.task.run.result"], "failure");
   assert.equal(failed["nddev_ci.failure.layer"], "runner");
   assert.equal(failed["nddev_ci.failure.reason"], "docker-timeout");
+  assert.equal(record({...base, INPUT_STATUS: "failure", "INPUT_FAILURE-LAYER": "library",
+    "INPUT_RUNNER-REASON": "docker-unavailable"})["nddev_ci.failure.layer"], "runner");
   for (const change of [source, {...source, INPUT_STATUS: "cancelled"},
-    {...source, INPUT_STATUS: "failure", "INPUT_FAILURE-LAYER": "library"},
     {...source, INPUT_STATUS: "failure", "INPUT_RUNNER-REASON": "unknown"}])
     assert.equal(record({...base, ...change})["nddev_ci.failure.reason"], undefined);
 });
@@ -122,6 +123,7 @@ test("runner attribution requires an error tied to one of the job's runner resou
   };
   const cases = [
     ["Cannot connect to the Docker daemon at unix:///run/fixture-docker.sock", "docker-unavailable"],
+    ['Docker GET unix:///run/fixture-docker.sock/_ping returned HTTP 502', "docker-unavailable"],
     ["sccache: failed to read /runner/cache/entry: Permission denied", "cache-unavailable"],
     ["http://cache.example.test:8000/packages: HTTP 503", "cache-unavailable"],
     ["failed to connect to proxy.example.test:3128: connection refused", "network-unavailable"],
@@ -131,6 +133,7 @@ test("runner attribution requires an error tied to one of the job's runner resou
     ["http://cache.example.test:8000/packages: HTTP 404", ""],
     ["cache.example.test:80000: connection refused", ""],
     ["custom project server: connection refused", ""],
+    ['{"event":"project.request","route":"ping","status":502}', ""],
     ["write /runner/tmp-other/file: no space left on device", ""],
   ];
   const classify = runnerFailureClassifier(environment);

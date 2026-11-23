@@ -199,21 +199,30 @@ fn a_failing_part_stays_a_failure() {
 }
 
 #[test]
-fn a_runner_docker_timeout_is_recorded_and_the_project_check_still_fails() {
-    let (fixture, output) = Fixture::run_on(
-        r#"check:
-    @echo 'started the test'
-    @echo '"docker" "--host" "unix:///run/fixture-docker.sock" "buildx" "build" did not finish within 300 s' >&2
-    @exit 17
-"#,
-        "pull_request",
-        "",
-        "self-hosted",
-    );
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stdout).contains("started the test"));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("did not finish within 300 s"));
-    assert_eq!(fixture.runner_reason(), "runner-reason=docker-timeout\n");
+fn runner_docker_failures_are_recorded_and_the_project_check_still_fails() {
+    let cases = [
+        (
+            r#""docker" "--host" "unix:///run/fixture-docker.sock" "buildx" "build" did not finish within 300 s"#,
+            "docker-timeout",
+        ),
+        (
+            r#"{"fields":{"event":"docker_proxy.request","route":"ping","status":502}}"#,
+            "docker-unavailable",
+        ),
+        (
+            r#"failed to copy: httpReadSeeker: failed open: failed to do request: Get "https://registry.example.test/v2/library/fixture/manifests/latest": net/http: timeout awaiting response headers"#,
+            "docker-timeout",
+        ),
+    ];
+    for (line, reason) in cases {
+        let source =
+            format!("check:\n    @echo 'started the test'\n    @echo '{line}' >&2\n    @exit 17\n");
+        let (fixture, output) = Fixture::run_on(&source, "pull_request", "", "self-hosted");
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("started the test"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains(line));
+        assert_eq!(fixture.runner_reason(), format!("runner-reason={reason}\n"));
+    }
 }
 
 #[test]

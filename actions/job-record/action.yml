@@ -29,7 +29,7 @@ inputs:
       records nothing; a job that did not fail records nothing either.
     default: ''
   runner-reason:
-    description: A fixed reason code that attributes a failed project command to the runner.
+    description: A fixed reason code that attributes a failed job to the runner.
     default: ''
 runs:
   using: node24
