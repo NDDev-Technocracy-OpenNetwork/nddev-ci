@@ -25,5 +25,6 @@ jobs:
         recipe-smoke.yml
         qualification-smoke.yml
       check-workflow: ci.yml
+      artifacts: qualify-merge
       initial-version: 0.6.26
       version: ${{ inputs.version }}

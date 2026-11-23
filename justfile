@@ -136,8 +136,13 @@ test:
     node --test tests/daily-osv-native.mjs
     node --test tests/daily-sbom-native.mjs
 
+# Package the checked source for services running outside GitHub Actions.
+package-qualifier:
+    mkdir -p dist
+    git archive --format=zip --prefix=nddev-ci/ --output=dist/qualify-merge.zip HEAD tools/qualify-merge.mjs lib/merge-on-green.mjs lib/qualification.mjs lib/release.mjs
+
 # Everything the full check on dev runs.
-verify: check test
+verify: check test package-qualifier
 
 # Applies formatting.
 fix:

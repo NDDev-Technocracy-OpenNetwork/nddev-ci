@@ -21,6 +21,8 @@ jobs:
       bun-version: '1.4.4'
       rust-version: '1.100.0'
       rust-components: clippy,rustfmt
+      artifact: dist/qualify-merge.zip
+      artifact-name: qualify-merge
     permissions:
       contents: read
 
