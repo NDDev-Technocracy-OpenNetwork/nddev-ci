@@ -22,6 +22,9 @@ inputs:
   started-file:
     description: A file holding the job's start as Unix seconds; empty measures nothing.
     default: ''
+  schedule:
+    description: The triggering daily UTC cron expression for the security job, if available.
+    default: ''
   failure-layer:
     description: >-
       For a failed job, whose failure it is: project when the project's own commands or its named

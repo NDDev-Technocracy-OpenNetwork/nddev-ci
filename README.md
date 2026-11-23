@@ -160,6 +160,14 @@ upstream range data, not a qualified upgrade recommendation. Secret rows contain
 and source-location metadata, never the matched value. The bounded summary may omit rows that
 remain in JSON and the full run log. The workflow opens, edits and closes no issue; existing
 findings remain report-only and scanner execution errors still fail the run.
+
+The first attempt of a fixed daily UTC security schedule reports the nominal cron slot and
+how late the security job started. The runner's measured queue time is shown separately when
+available. To see GitHub's run creation delay and the time from creation to the first job, run
+`just security-schedule owner/repository '17 3 * * *'` with an authenticated `gh`. An optional date
+and workflow filename select a past slot or a caller whose workflow file has a different name.
+Until a scheduled run appears in GitHub, the command reports that it may still be delayed.
+
 The default licence list is declared in `security.yml`; a caller's `license-policy`
 can supply its own `[licenses].allow`. OSV accepts identifiers, so a `WITH` entry
 requires its base to be independently allowed too; exception-only policies fail. Unchanged
