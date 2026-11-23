@@ -171,5 +171,7 @@ jobs:
           task: image ${{ inputs.image }}
           task-type: build
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && (steps.build.outcome == 'failure' && 'project' || 'library') || '' }}
+          runner-reason: ${{ steps.builder.outputs.runner-reason }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

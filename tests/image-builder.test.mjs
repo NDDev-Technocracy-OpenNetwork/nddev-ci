@@ -44,7 +44,7 @@ test("a missing or malformed builder does not invoke Docker", linux, () => {
     assert.equal(result.status, 1);
     assert.match(result.stdout, /BUILDX_BUILDER/);
     assert.equal(result.calls, "");
-    assert.equal(result.output, "");
+    assert.equal(result.output, "runner-reason=docker-unavailable\n");
   }
 });
 
@@ -52,7 +52,7 @@ test("a declared builder unavailable on the daemon stops the managed step", linu
   const result = select("default", { dockerStatus: "1" });
   assert.equal(result.status, 1);
   assert.match(result.stdout, /persistent builder is unavailable/);
-  assert.equal(result.output, "");
+  assert.equal(result.output, "runner-reason=docker-unavailable\n");
 });
 
 test("a managed job needs an absolute Buildx configuration path", linux, () => {
@@ -61,6 +61,7 @@ test("a managed job needs an absolute Buildx configuration path", linux, () => {
     assert.equal(result.status, 1);
     assert.match(result.stdout, /absolute BUILDX_CONFIG/);
     assert.equal(result.calls, "");
+    assert.equal(result.output, "runner-reason=docker-unavailable\n");
   }
 });
 
@@ -68,7 +69,7 @@ test("a containerized builder cannot be selected on a managed job", linux, () =>
   const result = select("default", { driver: "docker-container" });
   assert.equal(result.status, 1);
   assert.match(result.stdout, /Docker engine or its own BuildKit service/);
-  assert.equal(result.output, "");
+  assert.equal(result.output, "runner-reason=docker-unavailable\n");
 });
 
 test("only GitHub-hosted jobs create a job-owned builder", () => {

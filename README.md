@@ -466,7 +466,10 @@ use `provenance.yml`; private repositories use release verification.
 structured `nddev_ci.job.completed` line: source commit, workflow, result, actual
 OS/architecture, duration and available compiler-cache counters. Missing measured
 queue time remains unknown. A failed job names its `failure-layer`: `project` for its
-own commands or named reports, `library` for the steps around them. The runner can
+own commands or named reports, `library` for the steps around them, or `runner` when
+preparation or a failed command reports an error tied to a declared runner resource. The
+`nddev_ci.failure.reason` field identifies the Docker, cache, network or storage symptom.
+The runner can
 provide `NDDEV_CI_QUEUE_SECONDS` and `NDDEV_CI_TELEMETRY_FILE`; hosted jobs keep the
 record in the job log. The execution controller owns the SDK, device and generation
 provenance added at collection. [telemetry](actions/telemetry/action.yml) disables

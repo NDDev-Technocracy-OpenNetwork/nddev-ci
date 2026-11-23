@@ -13,6 +13,10 @@ impl Fixture {
     }
 
     fn run_part(source: &str, event: &str, part: &str) -> (Self, Output) {
+        Self::run_on(source, event, part, "github-hosted")
+    }
+
+    fn run_on(source: &str, event: &str, part: &str, runner: &str) -> (Self, Output) {
         let path = std::env::temp_dir().join(format!(
             "nddev-ci-recipes-{}-{}",
             std::process::id(),
@@ -21,8 +25,9 @@ impl Fixture {
         fs::create_dir(&path).expect("new owned fixture");
         let fixture = Self(path);
         fs::write(fixture.0.join("justfile"), source).expect("fixture justfile");
-        let workflow = fs::read_to_string(".github/workflows/check.yml").expect("real workflow");
-        let script = workflow
+        let action =
+            fs::read_to_string("actions/project-check/action.yml").expect("real check action");
+        let script = action
             .split("# recipe-dispatch:begin")
             .nth(1)
             .expect("dispatch begins")
@@ -30,13 +35,21 @@ impl Fixture {
             .next()
             .expect("dispatch ends")
             .lines()
-            .map(|line| line.strip_prefix("          ").unwrap_or(line))
+            .map(|line| line.strip_prefix("        ").unwrap_or(line))
             .collect::<Vec<_>>()
             .join("\n");
         let output = Command::new("bash")
             .args(["-euo", "pipefail", "-c", &script])
             .env("EVENT", event)
             .env("PART", part)
+            .env("SETUP", "false")
+            .env("RUNNER_ENVIRONMENT", runner)
+            .env("NDDEV_DOCKER_HOST", "unix:///run/fixture-docker.sock")
+            .env("GITHUB_OUTPUT", fixture.0.join("outputs"))
+            .env(
+                "PROJECT_COMMAND",
+                fs::canonicalize("lib/project-command.mjs").expect("real command observer"),
+            )
             .current_dir(&fixture.0)
             .output()
             .expect("execute actual recipe dispatch");
@@ -49,6 +62,10 @@ impl Fixture {
             .lines()
             .map(str::to_owned)
             .collect()
+    }
+
+    fn runner_reason(&self) -> String {
+        fs::read_to_string(self.0.join("outputs")).unwrap_or_default()
     }
 }
 
@@ -179,4 +196,49 @@ fn a_failing_part_stays_a_failure() {
     );
     assert!(!output.status.success());
     assert_eq!(fixture.events(), ["a"]);
+}
+
+#[test]
+fn runner_docker_failures_are_recorded_and_the_project_check_still_fails() {
+    let cases = [
+        (
+            r#""docker" "--host" "unix:///run/fixture-docker.sock" "buildx" "build" did not finish within 300 s"#,
+            "docker-timeout",
+        ),
+        (
+            r#"{"fields":{"event":"docker_proxy.request","route":"ping","status":502}}"#,
+            "docker-unavailable",
+        ),
+        (
+            r#"failed to copy: httpReadSeeker: failed open: failed to do request: Get "https://registry.example.test/v2/library/fixture/manifests/latest": net/http: timeout awaiting response headers"#,
+            "docker-timeout",
+        ),
+    ];
+    for (line, reason) in cases {
+        let source =
+            format!("check:\n    @echo 'started the test'\n    @echo '{line}' >&2\n    @exit 17\n");
+        let (fixture, output) = Fixture::run_on(&source, "pull_request", "", "self-hosted");
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("started the test"));
+        assert!(String::from_utf8_lossy(&output.stderr).contains(line));
+        assert_eq!(fixture.runner_reason(), format!("runner-reason={reason}\n"));
+    }
+}
+
+#[test]
+fn a_successful_check_does_not_attribute_a_later_project_test_failure() {
+    let (fixture, output) = Fixture::run_on(
+        r#"check:
+    @echo '"docker" "--host" "unix:///run/fixture-docker.sock" "buildx" "build" did not finish within 300 s' >&2
+test:
+    @echo 'project assertion failed' >&2
+    @exit 17
+"#,
+        "pull_request",
+        "",
+        "self-hosted",
+    );
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("project assertion failed"));
+    assert_eq!(fixture.runner_reason(), "");
 }

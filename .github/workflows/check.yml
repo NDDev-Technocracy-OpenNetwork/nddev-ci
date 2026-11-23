@@ -410,35 +410,12 @@ jobs:
       - name: Check
         id: project
         if: steps.reuse.outputs.cache-hit != 'true'
+        uses: $/actions/project-check
         env:
           GH_TOKEN: ${{ github.token }}
-          EVENT: ${{ github.event_name }}
-          SETUP: ${{ inputs.setup }}
-          PART: ${{ toJSON(matrix.part.argv) }}
-        run: |
-          set -euo pipefail
-          if [ "$SETUP" = true ]; then
-            just setup
-          fi
-          # recipe-dispatch:begin
-          if [ "$EVENT" = pull_request ]; then
-            just check
-            recipes=$(just --dump --dump-format json)
-            if jq -e '(.recipes | has("test")) or (.aliases | has("test"))' <<< "$recipes" >/dev/null; then
-              just test
-            else
-              echo "This repository declares no test recipe."
-            fi
-          else
-            # The full check's job: `verify` whole, or the recipes of one part.
-            argv=(verify)
-            if [ -n "${PART:-}" ] && [ "$PART" != "[]" ]; then
-              argv=()
-              while IFS= read -r argument; do argv+=("$argument"); done < <(jq -r '.[]' <<< "$PART")
-            fi
-            just "${argv[@]}"
-          fi
-          # recipe-dispatch:end
+        with:
+          setup: ${{ inputs.setup }}
+          part: ${{ toJSON(matrix.part.argv) }}
 
       # The mark that this merge's short check passed, read by a later text or label event.
       - name: Mark the pass of this merge
@@ -471,6 +448,7 @@ jobs:
           status: ${{ job.status }}
           check-run-id: ${{ job.check_run_id }}
           project-outcome: ${{ steps.project.outcome }}
+          runner-reason: ${{ steps.setup.outputs.runner-reason || steps.project.outputs.runner-reason }}
           task: ${{ matrix.part.task || matrix.part.label }}
           task-type: test
           name: ${{ github.job }}-${{ matrix.part.group }}

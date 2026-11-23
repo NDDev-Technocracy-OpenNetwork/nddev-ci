@@ -104,6 +104,9 @@ outputs:
   read-token:
     description: The scoped App read token, for complete to revoke; empty without one.
     value: ${{ steps.read-app-token.outputs.token }}
+  runner-reason:
+    description: A failure tied to the runner's declared image builder or mirror.
+    value: ${{ steps.image-builder.outputs.runner-reason }}
 runs:
   using: composite
   steps:
@@ -335,5 +338,6 @@ runs:
         working-directory: ${{ inputs.working-directory }}
 
     - name: Prepare in-job image builds
+      id: image-builder
       if: inputs.images == 'true'
       uses: $/actions/image-builder
