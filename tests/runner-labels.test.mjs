@@ -43,11 +43,16 @@ function route(file, job) {
   // The emitted expressions use only these three actions primitives and boolean selection.
   const evaluate = new Function("github", "inputs", "contains", "format", "fromJSON", "return (" + expression + ")");
   return ({ labels = [], target = "", provider = "github", event = "pull_request",
-    profile = "", runner = "managed-example", hosted = "", privateRepo = true } = {}) => evaluate({
+    profile = "", runner = "managed-example", hosted = "", privateRepo = true,
+    actor = "developer", triggeringActor = actor, sender = "User", author = "User",
+  } = {}) => evaluate({
+    actor,
+    triggering_actor: triggeringActor,
     event_name: event,
     event: {
       repository: { private: privateRepo },
-      pull_request: { labels: event === "pull_request" ? labels : [] },
+      sender: { type: sender },
+      pull_request: { labels: event === "pull_request" ? labels : [], user: { type: author } },
       inputs: { runner: provider, "runner-profile": target },
     },
   }, { runner, "runner-profile": profile, "hosted-runner": hosted },
@@ -100,4 +105,29 @@ test("public and unqualified manual selection preserve their routes", () => {
     assert.equal(recipe({...args, hosted:"macos-26"}), "macos-26");
     assert.equal(recipe({...args, hosted:"managed-example"}), "");
   }
+});
+
+test("bot-only private Linux PR checks use the maintenance lane", () => {
+  const check = route("check.yml", "check");
+  const recipe = route("recipe.yml", "recipe");
+  const mergeStops = route("merge-stops.yml", "stops");
+  const registry = route("check.yml", "registry");
+  const bot = { actor: "renovate[bot]", author: "Bot", sender: "Bot", profile: "linux-x64" };
+  for (const runner of ["nddev-linux-small", "nddev-linux-standart"]) {
+    assert.equal(check({ ...bot, runner }), runner + "-maintenance");
+    assert.equal(check({ ...bot, runner, triggeringActor: "developer" }), runner);
+    assert.equal(check({ ...bot, runner, sender: "User", actor: "developer" }), runner);
+    assert.equal(check({ ...bot, runner, author: "User" }), runner);
+    assert.equal(check({ ...bot, runner, event: "push" }), runner);
+    assert.equal(check({ ...bot, runner, event: "release" }), runner);
+    assert.equal(check({ ...bot, runner, event: "workflow_dispatch", provider: "ours" }), runner);
+    assert.equal(check({ ...bot, runner, labels: ["runner:github:linux-x64"] }), "ubuntu-24.04");
+    assert.equal(check({ ...bot, runner, privateRepo: false }), "ubuntu-24.04");
+    assert.equal(recipe({ ...bot, runner }), runner);
+    assert.equal(mergeStops({ ...bot, runner }), "nddev-linux-small-maintenance");
+    assert.equal(mergeStops({ ...bot, runner, triggeringActor: "developer" }), "nddev-linux-small");
+  }
+  assert.equal(check({ ...bot, runner: "nddev-linux-arm64" }), "nddev-linux-arm64");
+  assert.equal(registry(bot), "nddev-linux-small-maintenance");
+  assert.equal(registry({ ...bot, event: "push" }), "nddev-linux-small");
 });

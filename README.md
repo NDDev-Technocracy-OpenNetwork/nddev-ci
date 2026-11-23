@@ -226,6 +226,12 @@ Public projects use the selected GitHub-hosted runner. Private projects use `run
 The jobs of the last column are light by their nature, so they leave the standard class to a
 project's own builds and tests.
 
+The shared check workflow routes private Linux x64 PRs authored and triggered
+by a bot to the matching `nddev-linux-small-maintenance` or `nddev-linux-standart-maintenance` label.
+The runner service registers those labels against the same hardware and class.
+A person's run or rerun, a branch check and a release use the ordinary managed
+label. Explicit hosted selections keep their existing route.
+
 Configure `runner-profile` for each private `check.yml` or `recipe.yml` call that supports
 automatic fallback. The caller listens for PR `labeled` events and declares the optional string
 `runner-profile` alongside its `runner` choice in `workflow_dispatch`. A scheduler restarts the
