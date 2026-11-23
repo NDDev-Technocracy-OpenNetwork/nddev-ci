@@ -1,0 +1,42 @@
+import org.gradle.api.artifacts.repositories.MavenArtifactRepository
+
+def mirror = System.getenv('NDDEV_GRADLE_MIRROR_URL')
+def routes = [
+    'https://repo.maven.apache.org/maven2': 'maven-central',
+    'https://repo1.maven.org/maven2': 'maven-central',
+    'https://dl.google.com/dl/android/maven2': 'google-maven',
+    'https://dl.google.com/android/maven2': 'google-maven',
+    'https://maven.google.com': 'google-maven',
+    'https://plugins.gradle.org/m2': 'gradle-plugins',
+    'https://developer.huawei.com/repo': 'huawei-maven',
+]
+
+def routeRepositories = { repositories ->
+    repositories.withType(MavenArtifactRepository).all { repository ->
+        def route = routes[repository.url?.toString()?.replaceFirst('/+$', '')]
+        if (!route || !repository.authentication.empty) return
+        // The public getCredentials() creates credentials on access. Preserve configured
+        // providers and custom authentication without reading any secret values.
+        try {
+            if (repository.configuredCredentials.present) return
+        } catch (RuntimeException ignored) {
+            return
+        }
+        repository.url = URI.create("${mirror}/${route}")
+        repository.allowInsecureProtocol = mirror.startsWith('http://')
+    }
+}
+
+gradle.beforeSettings { settings ->
+    routeRepositories(settings.pluginManagement.repositories)
+    routeRepositories(settings.dependencyResolutionManagement.repositories)
+    routeRepositories(settings.buildscript.repositories)
+}
+gradle.settingsEvaluated { settings ->
+    def plugins = settings.pluginManagement.repositories
+    if (plugins.empty) plugins.gradlePluginPortal()
+}
+gradle.beforeProject { project ->
+    routeRepositories(project.buildscript.repositories)
+    routeRepositories(project.repositories)
+}
