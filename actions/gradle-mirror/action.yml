@@ -1,0 +1,10 @@
+name: Use the runner mirror for Gradle
+description: Route the checked Gradle distribution and public Maven repositories through the managed runner's artifact registry.
+inputs:
+  working-directory:
+    description: Directory that contains gradle/wrapper/gradle-wrapper.properties, relative to the checkout.
+    default: .
+runs:
+  using: node24
+  main: run.mjs
+  post: cleanup.mjs
