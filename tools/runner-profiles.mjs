@@ -18,7 +18,27 @@ const labels = "github.event.pull_request.labels.*.name";
 const manual = "(contains(" + labels + ", 'runner:github') || (" + dispatch + " && " + dispatchProfile + " == ''))";
 const image = (profile) => "fromJSON('" + JSON.stringify(profileHostedLabels) + "')[" + profile + "]";
 
-function route(file, { profile = work, managed = "inputs.runner", recipe = false } = {}) {
+const botPullRequest = [
+  "github.event_name == 'pull_request'",
+  "github.event.sender.type == 'Bot'",
+  "github.event.pull_request.user.type == 'Bot'",
+  "github.actor == github.triggering_actor",
+].join(" && ");
+const maintenanceLabels = {
+  "nddev-linux-small": "nddev-linux-small-maintenance",
+  "nddev-linux-standart": "nddev-linux-standart-maintenance",
+};
+
+function maintenanceRunner(managed) {
+  const lane = "fromJSON('" + JSON.stringify(maintenanceLabels) + "')[" + managed + "]";
+  return "(" + botPullRequest + " && " + lane + " || " + managed + ")";
+}
+
+function route(file, {
+  profile = work, managed = "inputs.runner", recipe = false, maintenance = false, managedOnly = false,
+} = {}) {
+  const managedLane = maintenance ? maintenanceRunner(managed) : managed;
+  if (managedOnly) return ["$" + "{{", managedLane, "}}"].map((line) => "      " + line).join("\n");
   const matchesLabel = "contains(" + labels + ", format('runner:github:{0}', " + profile + "))";
   const matchesDispatch = "(" + dispatch + " && " + dispatchProfile + " == " + profile + ")";
   const scoped = "(" + profile + " != '' && (" + matchesLabel + " || " + matchesDispatch + "))";
@@ -29,7 +49,7 @@ function route(file, { profile = work, managed = "inputs.runner", recipe = false
     : "(" + configured + " || " + defaultImage + ")";
   // Keep an invalid explicit hosted label from sending a public or manually hosted recipe to
   // a managed runner.
-  const managedRoute = recipe ? "!" + manual + " && " + managed : managed;
+  const managedRoute = recipe ? "!" + manual + " && " + managedLane : managedLane;
   const legacyImage = recipe ? publicImage : defaultImage;
   return [
     "$" + "{{",
@@ -44,9 +64,14 @@ function route(file, { profile = work, managed = "inputs.runner", recipe = false
 }
 
 const paths = {
-  "check.yml": { plan: { profile: helper, managed: lightRunner }, check: {}, join: { profile: helper, managed: lightRunner } },
-  "merge-stops.yml": { stops: { profile: helper, managed: lightRunner } },
-  "recipe.yml": { recipe: { recipe: true } },
+  "check.yml": {
+    plan: { profile: helper, managed: lightRunner },
+    registry: { managed: "'nddev-linux-small'", maintenance: true, managedOnly: true },
+    check: { maintenance: true },
+    join: { profile: helper, managed: lightRunner },
+  },
+  "merge-stops.yml": { stops: { profile: helper, managed: lightRunner, maintenance: true } },
+  "recipe.yml": { recipe: { recipe: true, maintenance: true } },
 };
 const marked = /(^    # runner-profile:(\S+)\n)    runs-on:[^\n]*(?:\n      [^\n]+)*/gm;
 
