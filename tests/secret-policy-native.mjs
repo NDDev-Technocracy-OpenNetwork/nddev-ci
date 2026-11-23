@@ -82,6 +82,14 @@ test("ordinary pushes exclude the remote's published task commits and deletion-o
   assert.equal(f.push(":refs/heads/task").status, 0);
 });
 
+test("the trusted policy parser uses the system TOML library even from a checkout with a similarly named module", (t) => {
+  const f = pushFixture(t);
+  const clean = commit(f, "tomllib.py", 'raise RuntimeError("the checkout module must not run")\n');
+  const result = f.push("HEAD:refs/heads/task");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(f.objectWasReceived(clean), true);
+});
+
 test("the trusted fixture rule requires both an exact synthetic value and its approved path", (t) => {
   const value = token();
   const policy = `[extend]\nuseDefault = true\n[[allowlists]]\ncondition = "AND"\npaths = ['^fixture[.]env$']\nregexes = ['^${value}$']\n`;
