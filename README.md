@@ -117,11 +117,11 @@ against what a managed runner gives a job ([build-conventions](actions/build-con
 - setting `GRADLE_USER_HOME`, which replaces the runner's persistent Gradle home; Gradle's settings
   go in `GRADLE_OPTS` as `-Dorg.gradle.*`, and a proxy as `-Dhttps.proxyHost` and
   `-Dhttps.proxyPort`, since the JVM ignores `HTTPS_PROXY`;
-- an image build without `$NDDEV_CI_IMAGE_BUILD_FLAGS`, whose `RUN` steps take the slot's default
+- an image build without `$NDDEV_CI_IMAGE_BUILD_FLAGS`, whose `RUN` steps take the builder's default
   network past the package mirror, where a package manager can stall for minutes; set
   `images: true` and build with the flags, as the in-job image builds below say;
 - an exported local layer cache, which costs its export on every run while the library's builder
-  keeps layers per slot.
+  shares layers between jobs on the machine.
 Dependency comparison reads the exact proposed merge and its own base from Git,
 runs no project installers, and scans both against the same vulnerability data.
 Existing findings remain diagnostics. Native source packages without a registry version stay
@@ -377,26 +377,17 @@ Any other plain-HTTP address in a `RUN` step is refused there, so such a downloa
 
 `image.yml` prepares its builder with [image-builder](actions/image-builder/action.yml), which
 also prepares it inside a job that builds images to test and scan them there, such as a native
-recipe that builds several images, runs its own tests against them and keeps their SBOMs. On a
-managed runner it takes the pinned Buildx from the first route, the registry mirrors for the
-builder and the host network. It exports `NDDEV_CI_IMAGE_BUILD_FLAGS`, the network and the mirror's build
-arguments, so a recipe builds with `docker buildx build $NDDEV_CI_IMAGE_BUILD_FLAGS --load`, and
-the database variables of the daily package scan, `TRIVY_DB_REPOSITORY`,
-`TRIVY_JAVA_DB_REPOSITORY` and `GRYPE_DB_UPDATE_URL`, so the job's scans read the same copies. On
-a GitHub-hosted runner the flags and variables stay empty and each tool uses its public source.
-Set `images: true` on `check.yml` to prepare this builder for the full `just verify`, so the
-checked release image can use the same build outputs as the rest of the check. On
-`recipe.yml` the input prepares the builder before the selected recipe.
+recipe that builds several images, runs its own tests against them and keeps their SBOMs.
+Managed jobs use the machine's Docker builder or its own BuildKit service. The runner supplies
+`BUILDX_BUILDER`, a job-owned absolute `BUILDX_CONFIG` path and the Buildx CLI. The machine
+owns registry mirrors, the host-network entitlement, storage and collection policy. Concurrent
+jobs use the same builder cache. The image action creates no additional managed builder.
+GitHub-hosted jobs provision their own builder and use public package sources.
 
-The builder keeps its layers between jobs on a managed runner. A slot's Docker starts empty in
-every job, while the slot's build cache root, `NDDEV_BUILD_CACHE_ROOT`, stays; the builder's
-whole BuildKit state, layers and cache mounts, lives there, one folder for each BuildKit release.
-So a build finds the slot's earlier layers whichever way the job builds, through the producer,
-`NDDEV_CI_IMAGE_BUILD_FLAGS` or a plain `docker buildx build`, and a project writes no cache flag.
-Only a trusted job keeps them, as the runner marks pushes, manual and scheduled runs of `dev`, `main` and the
-default branch with `NDDEV_CACHE_TRUST=trusted`; a pull request's build starts empty and writes
-nothing there. BuildKit's own collection keeps the state under 40% of the slot's area with a
-quarter of it free.
+The action exports `NDDEV_CI_IMAGE_BUILD_FLAGS`, the network and the mirror's build arguments,
+so a recipe builds with `docker buildx build $NDDEV_CI_IMAGE_BUILD_FLAGS --load`. It also exports
+the daily scanner database routes on managed runners. Set `images: true` on `check.yml` or
+`recipe.yml` to make the builder available inside the project's recipe.
 
 Project setup must support its execution environment. Hosted setup uses the explicit
 SDK inputs and cannot require a private installer or private cache variable.
