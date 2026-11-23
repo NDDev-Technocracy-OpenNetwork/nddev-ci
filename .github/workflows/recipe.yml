@@ -11,12 +11,16 @@ on:
         description: Optional tool-download registry; empty uses the runner setting or official upstream sources.
         type: string
         default: ''
+      runner-profile:
+        description: Managed job platform for profile-aware GitHub fallback.
+        type: string
+        default: ''
       hosted-runner:
         description: >-
           The GitHub-hosted runner of a public repository: ubuntu-24.04, ubuntu-24.04-arm, ubuntu-26.04, ubuntu-26.04-arm,
           macos-15, macos-26, windows-2025 or windows-11-arm.
         type: string
-        default: ubuntu-24.04
+        default: ''
       runner:
         description: The label of our runners, used by private repositories.
         type: string
@@ -91,7 +95,7 @@ on:
         type: string
         default: ''
       tools:
-        description: Optional comma-separated name@exact-version command-line tools for hosted runners, such as cargo-nextest@0.9.151.
+        description: Optional comma-separated name@exact-version command-line tools for hosted runners
         type: string
         default: ''
       artifact:
@@ -189,15 +193,19 @@ permissions: {}
 
 jobs:
   recipe:
-    # A new label reruns the job only when it chooses the runner.
-    # Public calls, and private ones the label runner:github or a manual github choice moves, run
-    # on the given GitHub-hosted label; other private calls run on ours. A public call cannot
-    # select a private label, and an unknown hosted label refuses scheduling.
-    runs-on: ${{ (!github.event.repository.private || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github'))) && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm","macos-15","macos-26","windows-2025","windows-11-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || '') || (github.event.repository.private && !(contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github'))) && inputs.runner || '' }}
+    # Hosted fallback selects the declared platform while keeping the same recipe.
+    # runner-profile:recipe
+    runs-on: >-
+      ${{
+      !github.event.repository.private && (inputs.hosted-runner == '' && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || 'ubuntu-24.04') || contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm","macos-15","macos-26","windows-2025","windows-11-arm"]'), inputs.hosted-runner) && inputs.hosted-runner)
+      || github.event.repository.private && (
+        (inputs.runner-profile != '' && (contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', inputs.runner-profile)) || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == inputs.runner-profile))) && fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile]
+        || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || (inputs.hosted-runner == '' && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || 'ubuntu-24.04') || contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm","macos-15","macos-26","windows-2025","windows-11-arm"]'), inputs.hosted-runner) && inputs.hosted-runner))
+        || !(contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && inputs.runner
+      ) || ''
+      }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
-    env:
-      SDK_MANAGED: ${{ github.event.repository.private && !(contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github')) }}
     permissions:
       contents: read
     steps:
@@ -205,7 +213,7 @@ jobs:
         id: setup
         uses: $/actions/prepare
         with:
-          managed: ${{ env.SDK_MANAGED }}
+          managed: ${{ runner.environment == 'self-hosted' }}
           artifact-registry: ${{ inputs.artifact-registry }}
           diagnostics: ${{ inputs.diagnostics }}
           reports: ${{ inputs.reports }}
@@ -251,7 +259,7 @@ jobs:
         if: inputs.prepare != ''
         uses: $/actions/recipe
         with:
-          managed: ${{ env.SDK_MANAGED }}
+          managed: ${{ runner.environment == 'self-hosted' }}
           recipe: ${{ inputs.prepare }}
           working-directory: ${{ inputs.working-directory }}
           justfile: ${{ inputs.justfile }}
@@ -260,7 +268,7 @@ jobs:
         id: project
         uses: $/actions/recipe
         with:
-          managed: ${{ env.SDK_MANAGED }}
+          managed: ${{ runner.environment == 'self-hosted' }}
           recipe: ${{ inputs.recipe }}
           arguments: ${{ inputs.arguments }}
           working-directory: ${{ inputs.working-directory }}

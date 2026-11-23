@@ -12,7 +12,9 @@ export async function main(environment = process.env) {
   if (!token) throw new Error("A read token is required to choose the commit.");
   const github = client(token, environment.GITHUB_API_URL);
   const workflows = qualificationWorkflows(`.github/workflows/${input("check-workflow") || "ci.yml"}`, input("required-workflows"));
+  const fallbackActorId = environment.NDDEV_BRANCH_FALLBACK_ACTOR_ID || "";
   const result = await selectPromotion(github, {
+    fallbackActorId,
     repository: environment.GITHUB_REPOSITORY,
     workflowPath: `.github/workflows/${input("check-workflow") || "ci.yml"}`,
     requiredWorkflows: input("required-workflows"),
@@ -21,14 +23,14 @@ export async function main(environment = process.env) {
   if (result.state === "ready" && (input("release-metadata") || workflows.length > 1)) {
     const qualifications = await qualifyWorkflows(github, {repository: environment.GITHUB_REPOSITORY,
       sha: result.sha, workflowPath: workflows[0], branch: input("source-branch") || "dev"},
-    input("required-workflows"), {waitMinutes: 0});
+    input("required-workflows"), {waitMinutes: 0, fallbackActorId});
     if (input("release-metadata")) {
       const temp = environment.RUNNER_TEMP;
       if (!temp) throw new Error("The runner did not provide RUNNER_TEMP.");
       mkdirSync(temp, {recursive: true});
       const parent = mkdtempSync(path.join(temp, "nddev-ci-promotion-"));
       try {
-        const {files} = await transferArtifacts(github, qualifications[0], input("artifacts"), path.join(parent, "checked"));
+        const {files} = await transferArtifacts(github, qualifications[0], input("artifacts"), path.join(parent, "checked"), {fallbackActorId});
         result.version = await releaseVersion(github, {repository: environment.GITHUB_REPOSITORY,
           sha: result.sha, files, metadata: input("release-metadata")});
       } catch (error) {
@@ -36,7 +38,7 @@ export async function main(environment = process.env) {
         Object.assign(result, {state: "unversioned", reason: error.message, sha: null});
       } finally { rmSync(parent, {recursive: true, force: true}); }
     }
-    if (result.state === "ready") await Promise.all(qualifications.map((qualified) => recheck(github, qualified)));
+    if (result.state === "ready") await Promise.all(qualifications.map((qualified) => recheck(github, qualified, {fallbackActorId})));
   }
   for (const {sha, state, reason} of result.skipped ?? []) console.log(`Passed over ${sha}: ${state}. ${reason}`);
   appendFileSync(environment.GITHUB_OUTPUT, `state=${result.state}\nsha=${result.sha ?? ""}\n`);

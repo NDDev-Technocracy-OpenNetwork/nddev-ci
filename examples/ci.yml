@@ -1,10 +1,20 @@
 name: ci
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'github' && inputs.runner-profile != '' && 'Contour hosted fallback' || '' }}
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, edited]
   push:
     branches: [dev]
   workflow_dispatch:
+    inputs:
+      runner:
+        description: Runner provider.
+        type: choice
+        options: [ours, github]
+        default: ours
+      runner-profile:
+        description: Platform requested for automatic fallback.
+        type: string
 permissions: {}
 jobs:
   check:
@@ -13,6 +23,7 @@ jobs:
       contents: read
     # Select only the exact SDKs/tools the project's recipes need.
     # with:
+    #   runner-profile: linux-x64
     #   setup: true
     #   rust-version: ${{ vars.CI_RUST_VERSION }}
     #   rust-components: clippy,rustfmt

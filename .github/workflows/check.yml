@@ -1,7 +1,7 @@
 # The check of an NDDev project. A pull request gets the short check, `just check` and `just test`;
 # a push to `dev` or a run by hand gets the full check, `just verify`. Public
-# repositories run on GitHub's runners and private ones on ours, unless the pull request carries
-# the explicit label `runner:github`. A manual full check may select GitHub.
+# repositories run on GitHub's runners. Private jobs use their declared runners unless a PR label
+# or a manual dispatch selects a hosted route.
 name: check
 
 on:
@@ -23,6 +23,10 @@ on:
         description: The label of our runners, used by private repositories.
         type: string
         default: nddev-linux-standart
+      runner-profile:
+        description: Managed job platform for profile-aware GitHub fallback.
+        type: string
+        default: ''
       hosted-runner:
         description: >-
           The GitHub-hosted Linux runner of a public repository: ubuntu-24.04, ubuntu-24.04-arm,
@@ -150,7 +154,7 @@ on:
         type: string
         default: ""
       tools:
-        description: Optional comma-separated name@exact-version command-line tools for hosted runners, such as cargo-nextest@0.9.151.
+        description: Optional comma-separated name@exact-version command-line tools for hosted runners
         type: string
         default: ""
       read-app-client-id:
@@ -190,13 +194,26 @@ on:
 
 permissions: {}
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # The full check's jobs, read from the project's justfile: a part for each recipe `verify` depends
   # on, or `verify` whole. A light job: it evaluates nothing and needs no SDK.
   plan:
     name: plan the full check
     if: github.event_name != 'pull_request'
-    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github') && 'ubuntu-24.04' || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || inputs.runner == 'nddev-linux-standart' && 'nddev-linux-small' || inputs.runner) }}
+    # runner-profile:plan
+    runs-on: >-
+      ${{
+      !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04')
+      || github.event.repository.private && (
+        ((inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '') != '' && (contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || ''))) || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '')))) && fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '')]
+        || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '')] || 'ubuntu-24.04')
+        || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || (inputs.runner == 'nddev-linux-standart' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64')) && 'nddev-linux-small' || inputs.runner)
+      ) || ''
+      }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -216,7 +233,7 @@ jobs:
       - name: Native task runner
         uses: $/actions/frontend
         with:
-          managed: ${{ github.event.repository.private && !(github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github') }}
+          managed: ${{ runner.environment == 'self-hosted' }}
       - name: Plan
         id: plan
         uses: $/actions/plan
@@ -285,16 +302,23 @@ jobs:
       matrix:
         part: ${{ fromJSON(github.event_name == 'pull_request' && '[{"label":"short check","group":"short","argv":[]}]' || needs.plan.outputs.matrix) }}
     # Public repositories always run on GitHub's runners; an unknown hosted label fails below.
-    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github')) && 'ubuntu-24.04' || inputs.runner }}
-    # A new push to a pull request cancels its older check. On a branch one run of each part runs,
+    # runner-profile:check
+    runs-on: >-
+      ${{
+      !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04')
+      || github.event.repository.private && (
+        (inputs.runner-profile != '' && (contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', inputs.runner-profile)) || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == inputs.runner-profile))) && fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile]
+        || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || 'ubuntu-24.04')
+        || inputs.runner
+      ) || ''
+      }}
+    # A new push to a pull request cancels its older check of the same profile. On a branch one run of each part runs,
     # and the newest push waits behind it and replaces any push that was already waiting.
     concurrency:
-      group: nddev-ci-check-${{ github.workflow }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}-${{ inputs.hosted-runner }}-${{ matrix.part.group }}
+      group: nddev-ci-check-${{ github.workflow }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}-${{ inputs.hosted-runner }}-${{ inputs.runner-profile }}-${{ matrix.part.group }}
       cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
-    env:
-      SDK_MANAGED: ${{ github.event.repository.private && !contains(github.event.pull_request.labels.*.name, 'runner:github') && !(github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github') }}
     permissions:
       contents: read
     steps:
@@ -318,14 +342,15 @@ jobs:
 
       # A text edit or a label leaves the merge that a pull request's short check passed unchanged,
       # so such an event reuses that pass and runs nothing again. A new commit or a moved base makes
-      # a new merge commit, and `runner:github` moves the check, so both run in full.
+      # a new merge commit. A label that selects this job's hosted route also runs it in full.
       - name: A passed short check of the same merge
         id: reuse
-        if: github.event_name == 'pull_request' && (github.event.action == 'edited' || (github.event.action == 'labeled' && github.event.label.name != 'runner:github'))
+        if: github.event_name == 'pull_request' && (github.event.action == 'edited' || (github.event.action == 'labeled' && github.event.label.name != 'runner:github' &&
+          github.event.label.name != format('runner:github:{0}', inputs.runner-profile)))
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/nddev-ci-short-pass
-          key: nddev-ci-short-pass-${{ github.sha }}
+          key: nddev-ci-short-pass-${{ github.sha }}-${{ runner.environment }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.runner-profile }}
           lookup-only: true
 
       - name: The pass is reused
@@ -337,7 +362,7 @@ jobs:
         if: steps.reuse.outputs.cache-hit != 'true'
         uses: $/actions/prepare
         with:
-          managed: ${{ env.SDK_MANAGED }}
+          managed: ${{ runner.environment == 'self-hosted' }}
           artifact-registry: ${{ inputs.artifact-registry }}
           images: ${{ inputs.images && github.event_name != 'pull_request' }}
           diagnostics: ${{ inputs.diagnostics }}
@@ -404,7 +429,8 @@ jobs:
             # The full check's job: `verify` whole, or the recipes of one part.
             argv=(verify)
             if [ -n "${PART:-}" ] && [ "$PART" != "[]" ]; then
-              mapfile -t argv < <(jq -r '.[]' <<< "$PART")
+              argv=()
+              while IFS= read -r argument; do argv+=("$argument"); done < <(jq -r '.[]' <<< "$PART")
             fi
             just "${argv[@]}"
           fi
@@ -422,7 +448,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/nddev-ci-short-pass
-          key: nddev-ci-short-pass-${{ github.sha }}
+          key: nddev-ci-short-pass-${{ github.sha }}-${{ runner.environment }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.runner-profile }}
 
       # In parts, the part whose recipes left the deployment artifact keeps it; another part that
       # left the same name would fail its upload.
@@ -473,7 +499,16 @@ jobs:
     name: ${{ needs.plan.outputs.split == 'true' && 'full check' || 'joined parts' }}
     needs: [plan, check]
     if: ${{ !cancelled() && needs.plan.outputs.split == 'true' && needs.check.result != 'cancelled' }}
-    runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github') && 'ubuntu-24.04' || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || inputs.runner == 'nddev-linux-standart' && 'nddev-linux-small' || inputs.runner) }}
+    # runner-profile:join
+    runs-on: >-
+      ${{
+      !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04')
+      || github.event.repository.private && (
+        ((inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '') != '' && (contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || ''))) || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '')))) && fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '')]
+        || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '')] || 'ubuntu-24.04')
+        || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || (inputs.runner == 'nddev-linux-standart' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64')) && 'nddev-linux-small' || inputs.runner)
+      ) || ''
+      }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -514,6 +549,7 @@ jobs:
     with:
       retain-runs: ${{ inputs.retain-runs }}
       runner: ${{ inputs.runner }}
+      runner-profile: ${{ inputs.runner-profile }}
       artifact-registry: ${{ inputs.artifact-registry }}
       hosted-runner: ${{ inputs.hosted-runner }}
       sparse-checkout: ${{ inputs.sparse-merge-stops }}

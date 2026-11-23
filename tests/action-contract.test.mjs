@@ -114,7 +114,7 @@ function checkName(github, needs) {
 test("subscribed pull-request labels run the actual required workflows with stable names", () => {
   const execute = (expression, github) => evaluateJob(expression, github);
   for (const action of ["opened", "synchronize", "edited", "labeled"]) {
-    for (const label of ["merge-on-green", "runner:github", "documentation"]) {
+    for (const label of ["merge-on-green", "runner:github", "runner:github:linux-arm64", "documentation"]) {
       const github = {event_name: "pull_request", event: {action, label: {name: label}}};
       for (const [workflow, id] of [
         ["check.yml", "check"], ["check.yml", "merge-stops"],
@@ -135,13 +135,14 @@ test("subscribed pull-request labels run the actual required workflows with stab
 });
 
 test("retained checks and merge stops keep separate groups for every run", () => {
-  function evaluate(value, github, retain, group = "short") {
-    const inputs = { retain, hosted: "ubuntu-24.04" };
+  function evaluate(value, github, retain, group = "short", profile = "linux-x64") {
+    const inputs = { retain, hosted: "ubuntu-24.04", profile };
     const format = (template, value) => template.replace("{0}", value);
     return value.replace(/\$\{\{ (.*?) \}\}/g, (_, expression) =>
       String(runInNewContext(expression
         .replaceAll("inputs.retain-runs", "inputs.retain")
-        .replaceAll("inputs.hosted-runner", "inputs.hosted"), { github, inputs, format, matrix: { part: { group } } })),
+        .replaceAll("inputs.hosted-runner", "inputs.hosted")
+        .replaceAll("inputs.runner-profile", "inputs.profile"), { github, inputs, format, matrix: { part: { group } } })),
     );
   }
 
@@ -154,6 +155,7 @@ test("retained checks and merge stops keep separate groups for every run", () =>
     const first = { ...github, run_id: "101" };
     const second = { ...github, run_id: "102" };
     assert.equal(evaluate(group, first, false), evaluate(group, second, false), workflow);
+    assert.notEqual(evaluate(group, first, false), evaluate(group, first, false, "short", "linux-arm64"), workflow);
     assert.equal(evaluate(cancel, first, false), "true", workflow);
     assert.notEqual(evaluate(group, first, true), evaluate(group, second, true), workflow);
     assert.equal(evaluate(cancel, first, true), "false", workflow);

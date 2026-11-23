@@ -22,13 +22,16 @@ jobs:
     permissions:
       contents: read
     env:
-      BIOME_VERSION: 2.6.7
+      BIOME_VERSION: 2.6.8
       TYPOS_VERSION: 1.52.2
+      CARGO_DENY_VERSION: ${{ matrix.os != 'windows-11-arm' && '0.22.0' || '' }}
     steps:
       - name: Install the declared tools from the candidate catalog
-        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
-          tool: biome@${{ env.BIOME_VERSION }},typos@${{ env.TYPOS_VERSION }}
+          tool: biome@${{ env.BIOME_VERSION }},typos@${{ env.TYPOS_VERSION }}${{ env.CARGO_DENY_VERSION && format(',cargo-deny@{0}', env.CARGO_DENY_VERSION) || '' }}
+          checksum: true
+          fallback: none
 
       - name: Verify the actual tool versions
         shell: bash
@@ -37,12 +40,13 @@ jobs:
           import assert from 'node:assert/strict';
           import {spawnSync} from 'node:child_process';
           const declared = {biome: process.env.BIOME_VERSION, typos: process.env.TYPOS_VERSION};
+          if (process.env.CARGO_DENY_VERSION) declared['cargo-deny'] = process.env.CARGO_DENY_VERSION;
+          const prefixes = {biome: /^(?:Version:\s*)?/, typos: /^typos(?:-cli)?\s+/, 'cargo-deny': /^cargo-deny\s+/};
           for (const [tool, expected] of Object.entries(declared)) {
             const result = spawnSync(tool, ['--version'], {encoding: 'utf8'});
             assert.equal(result.status, 0, `${tool}: ${result.error ?? result.stderr}`);
             const actual = result.stdout.trim();
-            const prefix = tool === 'biome' ? /^(?:Version:\s*)?/ : /^typos(?:-cli)?\s+/;
-            assert.equal(actual.replace(prefix, ''), expected, `${tool}: ${actual}`);
+            assert.equal(actual.replace(prefixes[tool], ''), expected, `${tool}: ${actual}`);
             console.log(JSON.stringify({tool, declared: expected, actual, os: process.platform, arch: process.arch}));
           }
           JS
