@@ -116,7 +116,7 @@ on:
       artifact-days:
         description: How many days the artifact is kept; a deployment that takes an older build sets more.
         type: number
-        default: 14
+        default: 3
       diagnostics:
         description: >-
           Workspace-relative report files or folders, one per line, kept for 14 days when the

@@ -52,7 +52,7 @@ on:
       artifact-days:
         description: How many days the artifact is kept; a deployment that takes an older build sets more.
         type: number
-        default: 14
+        default: 3
       fetch-depth:
         description: How many commits the checkout fetches; 0 fetches the whole history.
         type: number
