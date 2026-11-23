@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import {mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync} from "node:fs";
+import {mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {runInNewContext} from "node:vm";
-import {admit, initialize, requireStore} from "../lib/images.mjs";
+import {admit, buildCache, initialize, requireStore} from "../lib/images.mjs";
 
 const plan = () => ({schema: 1, output: "dist/images", images: [
   {name: "application", dockerfile: "Dockerfile", context: ".", platform: "linux/amd64", public_build_args: {}},
@@ -69,4 +69,31 @@ test("only the declared containerd store satisfies image production", () => {
   assert.doesNotThrow(() => requireStore([["driver-type", "io.containerd.snapshotter.v1"]]));
   for (const info of [[], [["Backing Filesystem", "extfs"]], null, {driver: "containerd"}])
     assert.throws(() => requireStore(info), /execution profile/);
+});
+
+test("shared manifests follow the repository, image, platform, target and ref across runners", () => {
+  assert.equal(buildCache(plan().images[0], {}), null);
+  const root = mkdtempSync(path.join(process.env.RUNNER_TEMP ?? os.tmpdir(), "image-cache-"));
+  try {
+    const event = path.join(root, "event.json");
+    writeFileSync(event, JSON.stringify({repository: {default_branch: "main"}}));
+    const env = {
+      NDDEV_BUILDKIT_CACHE_ENDPOINT: "http://127.0.0.1:8750",
+      NDDEV_BUILDKIT_CACHE_BUCKET: "ci-cache",
+      GITHUB_REPOSITORY_ID: "42",
+      GITHUB_REF: "refs/pull/9/merge",
+      GITHUB_EVENT_PATH: event,
+    };
+    const image = plan().images[0];
+    const {from, to} = buildCache(image, env);
+    assert.equal(from.length, 2);
+    assert.equal(to, from[0] + ",mode=max,ignore-error=true");
+    assert.match(from[0], /^type=s3,region=auto,use_path_style=true,prefix=buildkit\//);
+    assert.equal(buildCache(image, {...env, RUNNER_NAME: "another-slot"}).to, to);
+    assert.deepEqual(buildCache(image, {...env, GITHUB_REF: "refs/heads/main"}).from, [from[1]]);
+    for (const variant of [{name: "another"}, {platform: "linux/arm64"}, {target: "dev"}])
+      assert.notEqual(buildCache({...image, ...variant}, env).to, to);
+    assert.notEqual(buildCache(image, {...env, GITHUB_REPOSITORY_ID: "43"}).to, to);
+    assert.throws(() => buildCache(image, {...env, NDDEV_BUILDKIT_CACHE_ENDPOINT: "http://other:8750,"}), /loopback/);
+  } finally { rmSync(root, {recursive: true, force: true}); }
 });
