@@ -147,6 +147,40 @@ test("real redirect and failure servers receive credentials only at the declared
   } finally { await close(api.server); await close(storage.server); rmSync(root, {recursive: true, force: true}); }
 });
 
+test("promotion transfers a checked artifact after interrupted API and signed storage reads", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "promotion-transfer-"));
+  const zip = path.join(root, "fixture.zip");
+  execFileSync("python3", ["-I", "-c", "import sys,stat,zipfile; z=zipfile.ZipFile(sys.argv[1],'w'); i=zipfile.ZipInfo('fixture.txt'); i.external_attr=(stat.S_IFREG|0o644)<<16; z.writestr(i,b'checked data'); z.close()",
+    zip]);
+  const bytes = readFileSync(zip);
+  const metadata = artifact({size_in_bytes: bytes.length, digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`});
+  const attempts = {listing: 0, redirect: 0, storage: 0};
+  const storage = await listen((req, res) => {
+    assert.equal(req.headers.authorization, undefined);
+    if (++attempts.storage === 1) {
+      res.writeHead(200, {"Content-Length": bytes.length});
+      res.write(bytes.subarray(0, 8), () => req.socket.destroy());
+    } else res.end(bytes);
+  });
+  const api = await listen((req, res) => {
+    if (req.url.includes("/actions/workflows/")) res.end(JSON.stringify(inventory()));
+    else if (req.url.includes("/artifacts?")) {
+      if (++attempts.listing === 1) req.socket.destroy();
+      else res.end(JSON.stringify(artifacts(metadata)));
+    } else {
+      if (++attempts.redirect === 1) req.socket.destroy();
+      else res.writeHead(302, {location: storage.url + "/archive"}).end();
+    }
+  });
+  try {
+    const github = client("read-token-fixture", api.url, {retryReads: true});
+    const checked = path.join(root, "checked");
+    await transferArtifacts(github, qualified, "build", checked);
+    assert.equal(readFileSync(path.join(checked, "fixture.txt"), "utf8"), "checked data");
+    assert.deepEqual(attempts, {listing: 2, redirect: 2, storage: 2});
+  } finally { await close(api.server); await close(storage.server); rmSync(root, {recursive: true, force: true}); }
+});
+
 test("actual ZIP bytes transfer atomically; tampering, unsafe members and newer attempts leave no result", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "qualification-transfer-"));
   const zip = path.join(root, "fixture.zip");
