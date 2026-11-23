@@ -71,7 +71,7 @@ const paths = {
     join: { profile: helper, managed: lightRunner },
   },
   "merge-stops.yml": { stops: { profile: helper, managed: lightRunner, maintenance: true } },
-  "recipe.yml": { recipe: { recipe: true, maintenance: true } },
+  "recipe.yml": { recipe: { recipe: true } },
 };
 const marked = /(^    # runner-profile:(\S+)\n)    runs-on:[^\n]*(?:\n      [^\n]+)*/gm;
 
