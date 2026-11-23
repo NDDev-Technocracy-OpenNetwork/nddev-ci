@@ -1,0 +1,74 @@
+name: hosted Gradle mirror compatibility
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/gradle-mirror.yml
+      - actions/gradle-mirror/**
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  gradle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      GRADLE_VERSION: "9.9.2"
+      COMMONS_VERSION: "3.22.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880
+        with:
+          distribution: temurin
+          java-version: "27.0.1"
+      - name: Prepare the verified wrapper fixture
+        shell: bash
+        run: |-
+          set -euo pipefail
+          home="$RUNNER_TEMP/hosted-gradle-home"
+          printf 'GRADLE_USER_HOME=%s\n' "$home" >> "$GITHUB_ENV"
+          cd "$RUNNER_TEMP"
+          mkdir -p "$GITHUB_WORKSPACE/gradle-fixture/gradle/wrapper"
+          cd "$GITHUB_WORKSPACE/gradle-fixture"
+          archive="gradle-$GRADLE_VERSION"
+          base="https://services.gradle.org/distributions/$archive"
+          source="https://raw.githubusercontent.com/gradle/gradle/v$GRADLE_VERSION"
+          jar=gradle/wrapper/gradle-wrapper.jar
+          curl -fsSL "$source/gradle/wrapper/gradle-wrapper.jar" -o "$jar"
+          printf '%s  %s\n' "$(curl -fsSL "$base-wrapper.jar.sha256")" "$jar" | sha256sum --check --strict
+          printf '%s\n' "distributionUrl=$base-bin.zip" \
+            "distributionSha256Sum=$(curl -fsSL "$base-bin.zip.sha256")" > gradle/wrapper/gradle-wrapper.properties
+          cp gradle/wrapper/gradle-wrapper.properties "$RUNNER_TEMP/expected-gradle-wrapper"
+          cat > settings.gradle <<'SETTINGS'
+          rootProject.name = 'hosted-gradle-fixture'
+          SETTINGS
+          cat > build.gradle <<'BUILD'
+          plugins { id 'java' }
+          repositories { mavenCentral() }
+          def dependencyVersion = System.getenv('COMMONS_VERSION')
+          dependencies { implementation "org.apache.commons:commons-lang3:${dependencyVersion}" }
+          tasks.register('verifySources') {
+              doLast {
+                  assert repositories[0].url.toString() == 'https://repo.maven.apache.org/maven2/'
+                  assert configurations.runtimeClasspath.singleFile.name == "commons-lang3-${dependencyVersion}.jar"
+              }
+          }
+          BUILD
+      - uses: ./actions/gradle-mirror
+        env:
+          NDDEV_CI_ARTIFACT_REGISTRY: http://127.0.0.1:9
+        with:
+          working-directory: gradle-fixture
+      - name: Resolve the dependency through ordinary hosted sources
+        shell: bash
+        working-directory: gradle-fixture
+        run: |-
+          set -euo pipefail
+          cmp gradle/wrapper/gradle-wrapper.properties "$RUNNER_TEMP/expected-gradle-wrapper"
+          test ! -e "$GRADLE_USER_HOME/init.d"
+          java -classpath gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain \
+            --no-daemon --info --console=plain verifySources
