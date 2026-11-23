@@ -28,6 +28,9 @@ inputs:
       reports failed, library when a step of the library or the runner around them failed. Empty
       records nothing; a job that did not fail records nothing either.
     default: ''
+  runner-reason:
+    description: A fixed reason code that attributes a failed project command to the runner.
+    default: ''
 runs:
   using: node24
   main: run.mjs

@@ -16,6 +16,7 @@ import { pathToFileURL } from "node:url";
 
 import { ActionError, downloadAsset } from "../../lib/release-asset.mjs";
 import { extract } from "../../lib/native-member.mjs";
+import { runProjectCommand } from "../../lib/project-command.mjs";
 import { managedRunner } from "../../lib/runner-profile.mjs";
 const configuration = JSON.parse(
   readFileSync(new URL("./just.json", import.meta.url), "utf8"),
@@ -192,15 +193,12 @@ export async function main(environment = process.env) {
       if (name.toLowerCase() === "path") delete childEnvironment[name];
     childEnvironment.PATH = `${path.dirname(just)}${path.delimiter}${originalPath}`;
   }
-  const result = spawnSync(just, request.argv, {
+  const status = await runProjectCommand(just, request.argv, {
     cwd: request.cwd,
-    stdio: "inherit",
-    env: childEnvironment,
-  });
-  if (result.error || result.signal || result.status === null)
-    throw new ActionError("Recipe process did not complete.");
-  if (result.status !== 0)
-    throw new ActionError(`Recipe failed with exit code ${result.status}.`);
+    environment: childEnvironment,
+  }).catch(() => { throw new ActionError("Recipe process did not complete."); });
+  if (status !== 0)
+    throw new ActionError(`Recipe failed with exit code ${status}.`);
 }
 
 if (

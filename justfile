@@ -41,6 +41,7 @@ check: (_tools "check")
     node --check tests/runner-labels.test.mjs
     node --check actions/frontend/run.mjs
     node --check actions/recipe/run.mjs
+    node --check lib/project-command.mjs
     node --check actions/hosted-sdk/run.mjs
     node --check actions/hosted-sdk/bun.mjs
     node --check actions/hosted-sdk/flutter.mjs

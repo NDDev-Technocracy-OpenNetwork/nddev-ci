@@ -5,6 +5,7 @@ import { appendFileSync, existsSync, lstatSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { runnerFailureReasons } from "../../lib/project-command.mjs";
 
 const results = { success: "success", failure: "failure", cancelled: "cancellation" };
 
@@ -56,11 +57,15 @@ export function record(environment, now = new Date()) {
     "os.type": { Linux: "linux", macOS: "darwin", Windows: "windows" }[environment.RUNNER_OS] ?? "",
     "host.arch": { X64: "amd64", ARM64: "arm64" }[environment.RUNNER_ARCH] ?? os.arch(),
   };
-  // Who a failure belongs to: the project's own commands, or the library and runner around them.
   const layer = input("failure-layer");
   if (layer !== "") {
     if (!["project", "library"].includes(layer)) throw new Error("failure-layer must be project or library");
-    if (status === "failure") document["nddev_ci.failure.layer"] = layer;
+    if (status === "failure") {
+      const reason = input("runner-reason");
+      const attributed = layer === "project" && runnerFailureReasons.has(reason);
+      document["nddev_ci.failure.layer"] = attributed ? "runner" : layer;
+      if (attributed) document["nddev_ci.failure.reason"] = reason;
+    }
   }
   const job = input("check-run-id");
   if (job !== "") {
@@ -96,6 +101,8 @@ export function main(environment = process.env) {
   console.log(line);
   const seconds = document["nddev_ci.duration_seconds"];
   const queue = document["nddev_ci.queue_seconds"];
+  const layer = document["nddev_ci.failure.layer"];
+  const reason = document["nddev_ci.failure.reason"];
   const cache = Object.entries(document).filter(([key]) => key.startsWith("nddev_ci.sccache."))
     .map(([key, value]) => `${key.slice("nddev_ci.sccache.".length)} ${value}`).join(", ");
   if (environment.GITHUB_STEP_SUMMARY)
@@ -104,6 +111,7 @@ export function main(environment = process.env) {
       "| Runner | System | Queue | Duration | Compiler cache |", "| --- | --- | --- | --- | --- |",
       `| ${document["cicd.worker.name"]} (${document["nddev_ci.runner.environment"]}) | ${document["os.type"]} ${document["host.arch"]} | ${queue === undefined ? "unknown" : `${queue}s`} | ${seconds === undefined ? "unknown" : `${Math.floor(seconds / 60)}m ${seconds % 60}s`} | ${cache || "none"} |`,
       "",
+      ...(layer ? [`Failure layer: \`${layer}\`${reason ? ` (\`${reason}\`)` : ""}`, ""] : []),
     ].join("\n"));
   // Our runners name a telemetry file the contour collects; GitHub's runners leave this unset.
   const sink = environment.NDDEV_CI_TELEMETRY_FILE ?? "";

@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { main, record, sccache } from "../actions/job-record/run.mjs";
+import { runnerFailureClassifier } from "../lib/project-command.mjs";
 
 const base = {
   INPUT_TASK: "short check",
@@ -97,4 +98,41 @@ test("a failed job names whose failure it is, and only a failed job", () => {
   assert.equal(record(failed)["nddev_ci.failure.layer"], undefined);
   assert.equal(record({ ...base, "INPUT_FAILURE-LAYER": "library" })["nddev_ci.failure.layer"], undefined);
   assert.throws(() => record({ ...failed, "INPUT_FAILURE-LAYER": "runner" }), /failure-layer/);
+});
+
+test("a runner reason changes attribution only for a failed project command", () => {
+  const source = {"INPUT_FAILURE-LAYER": "project", "INPUT_RUNNER-REASON": "docker-timeout"};
+  const failed = record({...base, ...source, INPUT_STATUS: "failure"});
+  assert.equal(failed["cicd.pipeline.task.run.result"], "failure");
+  assert.equal(failed["nddev_ci.failure.layer"], "runner");
+  assert.equal(failed["nddev_ci.failure.reason"], "docker-timeout");
+  for (const change of [source, {...source, INPUT_STATUS: "cancelled"},
+    {...source, INPUT_STATUS: "failure", "INPUT_FAILURE-LAYER": "library"},
+    {...source, INPUT_STATUS: "failure", "INPUT_RUNNER-REASON": "unknown"}])
+    assert.equal(record({...base, ...change})["nddev_ci.failure.reason"], undefined);
+});
+
+test("runner attribution requires an error tied to one of the job's runner resources", () => {
+  const environment = {
+    NDDEV_DOCKER_HOST: "unix:///run/fixture-docker.sock",
+    NDDEV_CI_ARTIFACT_REGISTRY: "http://cache.example.test:8000",
+    HTTPS_PROXY: "http://proxy.example.test:3128",
+    SCCACHE_DIR: "/runner/cache",
+    RUNNER_TEMP: "/runner/tmp",
+  };
+  const cases = [
+    ["Cannot connect to the Docker daemon at unix:///run/fixture-docker.sock", "docker-unavailable"],
+    ["sccache: failed to read /runner/cache/entry: Permission denied", "cache-unavailable"],
+    ["http://cache.example.test:8000/packages: HTTP 503", "cache-unavailable"],
+    ["failed to connect to proxy.example.test:3128: connection refused", "network-unavailable"],
+    ["write /runner/tmp/file: no space left on device", "runner-storage"],
+    ["test did not finish within 300 s", ""],
+    ['"docker" "--host" "unix:///run/project-docker.sock" "buildx" timed out', ""],
+    ["http://cache.example.test:8000/packages: HTTP 404", ""],
+    ["cache.example.test:80000: connection refused", ""],
+    ["custom project server: connection refused", ""],
+    ["write /runner/tmp-other/file: no space left on device", ""],
+  ];
+  const classify = runnerFailureClassifier(environment);
+  for (const [line, reason] of cases) assert.equal(classify(line), reason, line);
 });

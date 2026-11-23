@@ -281,6 +281,7 @@ jobs:
           status: ${{ job.status }}
           check-run-id: ${{ job.check_run_id }}
           project-outcome: ${{ (steps.dependencies.outcome == 'failure' || steps.project.outcome == 'failure') && 'failure' || 'success' }}
+          runner-reason: ${{ steps.dependencies.outputs.runner-reason || steps.project.outputs.runner-reason }}
           task: just ${{ inputs.recipe }}
           task-type: ${{ inputs.artifact != '' && 'build' || 'test' }}
           name: ${{ inputs.recipe }}-${{ runner.os }}-${{ runner.arch }}
