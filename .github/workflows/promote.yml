@@ -3,7 +3,8 @@
 # token cannot move a branch onto commits that change workflow files, so the move pushes with a
 # deploy key with write access: the caller keeps it as PROMOTION_KEY in an environment limited to
 # its dev branch and calls this workflow with `secrets: inherit`, since GitHub resolves an
-# environment's secrets only in the job that names the environment.
+# environment's secrets only in the job that names the environment. Without the key the job
+# shows the exact qualified commit for a trusted outside promoter or a maintainer.
 name: promote
 
 on:
@@ -94,8 +95,19 @@ jobs:
           SHA: ${{ steps.choose.outputs.sha }}
           REPOSITORY: ${{ github.repository }}
           TARGET: ${{ inputs.target-branch }}
+          KEY_ENVIRONMENT: ${{ inputs.environment }}
         run: |
           set -euo pipefail
+          if [ -z "$KEY" ]; then
+            echo "::error title=Promotion needs a trusted writer::Commit $SHA passed its checks. A trusted promoter can finish it. Otherwise, fast-forward $TARGET to that exact commit without forcing."
+            {
+              printf '### Promotion needs a trusted writer\n\n'
+              printf 'From a clone of %s with write access, fast-forward %s to the checked commit.\n\n' "$REPOSITORY" "$TARGET"
+              printf '~~~sh\ngit fetch origin %s\ngit push origin %s:refs/heads/%s\n~~~\n\n' "$SHA" "$SHA" "$TARGET"
+              printf 'With environment secrets, configure **Settings → Environments → %s → Environment secrets → PROMOTION_KEY**. For a private repository on GitHub Free, enroll a trusted promoter outside repository workflows.\n' "$KEY_ENVIRONMENT"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
           folder="$RUNNER_TEMP/nddev-ci-promote"
           mkdir -p "$folder"
           chmod 0700 "$folder"

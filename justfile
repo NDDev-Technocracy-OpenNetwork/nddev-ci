@@ -98,6 +98,7 @@ check: (_tools "check")
     node --check actions/job-record/run.mjs
     node --check tests/job-record.test.mjs
     node --check tools/repository-rules.mjs
+    node --check tools/qualify-merge.mjs
     node --check tests/repository-rules.test.mjs
     node --check tools/ci-times.mjs
     node --check lib/verify-parts.mjs

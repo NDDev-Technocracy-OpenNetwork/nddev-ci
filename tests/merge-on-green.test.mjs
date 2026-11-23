@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import test from "node:test";
 import { createServer } from "node:http";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { main } from "../actions/merge-on-green/run.mjs";
 import { selectMerge } from "../lib/merge-on-green.mjs";
 
@@ -52,6 +55,18 @@ test("no label, a draft, a fork or a moved head selects nothing", async () => {
   for (const fields of [{labels: []}, {draft: true}, {head: {sha, ref: "x", repo: {full_name: "other/fork"}}},
     {head: {sha: "b".repeat(40), ref: "x", repo: {full_name: repository}}}, {state: "closed"}])
     assert.equal((await select(api({pulls: [pull(fields)]}))).state, "none");
+});
+
+test("the requested pull number and integration branch bind an outside merger to one candidate", async () => {
+  const main = {ref: "main", repo: {full_name: repository}};
+  const github = api({pulls: [pull(), pull({number: 8, base: main}), pull({number: 9, base: main})]});
+  const result = await select(github, {pullNumber: 9, base: "main"});
+  assert.equal(result.state, "ready");
+  assert.equal(result.number, 9);
+  assert.equal(result.base, "main");
+  assert.equal((await select(github, {pullNumber: 9, base: "dev"})).state, "none");
+  assert.equal((await select(github, {pullNumber: 10, base: "main"})).state, "none");
+  await assert.rejects(select(github, {pullNumber: 0, base: "main"}), /number or base branch/);
 });
 
 test("a failing commit status holds the merge", async () => {
@@ -200,5 +215,36 @@ test("a failed head followed by unrelated-label skips stays unqualified over HTT
   } finally {
     server.closeAllConnections(); await new Promise((resolve) => server.close(resolve));
     rmSync(root, {recursive: true, force: true});
+  }
+});
+
+test("the service entry point returns a read-only receipt for the pinned pull request and base", async () => {
+  const runs = requiredRuns();
+  const mainPull = pull({base: {ref: "main", repo: {full_name: repository}}});
+  const server = createServer((req, res) => {
+    assert.equal(req.method, "GET");
+    assert.equal(req.headers.authorization, "Bearer fixture-read-token");
+    const route = new URL(req.url, "http://127.0.0.1").pathname;
+    const value = route.endsWith("/pulls") ? [mainPull]
+      : route.endsWith("/check-runs") ? {total_count: runs.length, check_runs: runs}
+      : route.endsWith("/status") ? {total_count: 0, state: "pending", sha} : null;
+    res.writeHead(value ? 200 : 404, {"Content-Type": "application/json"}); res.end(JSON.stringify(value));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const file = fileURLToPath(new URL("../tools/qualify-merge.mjs", import.meta.url));
+    const invoke = async (base) => {
+      const { stdout } = await promisify(execFile)(process.execPath, [file, repository, "7", sha, base, ...requiredChecks.split("\n")], {
+        env: {...process.env, GH_TOKEN: "fixture-read-token", GITHUB_API_URL: `http://127.0.0.1:${server.address().port}`},
+      });
+      return JSON.parse(stdout);
+    };
+    assert.deepEqual(await invoke("main"), {repository, sha, state: "ready", number: 7, base: "main", head: "renovate/x"});
+    assert.deepEqual(await invoke("dev"), {repository, sha, state: "none"});
+    runs[0].conclusion = "failure";
+    assert.equal((await invoke("main")).state, "failed");
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
   }
 });

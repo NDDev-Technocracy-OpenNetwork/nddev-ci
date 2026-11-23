@@ -460,8 +460,8 @@ backward or sideways: when `main` holds a commit `dev` lacks, it stops.
 GitHub's job token cannot move a branch onto commits that change workflow files, so the move
 pushes with a deploy key that has write access. The caller keeps it as `PROMOTION_KEY` in an
 environment, `promotion` by default, that only its `dev` branch may use, and calls the workflow
-with `secrets: inherit`. The library promotes itself this way whenever the checks of a `dev` push
-pass, so every checked change becomes a release.
+with `secrets: inherit`. The library promotes itself this way as the checks of a `dev` push pass.
+For a private repository on GitHub Free, use the outside writer or the manual step below.
 
 Promotion and publication accept optional `required-workflows`, one workflow file name per line.
 Every additional workflow must qualify the same exact source/branch/event with its latest attempt,
@@ -475,8 +475,9 @@ wait for its checks. [merge-on-green.yml](.github/workflows/merge-on-green.yml) 
 result: when the caller's check finishes, it takes the open pull request of this repository whose
 head is that commit and which carries the label `merge-on-green`, and merges it into its base once
 every check of that exact commit passed. It pushes the merge commit with the same `PROMOTION_KEY`
-as promotion, so a change of workflow files merges too and the base branch's check starts. Label
-the pull request when it is opened; the update bots add the label themselves.
+as promotion when the environment can supply it. The write credential must support changes to
+workflow files and start the base branch's check. Label the pull request when it is opened.
+Update bots can add the label themselves.
 
 `required-checks` declares the mandatory check names, one per line. Its default is the standard
 short check and its nested merge stops. A caller with other native jobs supplies its complete
@@ -506,6 +507,50 @@ jobs:
       pull-requests: read
       statuses: read
 ```
+
+### Private repositories on GitHub Free
+
+GitHub Free private repositories lack environment secrets, organization Actions secrets,
+native auto-merge and branch rules. They still run checks and publish the checked release
+after the target moves. Use a trusted service outside the repository's workflows to merge
+labelled pull requests and move qualified releases. Keep its write credential on the service.
+Use the repository's integration branch as the merge base, including `main` when it is the
+default. The write must start the subsequent push workflows. Pushes made with the standard
+`GITHUB_TOKEN` do not start them.
+
+A service can call the same pull request qualifier from a trusted checkout of the pinned
+library release. Supply a repository-scoped read token as `GH_TOKEN` and pass each required
+check as a separate argument:
+
+```sh
+node tools/qualify-merge.mjs owner/repository 42 "$head_sha" dev \
+  'check / short check' 'check / merge-stops / merge stops'
+```
+
+The tool makes read-only API calls and prints one JSON receipt. A `ready` receipt binds
+the repository, SHA, pull request number and base. The service must match that identity,
+re-read the pull request before writing, guard against a changed head and verify the result.
+
+If the trusted service is unavailable, the job summary for a qualified candidate names
+the manual step:
+
+| Step | What to do on GitHub Free | Where GitHub's controls are configured when available |
+| --- | --- | --- |
+| Merge on green | On the pull request page, verify the current head against the checked SHA and choose **Create a merge commit**. | **Settings → General → Pull Requests → Allow auto-merge** and required checks under **Settings → Rules → Rulesets** or **Settings → Branches**. Private organization repositories need Team or Enterprise. |
+| Promote a release | From a clone with write access, fetch and push the checked SHA to the target branch without forcing. Use the exact command in the run summary. The push starts the release. | Keep the write key under **Settings → Environments → promotion → Environment secrets → PROMOTION_KEY** and its public key under **Settings → Deploy keys**. Private environment secrets and branch filters need Team or Enterprise. Private environment required reviewers and wait timers need Enterprise. |
+
+Private repositories can use standard hosted Actions runners within the organization's
+included compute. Self-hosted Actions usage is outside that compute allowance.
+See GitHub's documentation for [environment availability][github-environments],
+[secret scopes][github-secrets], [auto-merge][github-auto-merge], [rulesets][github-rulesets],
+[push events][github-token-events] and [Actions billing][github-actions-billing].
+
+[github-environments]: https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments
+[github-secrets]: https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets
+[github-auto-merge]: https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/automatically-merging-a-pull-request
+[github-rulesets]: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository
+[github-token-events]: https://docs.github.com/en/actions/concepts/security/github_token#when-github_token-triggers-workflow-runs
+[github-actions-billing]: https://docs.github.com/en/billing/concepts/product-billing/github-actions
 
 ## Renovate SDK inputs
 

@@ -1,12 +1,13 @@
 # Merges a pull request on green where branch rules cannot: a private repository on GitHub's free
 # plan has no rules, so GitHub's auto-merge is not available there. The caller runs this when its
-# check finishes (workflow_run, which runs on the default branch where the key's environment is
-# open), so a pull request takes the label when it is opened. A pull request with the
+# check finishes (workflow_run, which runs on the default branch), so a pull request takes the
+# label when it is opened. A pull request with the
 # label, from this repository, whose every check on its exact head passed, is merged into its base
 # with a merge commit, pushed with the same deploy key promote.yml uses: GitHub's job token cannot
 # push commits that change workflow files, and a push by the key starts the base branch's checks.
 # The caller keeps PROMOTION_KEY in an environment, `promotion` by default, that only its default
-# branch may use, and calls this workflow with `secrets: inherit`.
+# branch may use, and calls this workflow with `secrets: inherit`. Without the key the job
+# shows the exact qualified pull request for a trusted outside merger or a maintainer.
 name: merge on green
 
 on:
@@ -71,8 +72,20 @@ jobs:
           BASE: ${{ steps.choose.outputs.base }}
           HEAD_BRANCH: ${{ steps.choose.outputs.head }}
           REPOSITORY: ${{ github.repository }}
+          KEY_ENVIRONMENT: ${{ inputs.environment }}
         run: |
           set -euo pipefail
+          if [ -z "$KEY" ]; then
+            echo "::error title=Merge needs a trusted writer::Pull request #$NUMBER at $SHA passed its checks. A trusted merger can finish it. Otherwise, merge that exact head into $BASE from the pull request page."
+            {
+              printf '### Merge needs a trusted writer\n\n'
+              printf 'Merge [%s#%s](%s/%s/pull/%s) into %s only if the checked head is still %s. Use **Create a merge commit**.\n\n' \
+                "$REPOSITORY" "$NUMBER" "$GITHUB_SERVER_URL" "$REPOSITORY" "$NUMBER" "$BASE" "$SHA"
+              printf '~~~sh\ngh pr merge %s --repo %s --merge --match-head-commit %s\n~~~\n\n' "$NUMBER" "$REPOSITORY" "$SHA"
+              printf 'With environment secrets, configure **Settings → Environments → %s → Environment secrets → PROMOTION_KEY**. For a private repository on GitHub Free, enroll a trusted merger outside repository workflows.\n' "$KEY_ENVIRONMENT"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
           folder="$RUNNER_TEMP/nddev-ci-merge"
           mkdir -p "$folder"
           chmod 0700 "$folder"
