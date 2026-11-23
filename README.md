@@ -178,6 +178,9 @@ gzip-compressed, base64-encoded schema-1 snapshot in the environment secrets
 `REGISTRY_SNAPSHOT_FIRST` through `REGISTRY_SNAPSHOT_FOURTH` and records its
 uncompressed SHA-256 in the environment variable `REGISTRY_SNAPSHOT_SHA256`.
 
+Map all four `REGISTRY_SNAPSHOT_*` names in the caller job's `secrets` section.
+The called job loads the values from its selected protected environment.
+
 The job verifies the digest and commit and exports the private regular file as
 `NDDEV_CI_REGISTRY_SNAPSHOT`. The project uses that file to verify the selected
 versions before installation. The input action removes the file after the job.
