@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { main } from "../actions/secret-scan/run.mjs";
 
 function fixture(t, policy) {
@@ -23,6 +24,91 @@ function fixture(t, policy) {
 }
 const token = () => ["ghp", randomBytes(18).toString("hex")].join("_");
 const allow = (value) => `[extend]\nuseDefault = true\n[allowlist]\nregexes = ['${value}']\n`;
+
+function commit(f, file, contents) {
+  writeFileSync(path.join(f.workspace, file), contents);
+  f.git("add", file);
+  f.git("commit", "-qm", "test: update the fixture");
+  return f.git("rev-parse", "HEAD");
+}
+
+function pushFixture(t, policy) {
+  const f = fixture(t, policy);
+  const receiver = path.join(f.temporary, "receiver.git");
+  const hooks = path.join(f.temporary, "hooks");
+  mkdirSync(hooks);
+  f.git("init", "--bare", "--initial-branch=dev", receiver);
+  f.git("remote", "add", "origin", receiver);
+  f.git("push", "-q", "origin", "HEAD:refs/heads/dev");
+  f.git("remote", "set-head", "origin", "dev");
+  const entry = fileURLToPath(new URL("../tools/scan-before-push.mjs", import.meta.url));
+  const quote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
+  writeFileSync(path.join(hooks, "pre-push"), `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(entry)} "$@"\n`,
+    {mode: 0o700});
+  const push = (...refs) => spawnSync("git", ["-c", `core.hooksPath=${hooks}`, "push", "-q", "origin", ...refs],
+    {cwd: f.workspace, encoding: "utf8"});
+  const objectWasReceived = (oid) => spawnSync("git", ["--git-dir", receiver, "cat-file", "-e", oid]).status === 0;
+  return {...f, push, objectWasReceived};
+}
+
+test("an actual Git push refuses a secret removed by a later commit before sending either object", (t) => {
+  const f = pushFixture(t);
+  const finding = commit(f, "credential.env", `credential=${token()}\n`);
+  const fixed = commit(f, "credential.env", "fixture only\n");
+  f.git("tag", "-am", "Fixture", "candidate", fixed);
+  for (const refs of [["HEAD:refs/heads/task"], ["refs/tags/candidate"],
+    ["HEAD:refs/heads/task", "refs/tags/candidate"]]) {
+    const result = f.push(...refs);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Pre-push secret scan: The change secret scan failed/);
+    assert.equal(f.objectWasReceived(finding), false);
+    assert.equal(f.objectWasReceived(fixed), false);
+  }
+});
+
+test("ordinary pushes exclude the remote's published task commits and deletion-only pushes need no scan", (t) => {
+  const f = pushFixture(t);
+  const clean = commit(f, "fixture.txt", "clean\n");
+  assert.equal(f.push("HEAD:refs/heads/task").status, 0);
+  assert.equal(f.objectWasReceived(clean), true);
+  // Seed an older published topic commit to prove the next update scans only the new commits.
+  const published = commit(f, "fixture.env", `credential=${token()}\n`);
+  f.git("push", "-q", "origin", "HEAD:refs/heads/task");
+  const tip = commit(f, "fixture.txt", "clean update\n");
+  const result = f.push("HEAD:refs/heads/task");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(f.objectWasReceived(published), true);
+  assert.equal(f.objectWasReceived(tip), true);
+  assert.equal(f.push(":refs/heads/task").status, 0);
+});
+
+test("the trusted fixture rule requires both an exact synthetic value and its approved path", (t) => {
+  const value = token();
+  const policy = `[extend]\nuseDefault = true\n[[allowlists]]\ncondition = "AND"\npaths = ['^fixture[.]env$']\nregexes = ['^${value}$']\n`;
+  const f = pushFixture(t, policy);
+  commit(f, "fixture.env", `credential=${value}\n`);
+  main(f.environment());
+  const allowed = f.push("HEAD:refs/heads/task");
+  assert.equal(allowed.status, 0, allowed.stderr);
+
+  commit(f, "other.env", `credential=${value}\n`);
+  assert.throws(() => main(f.environment()), /secret scan failed/);
+  assert.match(f.push("HEAD:refs/heads/task").stderr, /secret scan failed/);
+});
+
+test("the change scan includes secret additions made by a merge commit", (t) => {
+  const f = pushFixture(t);
+  const other = commit(f, "fixture.txt", "clean side branch\n");
+  f.git("checkout", "--detach", f.base);
+  const first = commit(f, "README", "clean first parent\n");
+  writeFileSync(path.join(f.workspace, "fixture.env"), `credential=${token()}\n`);
+  f.git("add", "fixture.env");
+  const merge = f.git("commit-tree", f.git("write-tree"), "-p", first, "-p", other, "-m", "test: create a merge");
+  f.git("checkout", "--detach", merge);
+  assert.throws(() => main(f.environment()), /secret scan failed/);
+  assert.match(f.push("HEAD:refs/heads/task").stderr, /secret scan failed/);
+  assert.equal(f.objectWasReceived(merge), false);
+});
 
 test("the actual scanner accepts a previously trusted fixture that defaults reject", (t) => {
   const value = token(); const f = fixture(t, allow(value));

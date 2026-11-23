@@ -136,6 +136,21 @@ Use this for repositories with retained payloads when their local action metadat
 The message rules leave out a commit whose author is exactly Dependabot: it writes one long line
 for a grouped update and offers no setting for it. A repository's own `committed.toml` replaces
 the default rules whole.
+
+The release's `scan-before-push.zip` contains a local Git pre-push entry point. Install
+`nddev-ci/tools/scan-before-push.mjs` with its adjacent library files and pass Git's remote name,
+destination and ref updates to it. It uses Node 24, Python 3.11 or later and Betterleaks 1.10.1.
+Existing ref updates exclude their advertised old commits. New refs use the remote's default
+branch as their base. Both the local hook and the PR stop scan commit patches, including merge
+commits, and load the scanner policy from the published base.
+
+For a reviewed, deliberately synthetic fixture that has to be checked in, add one
+`[[allowlists]]` entry to the base branch's `.betterleaks.toml`. Set `condition = "AND"`, match
+the exact fixture path in `paths` and match the exact fake value in `regexes`. Anchor both
+patterns with `^` and `$` and escape any regular expression metacharacters. Merge the
+policy change first so that both scans can read it from the base. Prefer generating
+fixture credentials at test runtime when their literal value has no purpose.
+
 Daily security findings go to the run summary and the `security-report-<attempt>` artifact,
 retained for 14 days. The artifact contains `security-report.json` with `schema_version: 1`,
 the run URL and every finding's scanner, kind, identifier, package/ecosystem, installed version,

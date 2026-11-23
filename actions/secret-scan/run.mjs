@@ -1,25 +1,11 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import { realpathSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { basePolicy } from "../../lib/secret-policy.mjs";
+import { scanHistory } from "../../lib/secret-scan.mjs";
 
 export function main(environment = process.env) {
   const base = environment.INPUT_BASE;
   const head = environment.INPUT_HEAD;
-  if (![base, head].every((v) => /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(v ?? "")))
-    throw new Error("Secret scanning needs exact base and head commits.");
-  const workspace = realpathSync(environment.GITHUB_WORKSPACE);
-  const policy = basePolicy(workspace, base, environment);
-  try {
-    const gitDirectory = execFileSync("git", ["rev-parse", "--absolute-git-dir"], { cwd: workspace, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
-    const env = { ...environment, GIT_NO_LAZY_FETCH: "1", GIT_NO_REPLACE_OBJECTS: "1",
-      GIT_DIR: gitDirectory, GIT_WORK_TREE: policy.directory, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
-    for (const name of Object.keys(env))
-      if (/^(BETTERLEAKS_CONFIG|GITLEAKS_CONFIG)/.test(name) || ["GH_TOKEN", "GITHUB_TOKEN", "INPUT_GITHUB-TOKEN", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"].includes(name)) delete env[name];
-    const result = spawnSync("betterleaks", ["git", "--no-banner", "--redact", "--ignore-gitleaks-allow", "--config", policy.config, "--gitleaks-ignore-path", policy.directory, `--log-opts=${base}..${head}`, "."], { cwd: policy.directory, env, stdio: "inherit" });
-    if (result.error || result.status !== 0) throw new Error("The change secret scan failed.");
-  } finally { policy.cleanup(); }
+  scanHistory(environment, {base, tips: [head], excludes: [base]});
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   try { main(); } catch (error) {
