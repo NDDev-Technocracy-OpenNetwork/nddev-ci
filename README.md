@@ -519,8 +519,10 @@ default. The write must start the subsequent push workflows. Pushes made with th
 `GITHUB_TOKEN` do not start them.
 
 A service can call the same pull request qualifier from a trusted checkout of the pinned
-library release. Supply a repository-scoped read token as `GH_TOKEN` and pass each required
-check as a separate argument:
+library release or the release's `qualify-merge.zip`. The archive contains the command
+and its runtime files under `nddev-ci/`. Its checksum is published in `SHA256SUMS`.
+Run from the extracted directory with a repository-scoped read token as `GH_TOKEN`
+and pass each required check as a separate argument.
 
 ```sh
 node tools/qualify-merge.mjs owner/repository 42 "$head_sha" dev \
