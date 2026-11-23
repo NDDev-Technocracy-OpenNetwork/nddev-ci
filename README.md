@@ -182,6 +182,23 @@ The job verifies the digest and commit and exports the private regular file as
 `NDDEV_CI_REGISTRY_SNAPSHOT`. The project uses that file to verify the selected
 versions before installation. The input action removes the file after the job.
 
+
+### Gradle on a managed runner
+
+After checkout, call `actions/gradle-mirror` before a job invokes its Gradle Wrapper.
+Set `working-directory` to the directory that contains the wrapper, such as `android`
+for a mobile build. The action keeps the runner's Gradle home and temporarily points
+official wrapper distributions at the declared artifact registry. Put the publisher's
+`distributionSha256Sum` in the checked-in wrapper properties. The wrapper still validates
+the downloaded bytes, and the action restores the original properties after the job.
+
+The action routes the supported public Maven Central, Google Maven, Gradle Plugin Portal
+and Huawei repository URLs for dependency and plugin resolution. Existing repository
+objects keep their position, content rules and credentials. Authenticated and custom
+repositories use their own source. For settings plugins, declare the repositories in
+`pluginManagement` before the plugins block. The hosted-runner path uses Gradle's ordinary
+sources.
+
 ## Runners and SDKs
 
 Public projects use the selected GitHub-hosted runner. Private projects use `runner`:
@@ -207,11 +224,12 @@ runner class.
 The supported profiles are Linux x64, Linux ARM64, macOS ARM64 and Windows x64. Each
 selects a standard GitHub-hosted image of the same platform.
 
-For branch release checks, set the caller's run name to `Hosted fallback` when the dispatch input
-`runner` equals `github`, as in the example. Give both promotion and release the scheduler's
-numeric GitHub user ID as `fallback-actor-id`. A replacement must follow the cancelled push and
-match its repository, workflow, branch and commit. The scheduler must be both the original and
-the triggering actor. The newest qualifying replacement supplies the same artifact receipt.
+For branch release checks, set the caller's run name to `Contour hosted fallback` when the
+dispatch selects both `runner=github` and a nonempty `runner-profile`, as in the example.
+The `NDDEV_BRANCH_FALLBACK_ACTOR_ID` configuration variable holds the scheduler App's numeric
+bot user ID. A push or a dispatch with that run name and both matching actor IDs qualifies the
+same exact repository, workflow, branch and commit. Promotion and release check the newest
+eligible run and revalidate its attempt before consuming the artifact receipt.
 
 The unqualified PR label `runner:github` and a manual `runner: github` without a profile move the
 whole check and its portable jobs. For a call without a profile, the manual selection keeps its
@@ -348,9 +366,10 @@ Any other plain-HTTP address in a `RUN` step is refused there, so such a downloa
 `image.yml` prepares its builder with [image-builder](actions/image-builder/action.yml), which
 also prepares it inside a job that builds images to test and scan them there, such as a native
 recipe that builds several images, runs its own tests against them and keeps their SBOMs.
-Managed jobs use the persistent builder named by `BUILDX_BUILDER`. The runner provides Buildx
-and the builder's registry mirrors, host-network entitlement, storage and collection policy.
-The same machine-level BuildKit state supplies layers and cache mounts to concurrent jobs.
+Managed jobs use the machine's Docker builder or its own BuildKit service. The runner supplies
+`BUILDX_BUILDER`, a job-owned absolute `BUILDX_CONFIG` path and the Buildx CLI. The machine
+owns registry mirrors, the host-network entitlement, storage and collection policy. Concurrent
+jobs use the same builder cache. The image action creates no additional managed builder.
 GitHub-hosted jobs provision their own builder and use public package sources.
 
 The action exports `NDDEV_CI_IMAGE_BUILD_FLAGS`, the network and the mirror's build arguments,

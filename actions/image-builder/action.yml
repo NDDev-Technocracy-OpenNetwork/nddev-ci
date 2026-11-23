@@ -63,10 +63,19 @@ runs:
           echo "::error::the runner must set BUILDX_BUILDER to its persistent builder"
           exit 1
         fi
-        if ! docker buildx inspect -- "$builder" >/dev/null; then
+        if [[ "${BUILDX_CONFIG:-}" != /* ]]; then
+          echo "::error::the runner must set an absolute BUILDX_CONFIG path for this job"
+          exit 1
+        fi
+        if ! details=$(docker buildx inspect -- "$builder"); then
           echo "::error::the runner's persistent builder is unavailable"
           exit 1
         fi
+        driver=$(awk '$1 == "Driver:" {print $2}' <<< "$details")
+        case "$driver" in
+          docker|remote) ;;
+          *) echo "::error::the runner must use its Docker engine or its own BuildKit service"; exit 1 ;;
+        esac
         printf 'name=%s\n' "$builder" >> "$GITHUB_OUTPUT"
 
     - name: BuildKit on GitHub-hosted runners

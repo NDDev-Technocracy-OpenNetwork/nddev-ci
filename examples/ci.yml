@@ -1,5 +1,5 @@
 name: ci
-run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'github' && 'Hosted fallback' || '' }}
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'github' && inputs.runner-profile != '' && 'Contour hosted fallback' || '' }}
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, edited]

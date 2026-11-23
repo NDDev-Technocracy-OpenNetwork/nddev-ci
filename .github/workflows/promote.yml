@@ -9,10 +9,6 @@ name: promote
 on:
   workflow_call:
     inputs:
-      fallback-actor-id:
-        description: Numeric actor ID of the scheduler allowed to replace a cancelled push check.
-        type: string
-        default: ''
       source-branch:
         description: The branch whose exact push checks qualify promotion.
         type: string
@@ -81,8 +77,9 @@ jobs:
       - name: Choose the commit
         id: choose
         uses: $/actions/promote
+        env:
+          NDDEV_BRANCH_FALLBACK_ACTOR_ID: ${{ vars.NDDEV_BRANCH_FALLBACK_ACTOR_ID }}
         with:
-          fallback-actor-id: ${{ inputs.fallback-actor-id }}
           required-workflows: ${{ inputs.required-workflows }}
           release-metadata: ${{ inputs.release-metadata }}
           artifacts: ${{ inputs.artifacts }}
