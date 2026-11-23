@@ -117,11 +117,11 @@ against what a managed runner gives a job ([build-conventions](actions/build-con
 - setting `GRADLE_USER_HOME`, which replaces the runner's persistent Gradle home; Gradle's settings
   go in `GRADLE_OPTS` as `-Dorg.gradle.*`, and a proxy as `-Dhttps.proxyHost` and
   `-Dhttps.proxyPort`, since the JVM ignores `HTTPS_PROXY`;
-- an image build without `$NDDEV_CI_IMAGE_BUILD_FLAGS`, whose `RUN` steps take the slot's default
+- an image build without `$NDDEV_CI_IMAGE_BUILD_FLAGS`, whose `RUN` steps take the builder's default
   network past the package mirror, where a package manager can stall for minutes; set
   `images: true` and build with the flags, as the in-job image builds below say;
 - an exported local layer cache, which costs its export on every run while the library's builder
-  keeps layers per slot.
+  shares layers between jobs on the machine.
 Dependency comparison reads the exact proposed merge and its own base from Git,
 runs no project installers, and scans both against the same vulnerability data.
 Existing findings remain diagnostics. Native source packages without a registry version stay
