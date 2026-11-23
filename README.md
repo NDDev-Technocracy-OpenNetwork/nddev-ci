@@ -464,6 +464,10 @@ newest full check on a push passed. The move is a push, so a release workflow th
 commit whose check failed or still runs waits for the next promotion. It never moves `main`
 backward or sideways: when `main` holds a commit `dev` lacks, it stops.
 
+Promotion retries transient GitHub API read failures up to three attempts within the request's
+time limit. If the read still fails, the error names the last transport cause. The fast-forward
+push runs separately.
+
 GitHub's job token cannot move a branch onto commits that change workflow files, so the move
 pushes with a deploy key that has write access. The caller keeps it as `PROMOTION_KEY` in an
 environment, `promotion` by default, that only its `dev` branch may use, and calls the workflow

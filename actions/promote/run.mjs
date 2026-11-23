@@ -10,7 +10,7 @@ export async function main(environment = process.env) {
   const input = (name) => environment[`INPUT_${name.toUpperCase()}`] || "";
   const token = input("github-token");
   if (!token) throw new Error("A read token is required to choose the commit.");
-  const github = client(token, environment.GITHUB_API_URL);
+  const github = client(token, environment.GITHUB_API_URL, {retryReads: true});
   const workflows = qualificationWorkflows(`.github/workflows/${input("check-workflow") || "ci.yml"}`, input("required-workflows"));
   const fallbackActorId = environment.NDDEV_BRANCH_FALLBACK_ACTOR_ID || "";
   const result = await selectPromotion(github, {
