@@ -55,14 +55,16 @@ test("completion always cleans the fixed library entry after upload and records 
   const expression = (key) => source.split("\n").find((line) => line.trimStart().startsWith(key + ": $")).
     split(": $")[1].slice(2, -3).replace(/steps\.([a-z]+-[a-z-]+)/g, 'steps["$1"]').
     replace(/inputs\.project-outcome/g, 'inputs["project-outcome"]');
-  const evaluate = (key, fail) => runInNewContext(expression(key), {
+  const evaluate = (key, overrides = {}) => runInNewContext(expression(key), {
     inputs: {status: "success", "project-outcome": "success"},
-    steps: {artifact: {outcome: "success"}, reports: {outcome: "success"},
-      "reports-kept": {outcome: "success"}, "images-cleanup": {outcome: fail ? "failure" : "success"}},
+    steps: {artifact: {outcome: "success"}, "artifact-oci": {outcome: "success"}, reports: {outcome: "success"},
+      "reports-kept": {outcome: "success"}, "images-cleanup": {outcome: "success"}, ...overrides},
   });
-  assert.equal(evaluate("status", false), "success");
-  assert.equal(evaluate("status", true), "failure");
-  assert.equal(evaluate("failure-layer", true), "library");
+  assert.equal(evaluate("status"), "success");
+  assert.equal(evaluate("status", {"images-cleanup": {outcome: "failure"}}), "failure");
+  assert.equal(evaluate("failure-layer", {"images-cleanup": {outcome: "failure"}}), "library");
+  assert.equal(evaluate("status", {"artifact-oci": {outcome: "failure"}}), "failure");
+  assert.equal(evaluate("failure-layer", {"artifact-oci": {outcome: "failure"}}), "library");
 });
 
 test("only the declared containerd store satisfies image production", () => {
