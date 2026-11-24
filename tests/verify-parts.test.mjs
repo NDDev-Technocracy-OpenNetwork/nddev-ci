@@ -114,4 +114,14 @@ test("pre-push runs execution parts and preserves opaque verify recipes", withJu
     ["test", "build"]);
   assert.deepEqual(beforePush(dump("verify: check test\n    echo finish\n" + recipes("check", "test"))),
     ["verify"]);
+  const native = 'native-verify source=env_var_or_default("GITHUB_SHA", ""):\n    echo {{source}}\n';
+  const verify = 'verify source=env_var_or_default("GITHUB_SHA", ""): check (native-verify source)';
+  assert.deepEqual(beforePush(dump(verify + "\n" + recipes("check") + native)),
+    ["native-verify"]);
+  assert.deepEqual(beforePush(dump(verify + " audit\n" + recipes("check", "audit") + native)),
+    ["verify"]);
+  assert.deepEqual(beforePush(dump(verify + "\n" + recipes("check") + native.replace("GITHUB_SHA", "OTHER_SHA"))),
+    ["verify"]);
+  assert.deepEqual(beforePush(dump('verify: check (native-verify "given")\n' + recipes("check") + native)),
+    ["native-verify", "given"]);
 });
