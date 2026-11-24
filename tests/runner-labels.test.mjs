@@ -34,6 +34,20 @@ test("recipe.yml describes exactly the labels it accepts", () => {
   for (const label of hostedLabels.recipe) assert.match(description, new RegExp(`\\b${label.replace(".", "\\.")}\\b`));
 });
 
+function githubContext({
+  labels = [], target = "", provider = "github", event = "pull_request",
+  privateRepo = true, actor = "developer", triggeringActor = actor, sender = "User", author = "User",
+} = {}) {
+  return {
+    actor, triggering_actor: triggeringActor, event_name: event,
+    event: {
+      repository: { private: privateRepo }, sender: { type: sender },
+      pull_request: { labels: event === "pull_request" ? labels : [], user: { type: author } },
+      inputs: { runner: provider, "runner-profile": target },
+    },
+  };
+}
+
 function route(file, job) {
   const block = read(file).split("# runner-profile:" + job + "\n    runs-on: >-\n")[1].split(/\n    \S/)[0];
   const expression = block.trim().slice(3, -2)
@@ -42,23 +56,13 @@ function route(file, job) {
     .replaceAll("inputs.hosted-runner", "inputs['hosted-runner']");
   // The emitted expressions use only these three actions primitives and boolean selection.
   const evaluate = new Function("github", "inputs", "matrix", "contains", "format", "fromJSON", "return (" + expression + ")");
-  return ({ labels = [], target = "", provider = "github", event = "pull_request",
-    profile = "", runner = "managed-example", hosted = "", privateRepo = true,
-    actor = "developer", triggeringActor = actor, sender = "User", author = "User",
-    group = "", partRunners = {},
-  } = {}) => evaluate({
-    actor,
-    triggering_actor: triggeringActor,
-    event_name: event,
-    event: {
-      repository: { private: privateRepo },
-      sender: { type: sender },
-      pull_request: { labels: event === "pull_request" ? labels : [], user: { type: author } },
-      inputs: { runner: provider, "runner-profile": target },
-    },
-  }, { runner, "runner-profile": profile, "hosted-runner": hosted, "part-runners": JSON.stringify(partRunners) },
-  { part: { group } },
-  (values, value) => values.includes(value), (form, value) => form.replace("{0}", value), JSON.parse);
+  return (options = {}) => {
+    const { profile = "", runner = "managed-example", hosted = "", group = "", partRunners = {} } = options;
+    return evaluate(githubContext(options),
+      { runner, "runner-profile": profile, "hosted-runner": hosted, "part-runners": JSON.stringify(partRunners) },
+      { part: { group } },
+      (values, value) => values.includes(value), (form, value) => form.replace("{0}", value), JSON.parse);
+  };
 }
 
 test("a scoped restart moves just the matching work to the same platform", () => {
@@ -136,16 +140,11 @@ function inlineRoute(file, jobLine) {
     .replaceAll("github.event.pull_request.labels.*.name", "github.event.pull_request.labels")
     .replaceAll("inputs.hosted-runner", "inputs['hosted-runner']");
   const evaluate = new Function("github", "inputs", "contains", "fromJSON", "return (" + expression + ")");
-  return ({ labels = [], provider = "ours", event = "pull_request", runner = "nddev-linux-release",
-    hosted = "ubuntu-24.04", privateRepo = true, actor = "developer", triggeringActor = actor,
-    sender = "User", author = "User" } = {}) => evaluate({
-    actor, triggering_actor: triggeringActor, event_name: event,
-    event: {
-      repository: { private: privateRepo }, sender: { type: sender },
-      pull_request: { labels: event === "pull_request" ? labels : [], user: { type: author } },
-      inputs: { runner: provider },
-    },
-  }, { runner, "hosted-runner": hosted }, (values, value) => values.includes(value), JSON.parse);
+  return (options = {}) => {
+    const { runner = "nddev-linux-release", hosted = "ubuntu-24.04", provider = "ours" } = options;
+    return evaluate(githubContext({ ...options, provider }),
+      { runner, "hosted-runner": hosted }, (values, value) => values.includes(value), JSON.parse);
+  };
 }
 
 test("release and promotion workflows route private runs to nddev-linux-release", () => {
