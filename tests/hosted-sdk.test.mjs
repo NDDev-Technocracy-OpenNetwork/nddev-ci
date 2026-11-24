@@ -147,6 +147,33 @@ test("a managed runner puts the declared line of a tool first when two lines sta
   } finally { rmSync(root, {recursive: true, force: true}); }
 });
 
+test("a managed runner selects the declared Bun line when two lines stand side by side", {skip: process.platform === "win32"}, () => {
+  const root = mkdtempSync(path.join(tmpdir(), "managed-bun-sdk-"));
+  try {
+    const cache = path.join(root, "prepared SDK");
+    const bunFolder = (version) => {
+      const folder = path.join(cache, "bun", version, process.arch);
+      mkdirSync(folder, {recursive: true});
+      writeFileSync(path.join(folder, "bun"), `#!/bin/sh\nprintf '${version}\\n'\n`, {mode: 0o755});
+      return folder;
+    };
+    const older = bunFolder("1.4.4");
+    const newer = bunFolder("1.4.5");
+    const managed = {SDK_RUNNER_ENVIRONMENT: "self-hosted", RUNNER_TOOL_CACHE: cache,
+      PATH: `${newer}:${process.env.PATH}`, GITHUB_PATH: path.join(root, "path"),
+      GITHUB_OUTPUT: path.join(root, "output")};
+    assert.deepEqual(verify({...managed, SDK_BUN_VERSION: "1.4.4"}).versions, {bun: "1.4.4"});
+    assert.deepEqual(verify({...managed, SDK_BUN_VERSION: "1.4.5"}).versions, {bun: "1.4.5"});
+    main("verify", {...managed, SDK_BUN_VERSION: "1.4.4"});
+    assert.equal(readFileSync(managed.GITHUB_PATH, "utf8"), older + "\n");
+    const receipt = JSON.parse(readFileSync(managed.GITHUB_OUTPUT, "utf8").trim().slice("receipt=".length));
+    assert.deepEqual(receipt.versions, {bun: "1.4.4"});
+    assert.throws(() => verify({...managed, SDK_BUN_VERSION: "1.4.6"}), /selected bun executable/);
+    assert.throws(() => verify({...managed, RUNNER_TOOL_CACHE: "relative", SDK_BUN_VERSION: "1.4.4"}), /RUNNER_TOOL_CACHE/);
+    assert.deepEqual(verify({...managed, ...hosted, SDK_BUN_VERSION: "1.4.5"}).versions, {bun: "1.4.5"});
+  } finally { rmSync(root, {recursive: true, force: true}); }
+});
+
 test("the actual executable is measured and a mismatched version refuses a receipt", () => {
   const environment = {...process.env, ...hosted, SDK_NODE_VERSION: process.versions.node};
   const receipt = verify(environment);

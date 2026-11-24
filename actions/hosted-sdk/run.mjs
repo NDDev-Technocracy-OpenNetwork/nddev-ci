@@ -136,15 +136,17 @@ function measure(name, environment, executable) {
   return {[name]: text.match(expression)?.[1]};
 }
 
-// Managed Node releases are projected into the existing versioned tool cache. An explicit
-// selection must come from that entry, even if PATH happens to provide the same version.
-function managedNode(environment, version) {
+// Node and Bun select their requested line from the managed tool cache. Older runner
+// images may supply Bun on PATH, which must still pass the same version check.
+function managedRuntime(environment, name, version) {
   if (!version || !managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) return null;
   const root = environment.RUNNER_TOOL_CACHE ?? "";
   if (!path.isAbsolute(root) || /[\r\n\0]/.test(root))
     throw new ActionError("The managed RUNNER_TOOL_CACHE must be an absolute path.");
-  const bin = path.join(root, toolCacheNames.node, version, process.arch, "bin");
-  const executable = path.join(bin, process.platform === "win32" ? "node.exe" : "node");
+  const folder = path.join(root, name, version, process.arch);
+  const bin = name === "node" ? path.join(folder, "bin") : folder;
+  const executable = path.join(bin, process.platform === "win32" ? name + ".exe" : name);
+  if (name === "bun" && !existsSync(executable)) return null;
   return {bin, executable};
 }
 
@@ -225,13 +227,16 @@ function prependPath(environment, bin) {
 function verifiedSelection(environment) {
   const selected = selections(environment);
   supported(selected);
-  const node = managedNode(environment, selected.node);
+  const node = managedRuntime(environment, "node", selected.node);
   if (node) environment = prependPath(environment, node.bin);
+  const bun = managedRuntime(environment, "bun", selected.bun);
+  if (bun) environment = prependPath(environment, bun.bin);
   // Verification must not let rustup install a missing toolchain through a compiler proxy.
   if (selected.rust) environment = {...environment, RUSTUP_AUTO_INSTALL: "0"};
   const versions = {};
   for (const [name, expected] of Object.entries(selected)) {
-    const measured = measure(name, environment, name === "node" ? node?.executable : undefined);
+    const executable = name === "node" ? node?.executable : name === "bun" ? bun?.executable : undefined;
+    const measured = measure(name, environment, executable);
     if (measured[name] !== expected)
       throw new ActionError(`The selected ${name} executable does not provide version ${expected}.`);
     Object.assign(versions, measured);
@@ -250,7 +255,7 @@ function verifiedSelection(environment) {
       throw new ActionError(`The selected ${name} executable does not provide version ${expected}.`);
     tools[name] = measured;
   }
-  return {node, folders, receipt: {schema_version: 1, platform: process.platform, architecture: process.arch, versions, tools}};
+  return {node, bun, folders, receipt: {schema_version: 1, platform: process.platform, architecture: process.arch, versions, tools}};
 }
 
 export function verify(environment) {
@@ -298,11 +303,11 @@ export function main(mode, environment = process.env) {
   environment = mergeSelection(environment);
   selections(environment);
   const python = managedPython(environment);
-  const {node, folders, receipt} = verifiedSelection(python ? prependPath(environment, python.bin) : environment);
+  const {node, bun, folders, receipt} = verifiedSelection(python ? prependPath(environment, python.bin) : environment);
   const variables = {BUN_DO_NOT_TRACK: "1", DO_NOT_TRACK: "1"};
   if (python) variables.UV_PYTHON = python.executable;
-  // GitHub prepends each entry. Keep the verified Node directory first, just as during measurement.
-  const paths = [python?.bin, node?.bin, ...folders].filter(Boolean);
+  // GitHub prepends each entry. Keep the verified directories ahead of the default SDK bin.
+  const paths = [python?.bin, node?.bin, bun?.bin, ...folders].filter(Boolean);
   if (paths.length && environment.GITHUB_PATH)
     appendFileSync(environment.GITHUB_PATH, paths.join("\n") + "\n");
   if (receipt.versions.uv && !managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) {
