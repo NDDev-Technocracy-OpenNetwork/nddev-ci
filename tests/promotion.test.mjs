@@ -234,51 +234,19 @@ test("incomplete, inconsistent and misanchored comparison pages refuse before qu
   }
 });
 
-test("branch eligibility matches the configured App actor and exact scoped run name", async () => {
+test("workflow_dispatch runs do not qualify a branch push check", async () => {
   const commit = sha(1);
   const cancelled = run(commit, {conclusion: "cancelled"});
   const actor = {id: 27};
-  const hosted = run(commit, {event: "workflow_dispatch", display_title: "Contour hosted fallback", actor, triggering_actor: actor});
-  const fallbackActorId = "27";
+  const dispatch = run(commit, {event: "workflow_dispatch", display_title: "Manual run", actor, triggering_actor: actor});
   const expected = {repository, workflowPath, sha: commit, branch: "dev"};
-  const github = (push, dispatch) => api({ahead: [commit], runs: {[commit]: [...push, ...dispatch]}});
-  const selectWith = (client) => selectPromotion(client, {repository, workflowPath, fallbackActorId});
-  const valid = github([cancelled], [hosted]);
-  assert.equal((await selectWith(valid)).run_id, hosted.id);
-  assert.equal((await selectWith(github([], [hosted]))).run_id, hosted.id);
-  assert.equal(valid.calls.filter(route => route.includes("/actions/workflows/")).length, 1);
-  assert.equal((await select(valid)).state, "unchecked");
-  const proof = await qualify(valid, expected, {waitMinutes: 0, fallbackActorId});
-  assert.equal(proof.event, "workflow_dispatch");
-  assert.equal((await recheck(valid, proof, {fallbackActorId})).run_id, hosted.id);
-
-  for (const dispatch of [
-    {...hosted, display_title: "Manual run"},
-    {...hosted, actor: {id: 34}},
-    {...hosted, triggering_actor: {id: 34}},
-    {...hosted, triggering_actor: null},
-    {...hosted, run_number: cancelled.run_number - 1 || 1},
-    {...hosted, conclusion: "failure"},
-  ]) assert.equal((await selectWith(github([cancelled], [dispatch]))).state, "unchecked");
-  for (const conclusion of ["failure", "timed_out"]) {
-    const laterFailure = run(commit, {conclusion});
-    assert.equal((await selectWith(github([laterFailure], [hosted]))).state, "unchecked");
-  }
-  for (const other of [
-    {...hosted, head_sha: sha(3)},
-    {...hosted, head_branch: "main"},
-    {...hosted, path: ".github/workflows/other.yml"},
-    {...hosted, head_repository: {full_name: "foreign/repository"}},
-  ]) await assert.rejects(selectWith(github([cancelled], [other])), /foreign identity/);
-
-  const superseded = github([cancelled], [hosted, {...hosted, run_attempt: 2, conclusion: "failure"}]);
-  await assert.rejects(recheck(superseded, proof, {fallbackActorId}), /newest check/);
-  const manuallyRerun = github([cancelled], [hosted, {...hosted, run_attempt: 2, triggering_actor: {id: 34}}]);
-  assert.equal((await selectWith(manuallyRerun)).state, "unchecked");
-  const laterManual = run(commit, {event: "workflow_dispatch", display_title: "Contour hosted fallback",
-    actor: {id: 34}, triggering_actor: {id: 34}});
-  assert.equal((await selectWith(github([cancelled], [hosted, laterManual]))).run_id, hosted.id);
-  const laterPush = run(commit);
-  assert.equal((await selectWith(github([cancelled, laterPush], [hosted]))).run_id, laterPush.id);
-  await assert.rejects(recheck(github([cancelled, laterPush], [hosted]), proof, {fallbackActorId}), /replaced/);
+  const github = api({ahead: [commit], runs: {[commit]: [cancelled, dispatch]}});
+  assert.equal((await select(github)).state, "unchecked");
+  await assert.rejects(qualify(github, expected, {waitMinutes: 0}), /No qualification/);
+  const passedPush = run(commit);
+  const withPush = api({ahead: [commit], runs: {[commit]: [cancelled, dispatch, passedPush]}});
+  const proof = await qualify(withPush, expected, {waitMinutes: 0});
+  assert.equal(proof.event, "push");
+  assert.equal(proof.run_id, passedPush.id);
+  assert.equal((await recheck(withPush, proof)).run_id, passedPush.id);
 });

@@ -296,22 +296,18 @@ A person's run or rerun, a branch check and a release use the ordinary managed
 label. Explicit hosted selections keep their existing route.
 
 Configure `runner-profile` for each private `check.yml` or `recipe.yml` call that supports
-automatic fallback. The caller listens for PR `labeled` events and declares the optional string
-`runner-profile` alongside its `runner` choice in `workflow_dispatch`. A scheduler restarts the
-run using `runner:github:<profile>` on a PR or `runner=github` plus `runner-profile=<profile>`
-on a branch. Only matching jobs use a GitHub-hosted runner in the replacement run. Other jobs
+profile-scoped GitHub-hosted runs. The caller listens for PR `labeled` events and declares the
+optional string `runner-profile` alongside its `runner` choice in `workflow_dispatch`. Adding
+`runner:github:<profile>` on a PR or dispatching with `runner=github` and
+`runner-profile=<profile>` moves only matching jobs to a GitHub-hosted runner. Other jobs
 continue to target their managed labels. Lightweight Linux jobs use the profile of their own
 runner class.
 
 The supported profiles are Linux x64, Linux ARM64, macOS ARM64 and Windows x64. Each
 selects a standard GitHub-hosted image of the same platform.
 
-For branch release checks, set the caller's run name to `Contour hosted fallback` when the
-dispatch selects both `runner=github` and a nonempty `runner-profile`, as in the example.
-The `NDDEV_BRANCH_FALLBACK_ACTOR_ID` configuration variable holds the scheduler App's numeric
-bot user ID. A push or a dispatch with that run name and both matching actor IDs qualifies the
-same exact repository, workflow, branch and commit. Promotion and release check the newest
-eligible run and revalidate its attempt before consuming the artifact receipt.
+Promotion and release qualify commits strictly from exact branch `push` runs of the configured
+workflow, checking the newest run and revalidating its attempt before consuming artifacts.
 
 The unqualified PR label `runner:github` and a manual `runner: github` without a profile move the
 whole check and its portable jobs. For a call without a profile, the manual selection keeps its
