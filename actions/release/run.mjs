@@ -48,11 +48,13 @@ async function main() {
     refuse("A release publishes only commits of main.");
   const github = client(input("github-token") || refuse("A token is required."), input("api-url") || environment("GITHUB_API_URL"));
 
+  const fallbackActorId = process.env.NDDEV_BRANCH_FALLBACK_ACTOR_ID;
   // 1. The newest full check of this exact commit on the integration branch.
   const qualifications = await qualifyWorkflows(github, {sha, repository, workflowPath: `.github/workflows/${workflow}`, branch: "dev"},
-    input("required-workflows"), {waitMinutes});
+    input("required-workflows"), {waitMinutes, fallbackActorId});
   const qualified = qualifications[0];
-  const recheckAll = () => Promise.all(qualifications.map((proof) => recheck(github, proof)));
+  const recheckAll = () => Promise.all(qualifications.map((proof, index) =>
+    recheck(github, proof, {fallbackActorId: index === 0 ? fallbackActorId : undefined})));
   const run = {id: qualified.run_id, run_attempt: qualified.run_attempt,
     html_url: `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${repository}/actions/runs/${qualified.run_id}`};
   console.log(`Qualified by ${run.html_url} (attempt ${run.run_attempt}).`);
@@ -70,6 +72,7 @@ async function main() {
       githubToken: input("github-token"),
       actor: process.env.GITHUB_ACTOR || "x-access-token",
       registryUrl: process.env.NDDEV_CI_OCI_REGISTRY_URL || undefined,
+      fallbackActorId,
     });
     files = transferred.files;
   } else mkdirSync(folder, {recursive: true, mode: 0o700});

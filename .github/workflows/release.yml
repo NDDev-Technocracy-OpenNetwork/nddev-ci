@@ -91,6 +91,8 @@ jobs:
       - name: Release the verified commit
         id: release
         uses: $/actions/release
+        env:
+          NDDEV_BRANCH_FALLBACK_ACTOR_ID: ${{ vars.NDDEV_BRANCH_FALLBACK_ACTOR_ID }}
         with:
           required-workflows: ${{ inputs.required-workflows }}
           release-metadata: ${{ inputs.release-metadata }}

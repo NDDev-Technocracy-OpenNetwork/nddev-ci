@@ -319,8 +319,11 @@ runner class.
 The supported profiles are Linux x64, Linux ARM64, macOS ARM64 and Windows x64. Each
 selects a standard GitHub-hosted image of the same platform.
 
-Promotion and release qualify commits strictly from exact branch `push` runs of the configured
-workflow, checking the newest run and revalidating its attempt before consuming artifacts.
+Promotion and release qualify the exact branch, commit and configured workflow, checking the
+newest run and revalidating its attempt before consuming artifacts. The repository or organization's
+`NDDEV_BRANCH_FALLBACK_ACTOR_ID` can also qualify a `Contour hosted fallback` dispatch for the
+primary workflow. Both actor IDs must match the configured App and its exact attempt must have a
+successful `check / full check` job. Additional required workflows take their exact push checks.
 
 The unqualified PR label `runner:github` and a manual `runner: github` without a profile move the
 whole check and its portable jobs. For a call without a profile, the manual selection keeps its
