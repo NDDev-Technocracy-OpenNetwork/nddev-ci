@@ -1,0 +1,20 @@
+name: Hosted SDK helper step
+description: Run one local Node helper for hosted or managed SDK preparation without third-party script wrappers.
+inputs:
+  step:
+    description: Helper command to execute (validate, verify, bun, flutter or dart).
+    required: true
+outputs:
+  bootstrap:
+    description: Whether hosted SDK installation runs on this runner.
+  cache-key:
+    description: Exact tool-cache key for hosted SDK restoration.
+  cache-paths:
+    description: Tool-cache paths to restore and retain on hosted runners.
+  url:
+    description: Verified release redirect URL for the selected Bun asset.
+  receipt:
+    description: JSON receipt of verified SDK and tool versions.
+runs:
+  using: node24
+  main: run.mjs

@@ -9,21 +9,19 @@ import { main, verify } from "../actions/hosted-sdk/run.mjs";
 
 test("the actual SDK phase scripts work without a Node SDK on PATH", () => {
   const action = readFileSync(new URL("../actions/hosted-sdk/action.yml", import.meta.url), "utf8");
-  const scripts = [...action.matchAll(/        script: \|\n((?:          [^\n]*\n)+)/g)]
-    .map((match) => match[1].split("\n").map((line) => line.slice(10)).join("\n"));
-  const modules = scripts.map((script) => script.match(/SDK_ACTION_PATH \+ "\/([^"]+\.mjs)"/)?.[1]);
-  assert.deepEqual(modules, ["run.mjs", "bun.mjs", "flutter.mjs", "dart.mjs", "run.mjs"]);
-  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  for (const script of scripts) new AsyncFunction("require", script);
+  const steps = [...action.matchAll(/uses: \$\/actions\/hosted-sdk-step[\s\S]*?\n        step: (\w+)/g)]
+    .map((match) => match[1]);
+  assert.deepEqual(steps, ["validate", "bun", "flutter", "dart", "verify"]);
+  assert.doesNotMatch(action, /actions\/github-script/);
+  const helperAction = readFileSync(new URL("../actions/hosted-sdk-step/action.yml", import.meta.url), "utf8");
+  assert.match(helperAction, /using: node24/);
+  const entry = fileURLToPath(new URL("../actions/hosted-sdk-step/run.mjs", import.meta.url));
   const root = mkdtempSync(path.join(tmpdir(), "sdk-action-runtime-"));
   try {
     for (const phase of ["validate", "verify"]) {
-      const script = scripts.find((source) => source.includes(`action.main("${phase}")`));
-      assert.ok(script);
-      const entry = path.join(root, `${phase}.cjs`), output = path.join(root, `${phase}.out`);
-      writeFileSync(entry, `(async () => {\n${script}\n})().catch(() => {process.exitCode = 1});\n`);
+      const output = path.join(root, `${phase}.out`);
       const result = spawnSync(process.execPath, [entry], {encoding: "utf8", env: {...process.env, PATH: "", Path: "",
-        SDK_ACTION_PATH: fileURLToPath(new URL("../actions/hosted-sdk", import.meta.url)),
+        INPUT_STEP: phase,
         SDK_RUNNER_ENVIRONMENT: "self-hosted", SDK_MANAGED: "true", SDK_NODE_VERSION: "", SDK_PYTHON_VERSION: "",
         SDK_BUN_VERSION: "", SDK_UV_VERSION: "", SDK_RUST_VERSION: "", SDK_JAVA_VERSION: "", SDK_GO_VERSION: "",
         SDK_FLUTTER_VERSION: "", SDK_DART_VERSION: "", SDK_TOOLS: "", SDK_RUST_COMPONENTS: "", SDK_RUST_TARGETS: "",

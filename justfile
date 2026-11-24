@@ -46,6 +46,9 @@ check: (_tools "check") scan-source-secrets
     node --check actions/recipe/run.mjs
     node --check lib/project-command.mjs
     node --check actions/hosted-sdk/run.mjs
+    node --check actions/hosted-sdk-step/run.mjs
+    node --check actions/revoke-token/run.mjs
+    node --check tests/revoke-token.test.mjs
     node --check actions/hosted-sdk/bun.mjs
     node --check actions/hosted-sdk/flutter.mjs
     node --check actions/hosted-sdk/archive.mjs
