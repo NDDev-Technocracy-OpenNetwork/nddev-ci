@@ -114,12 +114,12 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           sparse-checkout: |-
-            ${{ inputs.sparse-checkout && !inputs.new-clones && '/.github/' || '' }}
-            ${{ inputs.sparse-checkout && !inputs.new-clones && '/committed.toml' || '' }}
-            ${{ inputs.sparse-checkout && !inputs.new-clones && '/.betterleaks.toml' || '' }}
-            ${{ inputs.sparse-checkout && !inputs.new-clones && '/.betterleaksignore' || '' }}
-            ${{ inputs.sparse-checkout && !inputs.new-clones && '/.gitleaks.toml' || '' }}
-            ${{ inputs.sparse-checkout && !inputs.new-clones && '/.gitleaksignore' || '' }}
+            ${{ !inputs.new-clones && inputs.sparse-checkout && '/.github/' || '' }}
+            ${{ !inputs.new-clones && inputs.sparse-checkout && '/committed.toml' || '' }}
+            ${{ !inputs.new-clones && inputs.sparse-checkout && '/.betterleaks.toml' || '' }}
+            ${{ !inputs.new-clones && inputs.sparse-checkout && '/.betterleaksignore' || '' }}
+            ${{ !inputs.new-clones && inputs.sparse-checkout && '/.gitleaks.toml' || '' }}
+            ${{ !inputs.new-clones && inputs.sparse-checkout && '/.gitleaksignore' || '' }}
           sparse-checkout-cone-mode: false
 
       - name: File contents of the change
