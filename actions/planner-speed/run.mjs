@@ -14,10 +14,10 @@ const input = {
   recipes: {
     verify: {
       priors: 3,
-      dependencies: ["check", "test", "package-tools"].map((recipe) => ({recipe})),
+      dependencies: ["check", "test", "package-tools"].map((recipe) => ({recipe, arguments: []})),
     },
     check: {},
-    test: {dependencies: [{recipe: "setup"}]},
+    test: {dependencies: [{recipe: "setup", arguments: []}]},
     "package-tools": {},
     setup: {},
   },
@@ -50,8 +50,12 @@ function cpuTime(plan, count) {
   return user + system;
 }
 
-function measure(file) {
-  const result = execFileSync(process.execPath, [fileURLToPath(import.meta.url), "--sample", file], {
+export function measure(file) {
+  const worker = fileURLToPath(import.meta.url);
+  const result = execFileSync(process.execPath, [
+    "--permission", "--allow-fs-read=" + worker, "--allow-fs-read=" + file,
+    worker, "--sample", file,
+  ], {
     encoding: "utf8",
     env: {PATH: process.env.PATH, LANG: "C"},
     maxBuffer: 1024,

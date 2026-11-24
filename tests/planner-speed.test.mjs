@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compareTiming } from "../actions/planner-speed/run.mjs";
+import { fileURLToPath } from "node:url";
+import { compareTiming, measure } from "../actions/planner-speed/run.mjs";
 
 test("the planner speed stop compares medians and allows exactly the margin", () => {
   const base = [103, 1000, 99, 100, 98];
@@ -14,4 +15,9 @@ test("invalid or incomplete measurements cannot qualify the planner", () => {
   assert.throws(() => compareTiming([10, 10], [10, 10], 10), /five positive timings/);
   assert.throws(() => compareTiming([10, 10, 10, 10, 0], [10, 10, 10, 10, 10], 10),
     /five positive timings/);
+});
+
+test("a worker measures the library planner with the benchmark graph", () => {
+  const planner = fileURLToPath(new URL("../lib/verify-parts.mjs", import.meta.url));
+  assert.ok(measure(planner) > 0);
 });
