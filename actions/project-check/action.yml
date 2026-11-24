@@ -72,9 +72,9 @@ runs:
         # recipe-dispatch:begin
         project_just() {
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            env -u ACTIONS_ID_TOKEN_REQUEST_URL -u ACTIONS_ID_TOKEN_REQUEST_TOKEN node "$PROJECT_COMMAND" just "$@"
+            env -u ACTIONS_ID_TOKEN_REQUEST_URL -u ACTIONS_ID_TOKEN_REQUEST_TOKEN -u RECEIPT_PLAN -u RECEIPT_RESULTS node "$PROJECT_COMMAND" just "$@"
           else
-            env -u ACTIONS_ID_TOKEN_REQUEST_URL -u ACTIONS_ID_TOKEN_REQUEST_TOKEN just "$@"
+            env -u ACTIONS_ID_TOKEN_REQUEST_URL -u ACTIONS_ID_TOKEN_REQUEST_TOKEN -u RECEIPT_PLAN -u RECEIPT_RESULTS just "$@"
           fi
         }
         if [ -n "${RECEIPT_PLAN:-}" ] && [ -f "$RECEIPT_PLAN" ]; then
