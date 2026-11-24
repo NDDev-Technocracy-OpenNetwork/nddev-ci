@@ -96,18 +96,19 @@ function jobContract(workflow, id) {
   assert.ok(block, `${workflow}:${id} exists`);
   const value = (name) => block.match(new RegExp(`^    ${name}: (.+)$`, "m"))?.[1];
   const concurrency = block.match(/\n    concurrency:\n      group: (.+)\n      cancel-in-progress: (.+)/);
-  return {name: value("name"), condition: value("if"), concurrency, matrix: block.match(/\n        part: (.+)/)?.[1]};
+  return {name: value("name"), condition: value("if"), concurrency, matrix: block.match(/\n        part: ([^\n]+(?:\n {10}[^\n]+)*)/)?.[1]};
 }
 
 // A job's name, condition or matrix as GitHub evaluates it, for an event and the plan's outputs.
-function evaluateJob(expression, github, needs = {plan: {result: "skipped", outputs: {}}}) {
+function evaluateJob(expression, github, needs = {plan: {result: "skipped", outputs: {}}}, whole = false) {
   if (expression === undefined) return true;
-  const context = {github, needs, cancelled: () => false, fromJSON: JSON.parse};
-  return runInNewContext(expression.startsWith("$") ? expression.slice(3, -2) : expression, context);
+  const context = {github, needs, inputs: {whole}, cancelled: () => false, fromJSON: JSON.parse};
+  const source = expression.startsWith("$") ? expression.slice(3, -2) : expression;
+  return runInNewContext(source.replaceAll("inputs.whole-full-check", "inputs.whole"), context);
 }
-function checkName(github, needs) {
+function checkName(github, needs, whole) {
   const contract = jobContract("check.yml", "check");
-  const [part] = evaluateJob(contract.matrix, github, needs);
+  const [part] = evaluateJob(contract.matrix, github, needs, whole);
   return runInNewContext(contract.name.slice(3, -2), {matrix: {part}});
 }
 
@@ -132,6 +133,27 @@ test("subscribed pull-request labels run the actual required workflows with stab
   for (const workflow of ["check.yml", "merge-stops.yml"])
     assert.equal(execute(jobContract(workflow, "merge-stops").condition, push), false);
   assert.equal(execute(jobContract("merge-stops.yml", "merge-stops").name, push), "ignored merge stops");
+});
+
+test("a declared whole full check runs verify without planning or joining jobs", () => {
+  const plan = jobContract("check.yml", "plan");
+  const check = jobContract("check.yml", "check");
+  const join = jobContract("check.yml", "full-check");
+  const needs = {plan: {result: "skipped", outputs: {}}, check: {result: "success"}};
+  const push = {event_name: "push"};
+  assert.equal(evaluateJob(plan.condition, push, needs), true);
+  assert.equal(evaluateJob(check.condition, push, needs), false);
+  for (const event_name of ["push", "workflow_dispatch"]) {
+    const github = {event_name};
+    assert.equal(evaluateJob(plan.condition, github, needs, true), false);
+    assert.equal(evaluateJob(check.condition, github, needs, true), true);
+    assert.equal(checkName(github, needs, true), "full check");
+    assert.deepEqual(evaluateJob(check.matrix, github, needs, true), [
+      {label: "full check", group: "verify", argv: ["verify"]},
+    ]);
+    assert.equal(evaluateJob(join.condition, github, needs, true), false);
+  }
+  assert.equal(checkName({event_name: "pull_request"}, needs, true), "short check");
 });
 
 test("retained checks and merge stops keep separate groups for every run", () => {
