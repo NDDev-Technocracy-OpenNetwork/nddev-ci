@@ -136,30 +136,17 @@ function measure(name, environment, executable) {
   return {[name]: text.match(expression)?.[1]};
 }
 
-// Managed Node releases are projected into the existing versioned tool cache. An explicit
-// selection must come from that entry, even if PATH happens to provide the same version.
-function managedNode(environment, version) {
+// Node and Bun select their requested line from the managed tool cache. Older runner
+// images may supply Bun on PATH, which must still pass the same version check.
+function managedRuntime(environment, name, version) {
   if (!version || !managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) return null;
   const root = environment.RUNNER_TOOL_CACHE ?? "";
   if (!path.isAbsolute(root) || /[\r\n\0]/.test(root))
     throw new ActionError("The managed RUNNER_TOOL_CACHE must be an absolute path.");
-  const bin = path.join(root, toolCacheNames.node, version, process.arch, "bin");
-  const executable = path.join(bin, process.platform === "win32" ? "node.exe" : "node");
-  return {bin, executable};
-}
-
-// A managed SDK keeps each registry line of Bun in its own tool-cache folder,
-// bun/<version>/<architecture>, so two lines can stand side by side while projects move from one
-// to the other. The declared line's folder goes first on PATH; a missing folder leaves PATH as it
-// is, and the measurement below decides.
-export function managedBun(environment, version = environment.SDK_BUN_VERSION ?? "", exists = existsSync) {
-  if (!version || !managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) return null;
-  const root = environment.RUNNER_TOOL_CACHE ?? "";
-  if (!path.isAbsolute(root) || /[\r\n\0]/.test(root))
-    throw new ActionError("The managed RUNNER_TOOL_CACHE must be an absolute path.");
-  const bin = path.join(root, "bun", version, process.arch);
-  const executable = path.join(bin, process.platform === "win32" ? "bun.exe" : "bun");
-  if (!exists(executable)) return null;
+  const folder = path.join(root, name, version, process.arch);
+  const bin = name === "node" ? path.join(folder, "bin") : folder;
+  const executable = path.join(bin, process.platform === "win32" ? name + ".exe" : name);
+  if (name === "bun" && !existsSync(executable)) return null;
   return {bin, executable};
 }
 
@@ -240,9 +227,9 @@ function prependPath(environment, bin) {
 function verifiedSelection(environment) {
   const selected = selections(environment);
   supported(selected);
-  const node = managedNode(environment, selected.node);
+  const node = managedRuntime(environment, "node", selected.node);
   if (node) environment = prependPath(environment, node.bin);
-  const bun = managedBun(environment, selected.bun);
+  const bun = managedRuntime(environment, "bun", selected.bun);
   if (bun) environment = prependPath(environment, bun.bin);
   // Verification must not let rustup install a missing toolchain through a compiler proxy.
   if (selected.rust) environment = {...environment, RUSTUP_AUTO_INSTALL: "0"};

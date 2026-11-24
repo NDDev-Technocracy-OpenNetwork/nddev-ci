@@ -4,7 +4,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSy
 import { tmpdir } from "node:os";
 import { runInNewContext } from "node:vm";
 import path from "node:path";
-import { cachePlan, imageKey, javaVersion, main, managedBun, managedPython, managedTools, selections, supported, verify } from "../actions/hosted-sdk/run.mjs";
+import { cachePlan, imageKey, javaVersion, main, managedPython, managedTools, selections, supported, verify } from "../actions/hosted-sdk/run.mjs";
 import { selectRelease } from "../actions/hosted-sdk/flutter.mjs";
 import { dartArchive, dartDigest } from "../actions/hosted-sdk/dart.mjs";
 
@@ -151,8 +151,8 @@ test("a managed runner selects the declared Bun line when two lines stand side b
   const root = mkdtempSync(path.join(tmpdir(), "managed-bun-sdk-"));
   try {
     const cache = path.join(root, "prepared SDK");
-    const bunFolder = (version, arch = process.arch) => {
-      const folder = path.join(cache, "bun", version, arch);
+    const bunFolder = (version) => {
+      const folder = path.join(cache, "bun", version, process.arch);
       mkdirSync(folder, {recursive: true});
       writeFileSync(path.join(folder, "bun"), `#!/bin/sh\nprintf '${version}\\n'\n`, {mode: 0o755});
       return folder;
@@ -162,17 +162,15 @@ test("a managed runner selects the declared Bun line when two lines stand side b
     const managed = {SDK_RUNNER_ENVIRONMENT: "self-hosted", RUNNER_TOOL_CACHE: cache,
       PATH: `${newer}:${process.env.PATH}`, GITHUB_PATH: path.join(root, "path"),
       GITHUB_OUTPUT: path.join(root, "output")};
-    assert.deepEqual(managedBun({...managed, SDK_BUN_VERSION: "1.4.4"}), {bin: older, executable: path.join(older, "bun")});
     assert.deepEqual(verify({...managed, SDK_BUN_VERSION: "1.4.4"}).versions, {bun: "1.4.4"});
     assert.deepEqual(verify({...managed, SDK_BUN_VERSION: "1.4.5"}).versions, {bun: "1.4.5"});
     main("verify", {...managed, SDK_BUN_VERSION: "1.4.4"});
     assert.equal(readFileSync(managed.GITHUB_PATH, "utf8"), older + "\n");
     const receipt = JSON.parse(readFileSync(managed.GITHUB_OUTPUT, "utf8").trim().slice("receipt=".length));
     assert.deepEqual(receipt.versions, {bun: "1.4.4"});
-    assert.equal(managedBun({...managed, SDK_BUN_VERSION: "1.4.6"}), null);
     assert.throws(() => verify({...managed, SDK_BUN_VERSION: "1.4.6"}), /selected bun executable/);
-    assert.equal(managedBun({...managed, ...hosted, SDK_BUN_VERSION: "1.4.4"}), null);
-    assert.throws(() => managedBun({...managed, RUNNER_TOOL_CACHE: "relative", SDK_BUN_VERSION: "1.4.4"}), /RUNNER_TOOL_CACHE/);
+    assert.throws(() => verify({...managed, RUNNER_TOOL_CACHE: "relative", SDK_BUN_VERSION: "1.4.4"}), /RUNNER_TOOL_CACHE/);
+    assert.deepEqual(verify({...managed, ...hosted, SDK_BUN_VERSION: "1.4.5"}).versions, {bun: "1.4.5"});
   } finally { rmSync(root, {recursive: true, force: true}); }
 });
 
