@@ -1,0 +1,12 @@
+name: Compare planner speed
+description: Compare the checked planner with its pull request base on one runner.
+inputs:
+  base:
+    description: Exact pull request base commit.
+    required: true
+  merge:
+    description: Exact checked merge commit.
+    required: true
+runs:
+  using: node24
+  main: run.mjs
