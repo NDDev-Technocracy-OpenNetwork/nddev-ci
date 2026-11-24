@@ -57,6 +57,9 @@ check: (_tools "check") scan-source-secrets
     node --check tests/hosted-sdk.test.mjs
     node --check tests/sdk-runtime.test.mjs
     node --check tests/image-builder.test.mjs
+    node --check lib/uv-cache.mjs
+    node --check actions/uv-cache/run.mjs
+    node --check tests/uv-cache.test.mjs
     node --check actions/release-assets/run.mjs
     node --check lib/release-asset.mjs
     node --check lib/native-member.mjs
