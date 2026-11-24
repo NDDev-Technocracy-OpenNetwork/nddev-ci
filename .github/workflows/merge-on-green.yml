@@ -30,7 +30,7 @@ on:
       runner:
         description: The label of our runners, used by private repositories.
         type: string
-        default: nddev-linux-small
+        default: nddev-linux-light
 
 permissions: {}
 

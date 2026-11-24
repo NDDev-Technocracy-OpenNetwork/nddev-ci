@@ -22,7 +22,7 @@ on:
       runner:
         description: Private runner label; public callers use a free hosted runner.
         type: string
-        default: nddev-linux-small
+        default: nddev-linux-light
     outputs:
       state:
         description: ready for full builds, or short-check for an ordinary pull request.
