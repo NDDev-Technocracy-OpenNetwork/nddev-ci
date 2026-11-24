@@ -177,6 +177,10 @@ on:
         description: Explicit owner/repository names, one per line, granted contents-read access.
         type: string
         default: ""
+      upstream-branch:
+        description: Optional branch in this repository that mirrors a fork's upstream; its commit ancestry is skipped by authorship.
+        type: string
+        default: ''
     secrets:
       REGISTRY_SNAPSHOT_FIRST:
         description: Protected environment snapshot fragment.
@@ -545,5 +549,6 @@ jobs:
       hosted-runner: ${{ inputs.hosted-runner }}
       sparse-checkout: ${{ inputs.sparse-merge-stops }}
       new-clones: ${{ inputs.new-clones }}
+      upstream-branch: ${{ inputs.upstream-branch }}
     permissions:
       contents: read

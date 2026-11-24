@@ -110,7 +110,10 @@ that selects the job's hosted route runs the check in full.
 The authorship stop rejects generated assistant signatures and machine coauthor trailers in
 the introduced commits, including merge commits, and in the title/description. Bot requests
 receive the same check. Human coauthors, cryptographic signatures, tool-version discussion and
-quoted examples remain valid. It reads Git objects and event data without executing project code
+quoted examples remain valid. For a fork that mirrors its upstream on a branch in this repository,
+set `upstream-branch` (such as `upstream/main`) on `check.yml` or `merge-stops.yml` so commits
+already in that branch's Git ancestry are skipped while the fork's own commits, merge commits and
+pull request text are still checked. It reads Git objects and event data without executing project code
 or requesting another permission.
 
 The PR merge stops scan secrets in the changed commits, dangerous workflows and newly

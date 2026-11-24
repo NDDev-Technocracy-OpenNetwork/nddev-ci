@@ -9,6 +9,7 @@ export function main(environment = process.env) {
   const problems = inspect(realpathSync(environment.GITHUB_WORKSPACE), {
     base: environment.INPUT_BASE,
     head: environment.INPUT_HEAD,
+    upstreamBranch: environment["INPUT_UPSTREAM-BRANCH"],
     request: event.pull_request,
   });
   for (const { where, line } of problems)
