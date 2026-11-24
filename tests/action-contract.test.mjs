@@ -134,6 +134,7 @@ test("subscribed pull-request labels run the actual required workflows with stab
   const push = {event_name: "push", event: {}};
   const whole = {plan: {result: "success", outputs: {matrix: '[{"label":"full check","group":"verify","argv":["verify"]}]'}}};
   assert.equal(evaluateJob(jobContract("check.yml", "check").condition, push, whole), true);
+  assert.equal(evaluateJob(jobContract("check.yml", "check").condition, push, {plan: {result: "success", outputs: {matrix: "[]"}}}), false);
   assert.equal(checkName(push, whole), "full check");
   assert.equal(evaluateJob(jobContract("check.yml", "check").condition, push, {plan: {result: "failure", outputs: {}}}), false);
   for (const workflow of ["check.yml", "merge-stops.yml"])
