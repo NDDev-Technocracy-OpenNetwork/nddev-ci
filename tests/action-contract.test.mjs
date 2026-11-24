@@ -237,6 +237,8 @@ test("workflow concurrency cancels superseded pull requests, queues branch pushe
   for (const [workflow, job] of [["release.yml", "release"], ["promote.yml", "promote"], ["registry.yml", "publish"], ["merge-on-green.yml", "merge"]]) {
     assert.equal(jobContract(workflow, job).concurrency[2], "false", `${workflow}:${job} never cancels`);
   }
+  assert.match(read(".github/workflows/promote.yml"),
+    /if: github\.event_name != 'workflow_run' \|\| github\.event\.workflow_run\.conclusion != 'cancelled'/);
 
   assert.match(read(".github/workflows/check.yml"),
     /uses: \$\/\.github\/workflows\/merge-stops\.yml\n    with:\n      retain-runs: \$\{\{ inputs\.retain-runs \}\}/);
