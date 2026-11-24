@@ -214,13 +214,15 @@ not infer these use and distribution conditions.
 
 Checkout inputs support projects that read history or omit generated trees; `submodules` checks
 out public submodules at their recorded commits for a superproject's checks.
-`diagnostics` keeps only named workspace reports on failure; release artifacts are
-uploaded only after successful non-PR checks.
-`reports` keeps named workspace reports whether the job passes or fails, pull requests included,
-for 14 days and apart from release artifacts. Each named path must hold a file the job left: the
-ones that exist are kept, and any missing one then fails the job, even when another matched. Both
-lists refuse absolute, parent and hidden paths, so a project that writes reports to a hidden folder
-copies them to a visible one.
+`diagnostics` uploads named workspace reports on failure in public repositories; private
+repositories skip the upload and use the job log. Release artifacts are uploaded only after
+successful non-PR checks.
+`reports` checks that every named workspace report holds a file the job left, whether the job
+passes or fails, pull requests included; any missing path fails the job even when another matched.
+Public repositories also upload those reports for 14 days apart from release artifacts, while
+private repositories verify them without uploading workflow artifacts. Both lists refuse absolute,
+parent and hidden paths, so a project that writes reports to a hidden folder copies them to a
+visible one.
 
 `repository-token: true` gives the project's commands the job's own token as `GITHUB_TOKEN`, for
 checks of the project's own private repository, such as a link check of its README. The token

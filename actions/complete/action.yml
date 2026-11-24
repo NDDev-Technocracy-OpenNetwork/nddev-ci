@@ -63,8 +63,8 @@ runs:
     - name: Reports
       id: reports
       # The caller's named evidence, kept whether the job passed or failed, never as a deployment
-      # artifact.
-      if: ${{ !cancelled() && inputs.status != 'cancelled' && inputs.reports != '' }}
+      # artifact. Private repositories verify the files below without uploading a workflow artifact.
+      if: ${{ !github.event.repository.private && !cancelled() && inputs.status != 'cancelled' && inputs.reports != '' }}
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: reports-${{ inputs.name }}-${{ github.run_attempt }}
@@ -104,7 +104,8 @@ runs:
 
     - name: Diagnostics of the failed job
       # Only the caller's named reports are kept, never a release artifact of a failed job.
-      if: ${{ !cancelled() && inputs.diagnostics != '' && (inputs.status == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') }}
+      # Private repositories rely on the job log instead of uploading workflow artifacts.
+      if: ${{ !github.event.repository.private && !cancelled() && inputs.diagnostics != '' && (inputs.status == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') }}
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: diagnostics-${{ inputs.name }}-${{ github.run_attempt }}
