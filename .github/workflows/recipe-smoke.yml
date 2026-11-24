@@ -141,10 +141,6 @@ jobs:
         uses: $/actions/hosted-cache
         with:
           working-directory: tests/fixtures/image
-      - name: Check argument and workspace boundaries
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node --test tests/*.test.mjs
       - name: Select a pinned public asset for this native runner
         run: >-
           node -e "const fs=require('node:fs'),p=require('./actions/recipe/just.json'),a=p.targets[process.platform+'-'+process.arch];
@@ -179,6 +175,10 @@ jobs:
         env:
           ACTUAL_VERSION: ${{ steps.probe.outputs.just-version }}
         run: node -e "const p=require('./actions/recipe/just.json'); if(process.env.ACTUAL_VERSION!==p.version)process.exit(1)"
+      - name: Check argument and workspace boundaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node --test tests/*.test.mjs
       - name: Verify the prepared native frontend without downloads
         run: >-
           node --input-type=module -e "import {prepareFrontend} from './actions/recipe/run.mjs';

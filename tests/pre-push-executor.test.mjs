@@ -9,7 +9,9 @@ import { fileURLToPath } from "node:url";
 
 const cli = fileURLToPath(new URL("../tools/verify-before-push.mjs", import.meta.url));
 
-test("managed push transfers one exact standalone source and binds its registry before running", () => {
+test("managed push transfers one exact standalone source and binds its registry before running", {
+  skip: process.platform !== "linux",
+}, () => {
   const temporary = mkdtempSync(path.join(tmpdir(), "pre-push-source-"));
   const source = path.join(temporary, "source");
   const receiver = path.join(temporary, "receiver");
