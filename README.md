@@ -319,8 +319,11 @@ runner class.
 The supported profiles are Linux x64, Linux ARM64, macOS ARM64 and Windows x64. Each
 selects a standard GitHub-hosted image of the same platform.
 
-Promotion and release qualify commits strictly from exact branch `push` runs of the configured
-workflow, checking the newest run and revalidating its attempt before consuming artifacts.
+Promotion and release qualify the exact branch, commit and configured workflow, checking the
+newest run and revalidating its attempt before consuming artifacts. The repository or organization's
+`NDDEV_BRANCH_FALLBACK_ACTOR_ID` can also qualify a `Contour hosted fallback` dispatch for the
+primary workflow. Both actor IDs must match the configured App and its exact attempt must have a
+successful `check / full check` job. Additional required workflows take their exact push checks.
 
 For an owner-approved branch fallback, configure the caller as in the example and set
 `NDDEV_BRANCH_FALLBACK_ACTOR_ID` to the scheduler App's numeric bot user ID. Operators invoke
@@ -328,9 +331,7 @@ For an owner-approved branch fallback, configure the caller as in the example an
 ID in `NDDEV_BRANCH_FALLBACK_ACTOR_ID`. Pass the repository, workflow filename, branch, full SHA,
 runner profile and push run ID in that order. The fallback has its own concurrency group for that commit. The operator command confirms that
 GitHub created the eligible fallback before cancelling the same commit's push. Older commits keep
-their push runs. A push or a dispatch named `Contour hosted fallback` with both matching actor IDs
-qualifies the same repository, workflow, branch and commit. Promotion and release check the newest
-eligible run and revalidate its attempt before consuming its artifact receipt.
+their push runs.
 
 The unqualified PR label `runner:github` and a manual `runner: github` without a profile move the
 whole check and its portable jobs. For a call without a profile, the manual selection keeps its

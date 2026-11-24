@@ -72,6 +72,33 @@ test("a new attempt invalidates an existing qualification receipt", async () => 
   await assert.rejects(recheck({json: async () => inventory([run({run_attempt: 2})])}, qualified), /newer run or attempt/);
 });
 
+test("branch fallback qualifies only the configured App and its exact passed full job", async () => {
+  const actor = {id: 7001};
+  const dispatch = run({id: 8, run_number: 13, event: "workflow_dispatch",
+    display_title: "Contour hosted fallback", actor, triggering_actor: actor});
+  const failedPush = run({conclusion: "cancelled"});
+  const full = {id: 9, name: "check / full check", run_id: 8, run_attempt: 1, head_sha: where.sha,
+    status: "completed", conclusion: "success"};
+  const configured = {waitMinutes: 0, fallbackActorId: "7001"};
+  const api = (candidate = dispatch, job = full, push = failedPush) => ({
+    json: async (_, route) => route.includes("/jobs?") ? {total_count: 1, jobs: [job]}
+      : route.includes("event=workflow_dispatch") ? inventory([candidate]) : inventory([push]),
+  });
+  const result = await qualify(api(), where, configured);
+  assert.equal(result.event, "workflow_dispatch");
+  assert.equal(result.run_id, 8);
+  await recheck(api(), result, configured);
+
+  await assert.rejects(qualify(api(), where, {waitMinutes: 0}), /No qualification/);
+  for (const change of [{display_title: "Normal dispatch"}, {actor: {id: 7002}}, {triggering_actor: {id: 7002}}])
+    await assert.rejects(qualify(api({...dispatch, ...change}), where, configured), /No qualification/);
+  for (const change of [{name: "check / short check"}, {run_attempt: 2}, {head_sha: "b".repeat(40)}, {conclusion: "skipped"}])
+    await assert.rejects(qualify(api(dispatch, {...full, ...change}), where, configured), /exact hosted fallback full job/);
+  await assert.rejects(recheck(api({...dispatch, triggering_actor: {id: 7002}}), result, configured), /No qualification/);
+  const newerPush = run({id: 12, run_number: 14});
+  await assert.rejects(recheck(api(dispatch, full, newerPush), result, configured), /newer run or attempt/);
+});
+
 test("artifacts require exact ownership, attempt freshness, expiration and mandatory digests", () => {
   assert.equal(selectArtifacts(artifacts(artifact()), qualified, ["build"])[0].id, 9);
   const old = artifact({id: 8, created_at: new Date(Date.parse(started) - 1000).toISOString()});

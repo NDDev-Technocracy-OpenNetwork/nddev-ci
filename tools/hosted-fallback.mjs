@@ -14,7 +14,8 @@ export async function replacePush(github, {repository, workflow, branch, sha, pr
 
   const workflowPath = `.github/workflows/${workflow}`;
   const expected = {repository, workflowPath, branch, sha};
-  const {run: newest} = await checkState(github, expected, {fallbackActorId: actorId});
+  const qualification = {fallbackActorId: actorId};
+  const {run: newest, state} = await checkState(github, expected, qualification);
   const api = `/repos/${repository}`;
   const route = (id) => `${api}/actions/runs/${id}`;
   const matches = (run, id) => run?.id === id && run.path === workflowPath &&
@@ -48,8 +49,11 @@ export async function replacePush(github, {repository, workflow, branch, sha, pr
       refuse(`Workflow dispatch run ${id} did not match the qualified fallback; the push was left running.`);
     }
   }
-  if (!active.has(fallback.status) && (fallback.status !== "completed" || fallback.conclusion !== "success"))
-    refuse(`Fallback run ${fallback.id} does not have an active or successful status.`);
+  if (!active.has(fallback.status)) {
+    const completed = fallback === newest ? {state, run: newest} : await checkState(github, expected, qualification);
+    if (completed.state !== "qualified" || completed.run?.id !== fallback.id)
+      refuse(`Fallback run ${fallback.id} did not pass the exact full check.`);
+  }
   if (active.has(push.status)) {
     const cancelled = await github.request("POST", `${route(pushId)}/cancel`);
     await cancelled.body?.cancel();

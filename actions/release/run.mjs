@@ -39,7 +39,6 @@ async function main() {
   const ref = environment("GITHUB_REF");
   const temp = environment("RUNNER_TEMP");
   const workflow = input("check-workflow") || "ci.yml";
-  const fallbackActorId = process.env.NDDEV_BRANCH_FALLBACK_ACTOR_ID || "";
   const waitMinutes = Number(input("wait-minutes") || "30");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/.test(workflow))
     refuse("check-workflow must be a workflow file name in .github/workflows.");
@@ -49,11 +48,13 @@ async function main() {
     refuse("A release publishes only commits of main.");
   const github = client(input("github-token") || refuse("A token is required."), input("api-url") || environment("GITHUB_API_URL"));
 
+  const fallbackActorId = process.env.NDDEV_BRANCH_FALLBACK_ACTOR_ID;
   // 1. The newest full check of this exact commit on the integration branch.
   const qualifications = await qualifyWorkflows(github, {sha, repository, workflowPath: `.github/workflows/${workflow}`, branch: "dev"},
     input("required-workflows"), {waitMinutes, fallbackActorId});
   const qualified = qualifications[0];
-  const recheckAll = () => Promise.all(qualifications.map((proof) => recheck(github, proof, {fallbackActorId})));
+  const recheckAll = () => Promise.all(qualifications.map((proof, index) =>
+    recheck(github, proof, {fallbackActorId: index === 0 ? fallbackActorId : undefined})));
   const run = {id: qualified.run_id, run_attempt: qualified.run_attempt,
     html_url: `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${repository}/actions/runs/${qualified.run_id}`};
   console.log(`Qualified by ${run.html_url} (attempt ${run.run_attempt}).`);

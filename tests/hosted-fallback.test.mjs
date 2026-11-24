@@ -19,7 +19,11 @@ function fixture({selected = push, dispatched = fallback, known = [push], head =
   return {calls, github:{
     async json(method, route, options) {
       calls.push({method, route, options});
-      if (route.includes("/runs?")) return {total_count:known.length, workflow_runs:known};
+      if (route.includes("/runs?")) {
+        const event = new URL(route, "https://example.test").searchParams.get("event");
+        const matching = known.filter((run) => run.event === event);
+        return {total_count:matching.length, workflow_runs:matching};
+      }
       if (route.endsWith("/runs/11")) return selected;
       if (route.endsWith("/runs/12")) return dispatched;
       if (route.endsWith("/branches/dev")) return {commit:{sha:head}};
