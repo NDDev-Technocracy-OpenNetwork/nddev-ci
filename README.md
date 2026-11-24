@@ -183,15 +183,18 @@ patterns with `^` and `$` and escape any regular expression metacharacters. Merg
 policy change first so that both scans can read it from the base. Prefer generating
 fixture credentials at test runtime when their literal value has no purpose.
 
-Daily security findings go to the run summary and the `security-report-<attempt>` artifact,
-retained for 14 days. The artifact contains `security-report.json` with `schema_version: 1`,
-the run URL and every finding's scanner, kind, identifier, package/ecosystem, installed version,
-target, severity (null when unavailable) and `fixed_versions` (empty when none are reported).
-OSV rows also retain their matching affected ranges and severity scores; reported fixes are
-upstream range data, not a qualified upgrade recommendation. Secret rows contain verification
-and source-location metadata, never the matched value. The bounded summary may omit rows that
-remain in JSON and the full run log. The workflow opens, edits and closes no issue; existing
-findings remain report-only and scanner execution errors still fail the run.
+Daily security findings go to the job summary (bounded within 1 MiB, with finding counts and
+scanner versions) and as a single-line JSON document in the job log (`schema_version: 1`,
+`event.name: nddev_ci.security.report`). Public repositories also upload the same JSON document as
+the `security-report-<attempt>` artifact, retained for 14 days; private repositories upload no
+security report artifact. Each document records the run URL, scanner versions, finding counts and
+every finding's scanner, kind, identifier, package/ecosystem, installed version, target, severity
+(null when unavailable) and `fixed_versions` (empty when none are reported). OSV rows also retain
+their matching affected ranges and severity scores; reported fixes are upstream range data, not a
+qualified upgrade recommendation. Secret rows contain verification and source-location metadata,
+never the matched value. The bounded summary may omit rows that remain in the structured JSON and
+full run log. The workflow opens, edits and closes no issue; existing findings remain report-only
+and scanner execution errors still fail the run.
 
 The first attempt of a fixed daily UTC security schedule reports the nominal cron slot and
 how late the security job started. The runner's measured queue time is shown separately when

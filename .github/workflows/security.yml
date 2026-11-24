@@ -3,7 +3,8 @@
 # database), the dependencies whose licence is outside the licence policy (OSV-Scanner with
 # deps.dev, the one source of a lock file's licences), and the packages of the repository and of
 # its images on an SBOM made by Syft (Trivy and Grype). A finding never fails the run; the run
-# writes the run summary and a machine-readable artifact. A scanner that cannot run fails it.
+# writes the bounded run summary and structured JSON in the job log, and uploads a report artifact
+# for public repositories. A scanner that cannot run fails it.
 name: security
 
 on:
