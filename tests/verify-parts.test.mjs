@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { main } from "../actions/plan/run.mjs";
-import { matrix, plan } from "../lib/verify-parts.mjs";
+import { beforePush, matrix, plan } from "../lib/verify-parts.mjs";
 
 // The planner reads what just itself dumps, so each case is a real justfile, run where just is: the
 // library's check job has it, its bare native test jobs do not.
@@ -105,4 +105,13 @@ test("the plan step writes the jobs, honours a reason to run whole and survives 
   } finally {
     rmSync(root, {recursive: true, force: true});
   }
+});
+
+test("pre-push runs execution parts and preserves opaque verify recipes", withJust, () => {
+  assert.deepEqual(beforePush(dump(recipes("check"))), []);
+  assert.deepEqual(beforePush(dump("verify: check\n" + recipes("check"))), []);
+  assert.deepEqual(beforePush(dump("verify: check test build\n" + recipes("check", "test", "build"))),
+    ["test", "build"]);
+  assert.deepEqual(beforePush(dump("verify: check test\n    echo finish\n" + recipes("check", "test"))),
+    ["verify"]);
 });
