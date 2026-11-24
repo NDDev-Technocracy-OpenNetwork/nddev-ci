@@ -97,6 +97,7 @@ check: (_tools "check") scan-source-secrets
     node --check lib/pre-push-registry-input.mjs
     node --check lib/registry-snapshot.mjs
     node --check tests/pre-push-registry-input.test.mjs
+    node --check tests/pre-push-executor.test.mjs
     node --check lib/security-policy.mjs
     node --check tests/license-policy.test.mjs
     node --check tests/security-report.test.mjs

@@ -7,7 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const policyPath = ".nddev-ci-planner-speed.json";
 const plannerPath = "lib/verify-parts.mjs";
 const runs = 5;
-const plansPerRun = 20_000;
+// Keep each sample long enough to reduce noise from short CPU bursts.
+const plansPerRun = 200_000;
 const oid = /^[0-9a-f]{40}$/;
 
 const input = {
@@ -91,6 +92,7 @@ export async function main({INPUT_BASE: base, INPUT_MERGE: merge} = process.env)
         samples[index].push(measure(files[index]));
       }
     }
+    console.log(`Planner samples in µs. Base ${samples[0].join(", ")}. Merge ${samples[1].join(", ")}.`);
     const result = compareTiming(samples[0], samples[1], margin);
     console.log(`Planner median of ${runs} runs. Base ${result.base} µs, merge ${result.merge} µs, margin ${margin}%.`);
     if (result.slower) {
