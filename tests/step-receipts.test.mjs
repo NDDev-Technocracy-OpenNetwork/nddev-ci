@@ -11,6 +11,7 @@ import { finish as checkFinish, prepare as checkPrepare } from "../actions/proje
 import { main as recipeMain } from "../actions/recipe/run.mjs";
 import { main as stepReceiptMain } from "../actions/step-receipt/run.mjs";
 import {
+  buildReceiptSession,
   checkIdForArgv,
   classifyPathBypass,
   computeInputDigest,
@@ -272,6 +273,19 @@ test("bypass rules catch workflows, justfiles, lockfiles, releases, artifacts, r
 
   assert.equal(isArtifactProducingPart({ label: "verify: build", group: "build", argv: ["build"] }), true);
   assert.equal(isArtifactProducingPart({ label: "verify: check", group: "check", argv: ["check"] }), false);
+});
+
+test("the default workflow input leaves CACHE_EPOCH effective", async () => {
+  const deps = {
+    gitTreeState: () => ({ treeSha: headSha, dirty: false, lockfilesDigest: "" }),
+    fetchChangedFiles: async () => [],
+    computeToolchainAndRunnerDigests: () => ({}),
+  };
+  const environment = { NDDEV_CI_ACTION_REF: wfSha, CACHE_EPOCH: "rotation-2" };
+  const fallback = await buildReceiptSession(environment, { "cache-epoch": "" }, { deps });
+  const override = await buildReceiptSession(environment, { "cache-epoch": "rotation-3" }, { deps });
+  assert.equal(fallback.cacheEpoch, "rotation-2");
+  assert.equal(override.cacheEpoch, "rotation-3");
 });
 
 test("canary sampling is deterministic on dev push and off on pull requests", () => {

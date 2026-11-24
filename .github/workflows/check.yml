@@ -192,7 +192,7 @@ on:
       cache-epoch:
         description: Salt mixed into every step-receipt key; bump to invalidate cached receipts cleanly.
         type: string
-        default: '1'
+        default: ''
       canary-percent:
         description: Percentage (0-100) of eligible dev push runs re-executed fresh to compare against cached receipts.
         type: number
