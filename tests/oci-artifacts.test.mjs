@@ -22,6 +22,7 @@ import { promisify } from "node:util";
 import {
   artifactTag,
   collectFiles,
+  defaultChunkBytes,
   inspectOciArtifact,
   ociArtifactType,
   ociManifestMediaType,
@@ -56,12 +57,20 @@ async function startHttp(handler) {
   };
 }
 
-async function startOciRegistry({ failAuth = null, redirectStorage = true, mutateAfterPut = false, corruptBlob = false } = {}) {
+async function startOciRegistry({
+  failAuth = null,
+  redirectStorage = true,
+  mutateAfterPut = false,
+  corruptBlob = false,
+  maxPatchBytes = 4 * 1024 * 1024,
+  badRange = false,
+} = {}) {
   const blobs = new Map();
   const manifests = new Map();
   const uploads = new Map();
   const storageAuthHeaders = [];
   const headBlobHits = [];
+  const patchRequests = [];
   let uploadCounter = 0;
 
   const storage = await startHttp((req, res) => {
@@ -102,14 +111,33 @@ async function startOciRegistry({ failAuth = null, redirectStorage = true, mutat
       const id = rest.slice("uploads/".length);
       const chunks = uploads.get(id);
       if (!chunks) { res.writeHead(404); res.end(); return; }
-      for await (const chunk of req) chunks.push(chunk);
+      const received = [];
+      for await (const chunk of req) received.push(chunk);
+      const body = Buffer.concat(received);
       if (req.method === "PATCH") {
-        const total = chunks.reduce((sum, c) => sum + c.length, 0);
-        res.writeHead(202, { Location: `/v2/${pkg}/blobs/uploads/${id}`, Range: `0-${Math.max(0, total - 1)}` });
+        const offset = chunks.reduce((sum, c) => sum + c.length, 0);
+        const contentRange = req.headers["content-range"] ?? "";
+        const rangeMatch = /^(0|[1-9]\d*)-(0|[1-9]\d*)$/.exec(contentRange);
+        const rangeOk = rangeMatch && Number(rangeMatch[1]) === offset && Number(rangeMatch[2]) === offset + body.length - 1;
+        if (body.length > maxPatchBytes || !rangeOk) {
+          res.writeHead(416, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            errors: [{ code: "REQUESTED_RANGE_NOT_SATISFIABLE", message: "request body or range rejected" }],
+          }));
+          return;
+        }
+        patchRequests.push({ length: body.length, contentRange });
+        chunks.push(body);
+        const total = offset + body.length;
+        res.writeHead(202, {
+          Location: `/v2/${pkg}/blobs/uploads/${id}`,
+          Range: badRange ? "0-0" : `0-${Math.max(0, total - 1)}`,
+        });
         res.end();
         return;
       }
       if (req.method === "PUT") {
+        if (body.length) chunks.push(body);
         const digest = url.searchParams.get("digest");
         const full = Buffer.concat(chunks);
         if (sha(full) !== digest) { res.writeHead(400); res.end(); return; }
@@ -188,6 +216,7 @@ async function startOciRegistry({ failAuth = null, redirectStorage = true, mutat
     manifests,
     storageAuthHeaders,
     headBlobHits,
+    patchRequests,
     close: async () => { await registry.close(); await storage.close(); },
   };
 }
@@ -349,6 +378,95 @@ test("OCI push, chunked upload, deduplication, redirect credential isolation and
     assert.equal(existsSync(path.join(root, "stale")), false);
   } finally {
     await reg.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OCI chunked upload stays within GHCR's 4 MiB PATCH limit by default and rejects oversized chunks or mismatched ranges", async () => {
+  assert.equal(defaultChunkBytes, 4 * 1024 * 1024);
+  const root = mkdtempSync(path.join(tmpdir(), "oci-chunk-limit-"));
+  const reg = await startOciRegistry();
+  const brokenRange = await startOciRegistry({ badRange: true });
+  try {
+    const work = path.join(root, "work");
+    mkdirSync(path.join(work, "dist"), { recursive: true });
+    const size = 9 * 1024 * 1024 + 123;
+    const payload = Buffer.alloc(size);
+    for (let i = 0; i < size - 4; i += 4096) payload.writeUInt32BE(i, i);
+    writeFileSync(path.join(work, "dist", "bundle.tar.gz"), payload);
+
+    const pushed = await pushOciArtifact({
+      repository: where.repository,
+      sha: where.sha,
+      branch: where.branch,
+      runId: 91,
+      runAttempt: 1,
+      name: "large-bundle",
+      pathsText: "dist/bundle.tar.gz",
+      cwd: work,
+      allowedRoots: [work],
+      token: "ghs_secret_fixture_token",
+      registryUrl: reg.url,
+    });
+    assert.deepEqual(
+      reg.patchRequests,
+      [
+        { length: 4 * 1024 * 1024, contentRange: "0-4194303" },
+        { length: 4 * 1024 * 1024, contentRange: "4194304-8388607" },
+        { length: 1 * 1024 * 1024 + 123, contentRange: "8388608-9437306" },
+      ],
+    );
+
+    const dest = path.join(root, "pulled-large");
+    await pullOciArtifacts({
+      repository: where.repository,
+      sha: where.sha,
+      branch: where.branch,
+      runId: 91,
+      runAttempt: 1,
+      names: [pushed.digest],
+      destination: dest,
+      topLevelOnly: true,
+      token: "ghs_secret_fixture_token",
+      registryUrl: reg.url,
+    });
+    assert.equal(sha(readFileSync(path.join(dest, "bundle.tar.gz"))), sha(payload));
+
+    const overLimit = Buffer.alloc(5 * 1024 * 1024, 0x5a);
+    writeFileSync(path.join(work, "dist", "oversized.bin"), overLimit);
+    await assert.rejects(pushOciArtifact({
+      repository: where.repository,
+      sha: where.sha,
+      branch: where.branch,
+      runId: 91,
+      runAttempt: 1,
+      name: "oversized-chunk",
+      pathsText: "dist/oversized.bin",
+      cwd: work,
+      allowedRoots: [work],
+      token: "ghs_secret_fixture_token",
+      registryUrl: reg.url,
+      chunkBytes: 8 * 1024 * 1024,
+    }), /HTTP 416 \(REQUESTED_RANGE_NOT_SATISFIABLE\)/);
+
+    writeFileSync(path.join(work, "dist", "small.bin"), Buffer.alloc(180, 0x33));
+    await assert.rejects(pushOciArtifact({
+      repository: where.repository,
+      sha: where.sha,
+      branch: where.branch,
+      runId: 91,
+      runAttempt: 1,
+      name: "bad-range",
+      pathsText: "dist/small.bin",
+      cwd: work,
+      allowedRoots: [work],
+      token: "ghs_secret_fixture_token",
+      registryUrl: brokenRange.url,
+      chunkBytes: 64,
+    }), /unexpected range/);
+  } finally {
+    await reg.close();
+    await brokenRange.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
