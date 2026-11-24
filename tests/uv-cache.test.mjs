@@ -83,9 +83,8 @@ test("warmUvCaches serves locked wheels from the registry and short-circuits war
 
   const callsLog = path.join(root, "uv-calls.log");
   const wheelSha = createHash("sha256").update("wheel-bytes").digest("hex");
-  const fakeUv = path.join(binDir, "uv");
+  const fakeUv = path.join(binDir, "fake-uv.cjs");
   const fakeScript = [
-    `#!${process.execPath}`,
     'const fs = require("node:fs");',
     'const path = require("node:path");',
     'const args = process.argv.slice(2);',
@@ -98,8 +97,9 @@ test("warmUvCaches serves locked wheels from the registry and short-circuits war
     '}',
     'if (args[0] === "venv") {',
     '  const dir = args[args.length - 1];',
-    '  fs.mkdirSync(path.join(dir, "bin"), { recursive: true });',
-    '  fs.writeFileSync(path.join(dir, "bin", "python"), "");',
+    '  const sub = process.platform === "win32" ? "Scripts" : "bin";',
+    '  fs.mkdirSync(path.join(dir, sub), { recursive: true });',
+    '  fs.writeFileSync(path.join(dir, sub, process.platform === "win32" ? "python.exe" : "python"), "");',
     '  process.exit(0);',
     '}',
     'if (args.includes("pip") && args.includes("sync")) {',
@@ -109,7 +109,7 @@ test("warmUvCaches serves locked wheels from the registry and short-circuits war
     '  process.exit(0);',
     '}',
   ].join("\n");
-  writeFileSync(fakeUv, fakeScript, { mode: 0o755 });
+  writeFileSync(fakeUv, fakeScript);
 
   const server = http.createServer((_req, res) => res.end("ok"));
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -117,20 +117,21 @@ test("warmUvCaches serves locked wheels from the registry and short-circuits war
   const port = server.address().port;
 
   const env = {
-    PATH: `${binDir}:${process.env.PATH || ""}`,
+    ...process.env,
     GITHUB_WORKSPACE: path.join(root, "repo"),
     UV_CACHE_DIR: cacheDir,
     RUNNER_TEMP: root,
     NDDEV_CI_ARTIFACT_REGISTRY: `http://127.0.0.1:${port}`,
   };
+  const uvCmd = [process.execPath, fakeUv];
   const messages = [];
-  const first = warmUvCaches(env, (msg) => messages.push(msg));
+  const first = warmUvCaches(env, (msg) => messages.push(msg), uvCmd);
   assert.deepEqual(first, { warmed: 1, skippedWarm: 0, failed: 0 });
   assert.ok(existsSync(path.join(cacheDir, ".nddev-warmed")));
   const callsAfterFirst = readFileSync(callsLog, "utf8").trim().split("\n");
   assert.equal(callsAfterFirst.filter((line) => line.startsWith("export")).length, 1);
 
-  const second = warmUvCaches(env, (msg) => messages.push(msg));
+  const second = warmUvCaches(env, (msg) => messages.push(msg), uvCmd);
   assert.deepEqual(second, { warmed: 0, skippedWarm: 1, failed: 0 });
   const callsAfterSecond = readFileSync(callsLog, "utf8").trim().split("\n");
   assert.equal(callsAfterSecond.filter((line) => line.startsWith("export")).length, 1);
