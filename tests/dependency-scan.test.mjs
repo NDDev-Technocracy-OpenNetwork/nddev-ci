@@ -124,24 +124,11 @@ const linux = {
 
 async function startStubRegistry(t, root, day, extraEnv = {}) {
   const log = path.join(root, "registry.log");
-  const registry = spawn(process.execPath, ["-e", stubRegistry, log, day], {
-    stdio: ["ignore", "pipe", "inherit"],
-  });
-  t.after(() => {
-    registry.kill();
-    rmSync(root, { recursive: true, force: true });
-  });
-  const port = await new Promise((resolve) =>
-    registry.stdout.once("data", (bytes) => resolve(String(bytes).trim())),
-  );
-  return {
-    log,
-    environment: {
-      ...process.env,
-      NDDEV_CI_ARTIFACT_REGISTRY: `http://127.0.0.1:${port}/`,
-      ...extraEnv,
-    },
-  };
+  const child = spawn(process.execPath, ["-e", stubRegistry, log, day], { stdio: ["ignore", "pipe", "inherit"] });
+  const cleanup = () => { child.kill(); rmSync(root, { recursive: true, force: true }); };
+  t.after(cleanup);
+  const address = await new Promise((done) => child.stdout.once("data", (chunk) => done(`http://127.0.0.1:${String(chunk).trim()}/`)));
+  return { log, environment: { ...process.env, ...extraEnv, NDDEV_CI_ARTIFACT_REGISTRY: address } };
 }
 
 test("a declared registry provides the day's databases and the scanner downloads nothing", linux, async (t) => {
