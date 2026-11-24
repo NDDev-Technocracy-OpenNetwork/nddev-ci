@@ -88,6 +88,7 @@ check: (_tools "check") scan-source-secrets
     node --check actions/secret-scan/run.mjs
     node --check tools/scan-before-push.mjs
     node --check tools/scan-source-secrets.mjs
+    node --check tools/prepare-source-secrets.mjs
     node --check tools/verify-before-push.mjs
     node --check lib/pre-push-executor.mjs
     node --check lib/pre-push-registry-input.mjs
@@ -163,6 +164,7 @@ package-tools:
     mkdir -p dist
     git archive --format=zip --prefix=nddev-ci/ --output=dist/qualify-merge.zip HEAD tools/qualify-merge.mjs lib/merge-on-green.mjs lib/qualification.mjs lib/release.mjs
     git archive --format=zip --prefix=nddev-ci/ --output=dist/scan-before-push.zip HEAD tools/scan-before-push.mjs tools/scan-source-secrets.mjs lib/secret-scan.mjs lib/secret-policy.mjs lib/security-policy.mjs tools/verify-before-push.mjs lib/pre-push-executor.mjs lib/verify-parts.mjs lib/pre-push-registry-input.mjs lib/registry-snapshot.mjs
+    git show HEAD:tools/prepare-source-secrets.mjs > dist/prepare-source-secrets.mjs
 
 # Everything the full check on dev runs.
 verify: check test package-tools

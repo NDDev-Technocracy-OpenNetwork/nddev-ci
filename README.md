@@ -161,6 +161,12 @@ paths for an edit hook or omit paths for a local check of changes and untracked 
 reads the policy at the worktree's common base with origin/dev, or uses the built-in policy when
 there is no published base. It reports the file, line and rule for findings on new lines.
 
+The release also publishes `prepare-source-secrets.mjs` for project setup. Pin this file by SHA-256
+and run `node prepare-source-secrets.mjs <destination> <release-tag> <archive-sha256>`. The command
+verifies the chosen `scan-before-push.zip` and prepares its scanner beside the supported Betterleaks
+binary. Use a destination per archive pin. Put its `bin` first on PATH when running
+`tools/scan-source-secrets.mjs`. Preparation uses the artifact registry when configured.
+
 For an admitted pre-push build with protected registry input, the launcher provides the lock path,
 registry commit and snapshot digest through `NDDEV_CI_PRE_PUSH_REGISTRY_LOCK`,
 `NDDEV_CI_PRE_PUSH_REGISTRY_COMMIT` and `NDDEV_CI_PRE_PUSH_REGISTRY_SHA256`. It supplies the
