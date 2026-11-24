@@ -183,15 +183,18 @@ patterns with `^` and `$` and escape any regular expression metacharacters. Merg
 policy change first so that both scans can read it from the base. Prefer generating
 fixture credentials at test runtime when their literal value has no purpose.
 
-Daily security findings go to the run summary and the `security-report-<attempt>` artifact,
-retained for 14 days. The artifact contains `security-report.json` with `schema_version: 1`,
-the run URL and every finding's scanner, kind, identifier, package/ecosystem, installed version,
-target, severity (null when unavailable) and `fixed_versions` (empty when none are reported).
-OSV rows also retain their matching affected ranges and severity scores; reported fixes are
-upstream range data, not a qualified upgrade recommendation. Secret rows contain verification
-and source-location metadata, never the matched value. The bounded summary may omit rows that
-remain in JSON and the full run log. The workflow opens, edits and closes no issue; existing
-findings remain report-only and scanner execution errors still fail the run.
+Daily security findings go to the job summary (bounded within 1 MiB, with finding counts and
+scanner versions) and as a single-line JSON document in the job log (`schema_version: 1`,
+`event.name: nddev_ci.security.report`). Public repositories also upload the same JSON document as
+the `security-report-<attempt>` artifact, retained for 14 days; private repositories upload no
+security report artifact. Each document records the run URL, scanner versions, finding counts and
+every finding's scanner, kind, identifier, package/ecosystem, installed version, target, severity
+(null when unavailable) and `fixed_versions` (empty when none are reported). OSV rows also retain
+their matching affected ranges and severity scores; reported fixes are upstream range data, not a
+qualified upgrade recommendation. Secret rows contain verification and source-location metadata,
+never the matched value. The bounded summary may omit rows that remain in the structured JSON and
+full run log. The workflow opens, edits and closes no issue; existing findings remain report-only
+and scanner execution errors still fail the run.
 
 The first attempt of a fixed daily UTC security schedule reports the nominal cron slot and
 how late the security job started. The runner's measured queue time is shown separately when
@@ -211,13 +214,15 @@ not infer these use and distribution conditions.
 
 Checkout inputs support projects that read history or omit generated trees; `submodules` checks
 out public submodules at their recorded commits for a superproject's checks.
-`diagnostics` keeps only named workspace reports on failure; release artifacts are
-uploaded only after successful non-PR checks.
-`reports` keeps named workspace reports whether the job passes or fails, pull requests included,
-for 14 days and apart from release artifacts. Each named path must hold a file the job left: the
-ones that exist are kept, and any missing one then fails the job, even when another matched. Both
-lists refuse absolute, parent and hidden paths, so a project that writes reports to a hidden folder
-copies them to a visible one.
+`diagnostics` uploads named workspace reports on failure in public repositories; private
+repositories skip the upload and use the job log. Release artifacts are uploaded only after
+successful non-PR checks.
+`reports` checks that every named workspace report holds a file the job left, whether the job
+passes or fails, pull requests included; any missing path fails the job even when another matched.
+Public repositories also upload those reports for 14 days apart from release artifacts, while
+private repositories verify them without uploading workflow artifacts. Both lists refuse absolute,
+parent and hidden paths, so a project that writes reports to a hidden folder copies them to a
+visible one.
 
 `repository-token: true` gives the project's commands the job's own token as `GITHUB_TOKEN`, for
 checks of the project's own private repository, such as a link check of its README. The token

@@ -55,3 +55,10 @@ test("an empty folder, a folder of hidden files and an unmatched pattern count a
     assert.match(result.stdout, new RegExp(`reports names ${name}, and the job left nothing there`));
   }
 });
+
+test("reports and diagnostics uploads run only for public repositories while report existence stays checked", () => {
+  const step = (name) => action.split(`    - name: ${name}\n`)[1].split("\n    - name: ")[0];
+  assert.match(step("Reports"), /if: \$\{\{ !github\.event\.repository\.private &&/);
+  assert.match(step("Diagnostics of the failed job"), /if: \$\{\{ !github\.event\.repository\.private &&/);
+  assert.doesNotMatch(step("Every named report is kept"), /repository\.private/);
+});

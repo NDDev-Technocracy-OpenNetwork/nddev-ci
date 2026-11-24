@@ -229,7 +229,7 @@ jobs:
           const r=JSON.parse(l[l.length-1]); if(l.length!==1||r['event.name']!=='nddev_ci.job.completed'||!r['vcs.ref.head.revision'])throw Error('bad job record')"
   # Proof of provenance.yml on dev: a built file of this run is attested by the reusable workflow.
   provenance-fixture:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && !github.event.repository.private
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
