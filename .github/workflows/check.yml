@@ -488,7 +488,15 @@ jobs:
         env:
           ARTIFACT: ${{ inputs.artifact }}
         run: |
-          if [ -e "$ARTIFACT" ]; then echo "left=true" >> "$GITHUB_OUTPUT"; fi
+          shopt -s globstar 2>/dev/null || true
+          while read -r artifact_path || [ -n "$artifact_path" ]; do
+            artifact_path=${artifact_path%$'\r'}
+            [ -n "$artifact_path" ] || continue
+            if [ -e "$artifact_path" ] || compgen -G "$artifact_path" >/dev/null; then
+              printf 'left=true\n' >> "$GITHUB_OUTPUT"
+              break
+            fi
+          done <<< "$ARTIFACT"
 
       - name: Complete the job
         if: always() && steps.reuse.outputs.cache-hit != 'true'
