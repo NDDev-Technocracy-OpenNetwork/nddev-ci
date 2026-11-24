@@ -161,60 +161,123 @@ jobs:
           esac
           digest() { local name="${1}_SHA256_$arch"; printf '%s' "${!name}"; }
           bin="$RUNNER_TEMP/nddev-ci/bin"
-          archive="$RUNNER_TEMP/nddev-ci/archive"
-          mkdir -p "$bin"
+          staging="$RUNNER_TEMP/nddev-ci/tools-staging"
+          mkdir -p "$bin" "$staging"
+          # Reuse exact pinned tools already installed inside the runner's managed tool cache.
+          reuse_cached() {
+            local tool=$1 expected=$2 found="" resolved="" version=""
+            [ -n "${RUNNER_TOOL_CACHE:-}" ] || return 1
+            found=$(command -v "$tool" 2>/dev/null || true)
+            [ -n "$found" ] || return 1
+            case "$found" in
+              "$RUNNER_TOOL_CACHE"/*) ;;
+              *)
+                resolved=$(realpath "$found" 2>/dev/null || true)
+                case "$resolved" in
+                  "$RUNNER_TOOL_CACHE"/*) ;;
+                  *) return 1 ;;
+                esac
+                ;;
+            esac
+            case "$tool" in
+              betterleaks) version=$("$found" version 2>/dev/null || "$found" --version 2>/dev/null || true) ;;
+              poutine) version=$("$found" version 2>/dev/null || "$found" --version 2>/dev/null || true) ;;
+              *) version=$("$found" --version 2>/dev/null || true) ;;
+            esac
+            if grep -Fq "$expected" <<< "$version"; then
+              ln -sf "$found" "$bin/$tool"
+              printf 'Using preinstalled %s@%s from tool cache.\n' "$tool" "$expected"
+              return 0
+            fi
+            return 1
+          }
           fetch() {
-            source=${1#https://github.com/}
+            local tool=$1 url=$2 sha=$3 member=$4
+            local source repository release tag name archive dest
+            source=${url#https://github.com/}
             repository=${source%%/releases/download/*}
             release=${source#*/releases/download/}
             tag=${release%%/*}
             name=${release#*/}
+            archive="$staging/$tool.archive"
+            dest="$staging/$tool"
+            mkdir -p "$dest"
             printf 'Fetching check tool %s@%s: %s\n' "$repository" "$tag" "$name"
-            auth=()
+            local auth=()
             if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
             if [ -n "${NDDEV_CI_ARTIFACT_REGISTRY:-}" ]; then
               printf 'Using the configured artifact registry.\n'
-              curl -fsSL -o "$archive" "${NDDEV_CI_ARTIFACT_REGISTRY%/}/github-releases/sha256/$2/$repository/releases/download/$tag/$name"
+              curl -fsSL -o "$archive" "${NDDEV_CI_ARTIFACT_REGISTRY%/}/github-releases/sha256/$sha/$repository/releases/download/$tag/$name"
             else
+              local asset
               asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
                 jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
               curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/$repository/releases/assets/$asset"
             fi
-            echo "$2  $archive" | sha256sum --check --quiet
-            tar -xzf "$archive" -C "$bin" "$3"
+            echo "$sha  $archive" | sha256sum --check --quiet
+            tar -xzf "$archive" -C "$dest" "$member"
+            mv "$dest/$member" "$bin/$tool"
           }
-          if [ "$NEW_CLONES" = true ]; then
-            fetch "https://github.com/kucherenko/jscpd/releases/download/v$JSCPD_VERSION/jscpd-linux-$betterleaks-musl.tar.gz" \
-              "$(digest JSCPD)" jscpd
+          fetch_zizmor() {
+            local archive="$staging/zizmor.whl"
+            local name="zizmor-$ZIZMOR_VERSION-py3-none-$wheel.whl"
+            local metadata origin url
+            if [ -n "${NDDEV_CI_ARTIFACT_REGISTRY:-}" ]; then
+              metadata="${NDDEV_CI_ARTIFACT_REGISTRY%/}/pypi/simple/zizmor/"
+              origin="${NDDEV_CI_ARTIFACT_REGISTRY%/}/pypi-files/"
+            else
+              metadata="https://pypi.org/simple/zizmor/"
+              origin="https://files.pythonhosted.org/"
+            fi
+            url=$(curl -fsSL -H 'Accept: application/vnd.pypi.simple.v1+json' "$metadata" |
+              jq -er --arg name "$name" '[.files[] | select(.filename == $name)] | if length == 1 then .[0].url | strings else error("wheel is missing or ambiguous") end')
+            case "$url" in "$origin"*) ;; *) echo "Wheel origin differs from the configured registry" >&2; exit 1 ;; esac
+            curl -fsSL -o "$archive" "$url"
+            echo "$(digest ZIZMOR)  $archive" | sha256sum --check --quiet
+            python3 -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]))' "$archive" "zizmor-$ZIZMOR_VERSION.data/scripts/zizmor" > "$bin/zizmor"
+            chmod 0755 "$bin/zizmor"
+          }
+          pids=()
+          if [ "$NEW_CLONES" = true ] && ! reuse_cached jscpd "$JSCPD_VERSION"; then
+            fetch jscpd "https://github.com/kucherenko/jscpd/releases/download/v$JSCPD_VERSION/jscpd-linux-$betterleaks-musl.tar.gz" \
+              "$(digest JSCPD)" jscpd &
+            pids+=($!)
           fi
-          fetch "https://github.com/betterleaks/betterleaks/releases/download/v$BETTERLEAKS_VERSION/betterleaks_${BETTERLEAKS_VERSION}_linux_$betterleaks.tar.gz" \
-            "$(digest BETTERLEAKS)" betterleaks
-          fetch "https://github.com/boostsecurityio/poutine/releases/download/v$POUTINE_VERSION/poutine_Linux_$poutine.tar.gz" \
-            "$(digest POUTINE)" poutine
-          fetch "https://github.com/crate-ci/committed/releases/download/v$COMMITTED_VERSION/committed-v${COMMITTED_VERSION}-$rust-unknown-linux-musl.tar.gz" \
-            "$(digest COMMITTED)" ./committed
-          fetch "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_$actionlint.tar.gz" \
-            "$(digest ACTIONLINT)" actionlint
-          fetch "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.$rust.tar.gz" \
-            "$(digest SHELLCHECK)" "shellcheck-v$SHELLCHECK_VERSION/shellcheck"
-          mv "$bin/shellcheck-v$SHELLCHECK_VERSION/shellcheck" "$bin/shellcheck"
-          rmdir "$bin/shellcheck-v$SHELLCHECK_VERSION"
-          name="zizmor-$ZIZMOR_VERSION-py3-none-$wheel.whl"
-          if [ -n "${NDDEV_CI_ARTIFACT_REGISTRY:-}" ]; then
-            metadata="${NDDEV_CI_ARTIFACT_REGISTRY%/}/pypi/simple/zizmor/"
-            origin="${NDDEV_CI_ARTIFACT_REGISTRY%/}/pypi-files/"
-          else
-            metadata="https://pypi.org/simple/zizmor/"
-            origin="https://files.pythonhosted.org/"
+          if ! reuse_cached betterleaks "$BETTERLEAKS_VERSION"; then
+            fetch betterleaks "https://github.com/betterleaks/betterleaks/releases/download/v$BETTERLEAKS_VERSION/betterleaks_${BETTERLEAKS_VERSION}_linux_$betterleaks.tar.gz" \
+              "$(digest BETTERLEAKS)" betterleaks &
+            pids+=($!)
           fi
-          url=$(curl -fsSL -H 'Accept: application/vnd.pypi.simple.v1+json' "$metadata" |
-            jq -er --arg name "$name" '[.files[] | select(.filename == $name)] | if length == 1 then .[0].url | strings else error("wheel is missing or ambiguous") end')
-          case "$url" in "$origin"*) ;; *) echo "Wheel origin differs from the configured registry" >&2; exit 1 ;; esac
-          curl -fsSL -o "$archive" "$url"
-          echo "$(digest ZIZMOR)  $archive" | sha256sum --check --quiet
-          python3 -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]))' "$archive" "zizmor-$ZIZMOR_VERSION.data/scripts/zizmor" > "$bin/zizmor"
-          chmod 0755 "$bin/zizmor"
-          rm -f "$archive"
+          if ! reuse_cached poutine "$POUTINE_VERSION"; then
+            fetch poutine "https://github.com/boostsecurityio/poutine/releases/download/v$POUTINE_VERSION/poutine_Linux_$poutine.tar.gz" \
+              "$(digest POUTINE)" poutine &
+            pids+=($!)
+          fi
+          if ! reuse_cached committed "$COMMITTED_VERSION"; then
+            fetch committed "https://github.com/crate-ci/committed/releases/download/v$COMMITTED_VERSION/committed-v${COMMITTED_VERSION}-$rust-unknown-linux-musl.tar.gz" \
+              "$(digest COMMITTED)" ./committed &
+            pids+=($!)
+          fi
+          if ! reuse_cached actionlint "$ACTIONLINT_VERSION"; then
+            fetch actionlint "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_$actionlint.tar.gz" \
+              "$(digest ACTIONLINT)" actionlint &
+            pids+=($!)
+          fi
+          if ! reuse_cached shellcheck "$SHELLCHECK_VERSION"; then
+            fetch shellcheck "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.$rust.tar.gz" \
+              "$(digest SHELLCHECK)" "shellcheck-v$SHELLCHECK_VERSION/shellcheck" &
+            pids+=($!)
+          fi
+          if ! reuse_cached zizmor "$ZIZMOR_VERSION"; then
+            fetch_zizmor &
+            pids+=($!)
+          fi
+          failed=0
+          for pid in "${pids[@]}"; do
+            wait "$pid" || failed=1
+          done
+          rm -rf "$staging"
+          [ "$failed" -eq 0 ]
           echo "$bin" >> "$GITHUB_PATH"
 
       - name: Commit messages
@@ -424,11 +487,25 @@ jobs:
           # The pinned ShellCheck comes first on PATH, so the image's own never decides the stop.
           [ "$(command -v shellcheck)" = "$RUNNER_TEMP/nddev-ci/bin/shellcheck" ] || { echo "::error::the pinned ShellCheck is not first on PATH"; exit 1; }
           shellcheck --version | sed -n 2p
-          actionlint
-          zizmor --no-progress --min-severity high .github
+          logs="$RUNNER_TEMP/nddev-ci/workflow-checks"
+          mkdir -p "$logs"
+          actionlint > "$logs/actionlint.out" 2>&1 &
+          pid_actionlint=$!
+          zizmor --no-progress --min-severity high .github > "$logs/zizmor.out" 2>&1 &
+          pid_zizmor=$!
           # poutine's notes, such as an action of our own organisations from an unverified
           # creator, are reported; its warnings and errors stop the merge.
-          poutine analyze_local . --quiet --disable-version-check --format json > "$RUNNER_TEMP/poutine.json"
+          poutine analyze_local . --quiet --disable-version-check --format json > "$RUNNER_TEMP/poutine.json" 2> "$logs/poutine.err" &
+          pid_poutine=$!
+          rc_actionlint=0; wait "$pid_actionlint" || rc_actionlint=$?
+          rc_zizmor=0; wait "$pid_zizmor" || rc_zizmor=$?
+          rc_poutine=0; wait "$pid_poutine" || rc_poutine=$?
+          cat "$logs/actionlint.out"
+          cat "$logs/zizmor.out"
+          cat "$logs/poutine.err" >&2
+          if [ "$rc_actionlint" -ne 0 ] || [ "$rc_zizmor" -ne 0 ] || [ "$rc_poutine" -ne 0 ]; then
+            exit 1
+          fi
           python3 - "$RUNNER_TEMP/poutine.json" <<'PY'
           import json, sys
           report = json.load(open(sys.argv[1]))

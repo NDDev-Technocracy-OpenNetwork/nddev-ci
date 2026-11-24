@@ -370,3 +370,37 @@ test("Java VM omission of zero release fields preserves the exact selected SDK t
   assert.notEqual(javaVersion(ga.replace(/\+36/g, "+36+extra"), "25.0.0+36"), "25.0.0+36");
   assert.notEqual(javaVersion(ga.replace(/25/g, "25.0.1"), "25.0.0+36"), "25.0.0+36");
 });
+
+test("validate emits a selection payload that verify consumes without repeating SDK env vars", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "hosted-sdk-selection-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const output = path.join(root, "github-output");
+  const envFile = path.join(root, "github-env");
+  writeFileSync(output, "");
+  writeFileSync(envFile, "");
+  main("validate", {
+    ...process.env,
+    SDK_RUNNER_ENVIRONMENT: "self-hosted",
+    SDK_MANAGED: "true",
+    GITHUB_OUTPUT: output,
+  });
+  const lines = readFileSync(output, "utf8").split("\n");
+  const selectionLine = lines.find((line) => line.startsWith("selection="));
+  assert.ok(selectionLine, "validate must emit selection output");
+  const payload = JSON.parse(selectionLine.slice("selection=".length));
+  assert.equal(payload.SDK_RUNNER_ENVIRONMENT, "self-hosted");
+  assert.equal(payload.SDK_MANAGED, "true");
+
+  const verifyOut = path.join(root, "verify-output");
+  writeFileSync(verifyOut, "");
+  main("verify", {
+    PATH: process.env.PATH,
+    SDK_SELECTION: selectionLine.slice("selection=".length),
+    GITHUB_OUTPUT: verifyOut,
+    GITHUB_ENV: envFile,
+  });
+  const receiptLine = readFileSync(verifyOut, "utf8").split("\n").find((line) => line.startsWith("receipt="));
+  assert.ok(receiptLine, "verify must emit receipt from SDK_SELECTION");
+  const receipt = JSON.parse(receiptLine.slice("receipt=".length));
+  assert.equal(receipt.schema_version, 1);
+});

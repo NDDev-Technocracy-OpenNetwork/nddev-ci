@@ -52,9 +52,8 @@ runs:
   steps:
     - name: Validate exact SDK selections
       id: validate
-      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      uses: $/actions/hosted-sdk-step
       env:
-        SDK_ACTION_PATH: ${{ github.action_path }}
         SDK_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         SDK_MANAGED: ${{ inputs.managed }}
         SDK_NODE_VERSION: ${{ inputs.node-version }}
@@ -70,9 +69,7 @@ runs:
         SDK_DART_VERSION: ${{ inputs.dart-version }}
         SDK_TOOLS: ${{ inputs.tools }}
       with:
-        script: |
-          const action = await import(require("node:url").pathToFileURL(process.env.SDK_ACTION_PATH + "/run.mjs").href);
-          action.main("validate");
+        step: validate
     # SDKs that setup actions take from GitHub releases come from the job's cache when a previous
     # job of this repository prepared the same exact versions on the same image.
     - name: Restore exact SDKs from the tool cache
@@ -100,17 +97,14 @@ runs:
     - name: Resolve the exact native Bun asset
       id: bun-source
       if: steps.validate.outputs.bootstrap == 'true' && inputs.bun-version != ''
-      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      uses: $/actions/hosted-sdk-step
       env:
-        SDK_ACTION_PATH: ${{ github.action_path }}
         SDK_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         SDK_MANAGED: ${{ inputs.managed }}
         SDK_BUN_VERSION: ${{ inputs.bun-version }}
         SDK_GITHUB_TOKEN: ${{ github.server_url == 'https://github.com' && github.token || '' }}
       with:
-        script: |
-          const action = await import(require("node:url").pathToFileURL(process.env.SDK_ACTION_PATH + "/bun.mjs").href);
-          await action.main();
+        step: bun
     - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       if: steps.validate.outputs.bootstrap == 'true' && inputs.bun-version != ''
       env:
@@ -141,14 +135,11 @@ runs:
     # off; the official archive is taken directly and verified by the manifest's SHA-256.
     - name: Prepare the exact Flutter SDK
       if: steps.validate.outputs.bootstrap == 'true' && inputs.flutter-version != ''
-      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      uses: $/actions/hosted-sdk-step
       env:
-        SDK_ACTION_PATH: ${{ github.action_path }}
         SDK_FLUTTER_VERSION: ${{ inputs.flutter-version }}
       with:
-        script: |
-          const action = await import(require("node:url").pathToFileURL(process.env.SDK_ACTION_PATH + "/flutter.mjs").href);
-          await action.install();
+        step: flutter
     - name: Flutter and Dart analytics off
       if: steps.validate.outputs.bootstrap == 'true' && inputs.flutter-version != ''
       shell: bash
@@ -158,14 +149,11 @@ runs:
         dart --disable-analytics
     - name: Prepare the exact standalone Dart SDK
       if: steps.validate.outputs.bootstrap == 'true' && inputs.dart-version != ''
-      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      uses: $/actions/hosted-sdk-step
       env:
-        SDK_ACTION_PATH: ${{ github.action_path }}
         SDK_DART_VERSION: ${{ inputs.dart-version }}
       with:
-        script: |
-          const action = await import(require("node:url").pathToFileURL(process.env.SDK_ACTION_PATH + "/dart.mjs").href);
-          await action.install();
+        step: dart
     - name: Standalone Dart analytics off
       if: steps.validate.outputs.bootstrap == 'true' && inputs.dart-version != ''
       shell: bash
@@ -181,30 +169,14 @@ runs:
         fallback: none
     - name: Verify selected executables and isolate package preparation
       id: verify
-      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      uses: $/actions/hosted-sdk-step
       env:
-        SDK_ACTION_PATH: ${{ github.action_path }}
-        SDK_RUNNER_ENVIRONMENT: ${{ runner.environment }}
-        SDK_MANAGED: ${{ inputs.managed }}
-        SDK_NODE_VERSION: ${{ inputs.node-version }}
-        SDK_PYTHON_VERSION: ${{ inputs.python-version }}
-        SDK_UV_VERSION: ${{ inputs.uv-version }}
-        SDK_BUN_VERSION: ${{ inputs.bun-version }}
-        SDK_RUST_VERSION: ${{ inputs.rust-version }}
-        SDK_RUST_COMPONENTS: ${{ inputs.rust-components }}
-        SDK_RUST_TARGETS: ${{ inputs.rust-targets }}
-        SDK_JAVA_VERSION: ${{ inputs.java-version }}
-        SDK_GO_VERSION: ${{ inputs.go-version }}
-        SDK_FLUTTER_VERSION: ${{ inputs.flutter-version }}
-        SDK_DART_VERSION: ${{ inputs.dart-version }}
-        SDK_TOOLS: ${{ inputs.tools }}
+        SDK_SELECTION: ${{ steps.validate.outputs.selection }}
         SDK_PYTHON_PATH: ${{ steps.python.outputs.python-path }}
         BUN_DO_NOT_TRACK: '1'
         DO_NOT_TRACK: '1'
       with:
-        script: |
-          const action = await import(require("node:url").pathToFileURL(process.env.SDK_ACTION_PATH + "/run.mjs").href);
-          action.main("verify");
+        step: verify
     - name: Keep exact SDKs in the tool cache
       if: >-
         steps.validate.outputs.cache-key != '' && steps.tool-cache.outputs.cache-hit != 'true' &&
