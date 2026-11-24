@@ -488,7 +488,14 @@ jobs:
         env:
           ARTIFACT: ${{ inputs.artifact }}
         run: |
-          if [ -e "$ARTIFACT" ]; then echo "left=true" >> "$GITHUB_OUTPUT"; fi
+          node --input-type=module <<'JS'
+          import { appendFileSync, existsSync, globSync } from "node:fs";
+
+          const paths = process.env.ARTIFACT.split(/\r?\n/).map((path) => path.trim()).filter(Boolean);
+          if (paths.some((path) => existsSync(path) || globSync(path).length > 0)) {
+            appendFileSync(process.env.GITHUB_OUTPUT, "left=true\n");
+          }
+          JS
 
       - name: Complete the job
         if: always() && steps.reuse.outputs.cache-hit != 'true'

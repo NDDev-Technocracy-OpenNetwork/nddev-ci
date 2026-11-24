@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 
@@ -258,4 +261,33 @@ test("workflow concurrency cancels superseded pull requests, queues branch pushe
 
   assert.match(read(".github/workflows/check.yml"),
     /uses: \$\/\.github\/workflows\/merge-stops\.yml\n    with:\n      retain-runs: \$\{\{ inputs\.retain-runs \}\}/);
+});
+
+test("the split check identifies a deployment artifact from multiple paths or a glob", () => {
+  const source = read(".github/workflows/check.yml");
+  const [, afterStepName] = source.split("      - name: Deployment artifact of a part\n");
+  const [step] = afterStepName.split("\n      - name:");
+  const [, run] = step.split("        run: |\n");
+  const script = run.split("\n").map((line) => line.slice(10)).join("\n");
+  const work = mkdtempSync(join(tmpdir(), "nddev-ci-artifact-paths-"));
+  const output = join(work, "output");
+  try {
+    mkdirSync(join(work, "dist"));
+    writeFileSync(join(work, "dist", "release.json"), "{}");
+    for (const artifact of ["dist", "absent\n dist\r\n", "absent\n dist/**/*.json"]) {
+      const result = spawnSync("bash", ["-c", script], {
+        cwd: work, env: { ...process.env, ARTIFACT: artifact, GITHUB_OUTPUT: output }, encoding: "utf8",
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(readFileSync(output, "utf8"), "left=true\n");
+      rmSync(output);
+    }
+    const absent = spawnSync("bash", ["-c", script], {
+      cwd: work, env: { ...process.env, ARTIFACT: "missing\n*.tgz", GITHUB_OUTPUT: output }, encoding: "utf8",
+    });
+    assert.equal(absent.status, 0, absent.stderr);
+    assert.equal(existsSync(output), false);
+  } finally {
+    rmSync(work, {recursive: true, force: true});
+  }
 });
