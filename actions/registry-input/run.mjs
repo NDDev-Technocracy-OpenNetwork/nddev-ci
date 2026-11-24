@@ -1,19 +1,15 @@
-import { createHash } from "node:crypto";
 import { appendFileSync, mkdtempSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
+import { maximumSnapshotBytes, requireRegistryIdentity, verifyRegistrySnapshot } from "../../lib/registry-snapshot.mjs";
 
 const chunks = ["FIRST", "SECOND", "THIRD", "FOURTH"];
-const fullCommit = /^[0-9a-f]{40}$/;
-const hash = /^[0-9a-f]{64}$/;
 
 export function snapshot(environment) {
   const commit = environment.INPUT_COMMIT;
   const digest = environment.INPUT_SHA256;
-  if (!fullCommit.test(commit ?? "") || !hash.test(digest ?? "")) {
-    throw new Error("Protected registry commit or digest is missing or invalid.");
-  }
+  requireRegistryIdentity(commit, digest);
   const input = chunks.map((name) => environment["INPUT_" + name] || "");
   if (!input[0] || input.some((part) => part.length > 46_000)) {
     throw new Error("Protected registry snapshot is missing or oversized.");
@@ -25,23 +21,11 @@ export function snapshot(environment) {
   }
   let bytes;
   try {
-    bytes = gunzipSync(compressed, { maxOutputLength: 1024 * 1024 });
+    bytes = gunzipSync(compressed, { maxOutputLength: maximumSnapshotBytes });
   } catch {
     throw new Error("Protected registry snapshot compression is invalid or oversized.");
   }
-  if (createHash("sha256").update(bytes).digest("hex") !== digest) {
-    throw new Error("Protected registry snapshot differs from its digest.");
-  }
-  let value;
-  try {
-    value = JSON.parse(bytes);
-  } catch {
-    throw new Error("Protected registry snapshot is not JSON.");
-  }
-  if (value?.schema_version !== 1 || value.registry_commit !== commit ||
-      typeof value.technologies_toml !== "string") {
-    throw new Error("Protected registry snapshot differs from the selected source.");
-  }
+  verifyRegistrySnapshot(bytes, commit, digest);
   return bytes;
 }
 
