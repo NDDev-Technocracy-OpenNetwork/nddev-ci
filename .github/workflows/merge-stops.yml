@@ -67,8 +67,8 @@ jobs:
       }}
     # A new push to the pull request cancels its older stops of the same workflow and runner.
     concurrency:
-      group: nddev-ci-merge-stops-${{ github.workflow }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || format('pr-{0}', github.event.pull_request.number) }}-${{ inputs.hosted-runner }}-${{ inputs.runner-profile }}
-      cancel-in-progress: ${{ !inputs.retain-runs }}
+      group: nddev-ci-merge-stops-${{ github.workflow }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || github.ref }}-${{ inputs.runner }}-${{ inputs.hosted-runner }}-${{ inputs.runner-profile }}
+      cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
     timeout-minutes: 10
     permissions:
       contents: read

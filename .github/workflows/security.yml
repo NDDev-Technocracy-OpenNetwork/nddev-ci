@@ -45,6 +45,10 @@ on:
 
 # Callers declare permissions on their calling job: `contents: read`, plus `packages: read`
 # when a private repository passes caller SBOMs through GHCR.
+concurrency:
+  group: nddev-ci-security-${{ github.workflow }}-${{ github.ref }}-${{ inputs.runner }}-${{ inputs.hosted-runner }}
+  cancel-in-progress: false
+
 jobs:
   scan:
     name: daily security

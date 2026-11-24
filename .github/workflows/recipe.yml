@@ -3,6 +3,10 @@ name: recipe
 on:
   workflow_call:
     inputs:
+      retain-runs:
+        description: Keep a separate concurrency group per run instead of cancelling or replacing earlier runs.
+        type: boolean
+        default: false
       registry-commit:
         description: Exact commit of the protected registry input selected by the caller.
         type: string
@@ -193,6 +197,11 @@ on:
 # jscpd:ignore-end
 # Callers declare permissions on their calling job: `contents: read`, plus `packages: write`
 # when a private repository retains a deployment artifact via GHCR.
+# Pull requests cancel superseded recipe runs; branch runs queue one waiting push per recipe target.
+concurrency:
+  group: nddev-ci-recipe-${{ github.workflow }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || github.ref }}-${{ inputs.runner }}-${{ inputs.hosted-runner }}-${{ inputs.runner-profile }}-${{ inputs.working-directory }}-${{ inputs.justfile }}-${{ inputs.recipe }}-${{ inputs.arguments }}
+  cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
+
 jobs:
   recipe:
     # Hosted fallback selects the declared platform while keeping the same recipe.
