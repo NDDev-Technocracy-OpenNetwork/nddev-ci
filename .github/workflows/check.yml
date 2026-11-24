@@ -494,6 +494,7 @@ jobs:
     name: ${{ needs.plan.outputs.split == 'true' && 'full check' || 'joined parts' }}
     needs: [plan, check]
     if: ${{ !cancelled() && needs.plan.outputs.split == 'true' && needs.check.result != 'cancelled' }}
+    # jscpd:ignore-start -- generated runner routing shared with plan via tools/runner-profiles.mjs
     # runner-profile:join
     runs-on: >-
       ${{
@@ -505,6 +506,7 @@ jobs:
       ) || ''
       }}
     timeout-minutes: 10
+    # jscpd:ignore-end
     steps:
       - name: Start
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"

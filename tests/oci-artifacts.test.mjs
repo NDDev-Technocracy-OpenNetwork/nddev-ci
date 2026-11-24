@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { once } from "node:events";
 import {
   chmodSync,
   existsSync,
@@ -19,6 +18,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import {
   artifactTag,
   collectFiles,
@@ -32,6 +32,7 @@ import {
 } from "../lib/oci-artifacts.mjs";
 import { client, transferArtifacts } from "../lib/qualification.mjs";
 
+const execFileAsync = promisify(execFile);
 const sha = (data) => `sha256:${createHash("sha256").update(data).digest("hex")}`;
 const where = {
   repository: "Fixture-Org/Private-Project",
@@ -41,14 +42,18 @@ const where = {
   event: "push",
 };
 
-async function listen(handler) {
-  const server = createServer(handler);
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return { server, url: `http://127.0.0.1:${server.address().port}`, close: () => close(server) };
-}
-async function close(server) {
-  server.closeAllConnections();
-  await new Promise((resolve) => server.close(resolve));
+async function startHttp(handler) {
+  const httpServer = createServer(handler);
+  await new Promise((done) => httpServer.listen(0, "127.0.0.1", done));
+  const { port } = httpServer.address();
+  return {
+    server: httpServer,
+    url: `http://127.0.0.1:${port}`,
+    close: async () => {
+      httpServer.closeAllConnections();
+      await new Promise((done) => httpServer.close(done));
+    },
+  };
 }
 
 async function startOciRegistry({ failAuth = null, redirectStorage = true, mutateAfterPut = false, corruptBlob = false } = {}) {
@@ -59,7 +64,7 @@ async function startOciRegistry({ failAuth = null, redirectStorage = true, mutat
   const headBlobHits = [];
   let uploadCounter = 0;
 
-  const storage = await listen((req, res) => {
+  const storage = await startHttp((req, res) => {
     storageAuthHeaders.push(req.headers.authorization);
     const digest = decodeURIComponent(req.url.slice("/blobs/".length));
     const data = blobs.get(digest);
@@ -68,7 +73,7 @@ async function startOciRegistry({ failAuth = null, redirectStorage = true, mutat
     res.end(corruptBlob ? Buffer.from("tampered-bytes") : data);
   });
 
-  const registry = await listen(async (req, res) => {
+  const registry = await startHttp(async (req, res) => {
     const url = new URL(req.url, "http://127.0.0.1");
     if (url.pathname === "/token") {
       const scope = url.searchParams.get("scope") ?? "";
@@ -183,7 +188,7 @@ async function startOciRegistry({ failAuth = null, redirectStorage = true, mutat
     manifests,
     storageAuthHeaders,
     headBlobHits,
-    close: async () => { await close(registry.server); await close(storage.server); },
+    close: async () => { await registry.close(); await storage.close(); },
   };
 }
 
@@ -416,35 +421,61 @@ test("private promote, checked-artifacts, release and oci-artifact actions use G
   let actionsArtifactsCalls = 0;
   const tags = [{ ref: "refs/tags/v2.0.0", object: { type: "commit", sha: "b".repeat(40) } }];
   let release = null;
-  const api = await listen(async (req, res) => {
-    const chunks = [];
-    for await (const chunk of req) chunks.push(chunk);
-    const body = Buffer.concat(chunks);
-    const route = req.url;
-    const json = (value, status = 200) => { res.writeHead(status, { "content-type": "application/json" }); res.end(JSON.stringify(value)); };
-    if (route.includes("/actions/runs/") && route.includes("/artifacts")) { actionsArtifactsCalls++; res.writeHead(500); res.end(); return; }
-    if (route.includes("/workflows/")) json({ total_count: 1, workflow_runs: [runRow] });
-    else if (route.endsWith("/branches/dev")) json({ name: "dev", commit: { sha: where.sha } });
-    else if (route.endsWith("/branches/main")) json({ name: "main", commit: { sha: "b".repeat(40) } });
-    else if (route.includes("/compare/")) json({ ahead_by: 1, behind_by: 0, total_commits: 1, base_commit: { sha: "b".repeat(40) }, merge_base_commit: { sha: "b".repeat(40) }, commits: [{ sha: where.sha }] });
-    else if (route.endsWith("/matching-refs/tags/v")) json(tags);
-    else if (route.endsWith("/git/ref/tags/v2.1.0")) json({}, 404);
-    else if (route.endsWith("/git/refs")) { tags.push({ ref: "refs/tags/v2.1.0", object: { type: "commit", sha: where.sha } }); json(tags.at(-1)); }
-    else if (route.endsWith("/releases/tags/v2.1.0")) json(release ?? {}, release ? 200 : 404);
-    else if (route.includes("/releases?per_page=100")) json([]);
-    else if (route.endsWith("/releases/generate-notes")) json({ body: "Changes" });
-    else if (route.endsWith("/releases") && req.method === "POST") {
-      release = { ...JSON.parse(body), id: 9, assets: [], upload_url: `${api.url}/upload{?name}`, html_url: "https://github.com/Fixture-Org/Private-Project/releases/tag/v2.1.0" };
-      json(release);
-    } else if (route.startsWith("/upload?")) {
-      const name = new URL(route, api.url).searchParams.get("name");
-      const asset = { name, size: body.length, digest: sha(body) };
-      release.assets.push(asset);
-      json(asset);
-    } else if (route.endsWith("/releases/9") && req.method === "PATCH") {
-      Object.assign(release, JSON.parse(body));
-      json(release);
-    } else { res.writeHead(404); res.end(); }
+  const api = await startHttp(async (req, res) => {
+    const buffers = [];
+    for await (const piece of req) buffers.push(piece);
+    const payload = Buffer.concat(buffers);
+    const pathname = req.url;
+    const send = (status, data) => {
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(data));
+    };
+    if (pathname.includes("/actions/runs/") && pathname.includes("/artifacts")) {
+      actionsArtifactsCalls++;
+      return send(500, { message: "forbidden in private test" });
+    }
+    if (pathname.includes("/workflows/")) return send(200, { total_count: 1, workflow_runs: [runRow] });
+    if (pathname.endsWith("/branches/dev")) return send(200, { name: "dev", commit: { sha: where.sha } });
+    if (pathname.endsWith("/branches/main")) return send(200, { name: "main", commit: { sha: "b".repeat(40) } });
+    if (pathname.includes("/compare/")) {
+      return send(200, {
+        ahead_by: 1, behind_by: 0, total_commits: 1,
+        base_commit: { sha: "b".repeat(40) }, merge_base_commit: { sha: "b".repeat(40) },
+        commits: [{ sha: where.sha }],
+      });
+    }
+    if (pathname.endsWith("/matching-refs/tags/v")) return send(200, tags);
+    if (pathname.endsWith("/git/ref/tags/v2.1.0")) return send(404, {});
+    if (pathname.endsWith("/git/refs")) {
+      const created = { ref: "refs/tags/v2.1.0", object: { type: "commit", sha: where.sha } };
+      tags.push(created);
+      return send(201, created);
+    }
+    if (pathname.endsWith("/releases/tags/v2.1.0")) return send(release ? 200 : 404, release ?? {});
+    if (pathname.includes("/releases?per_page=100")) return send(200, []);
+    if (pathname.endsWith("/releases/generate-notes")) return send(200, { body: "Changes" });
+    if (pathname.endsWith("/releases") && req.method === "POST") {
+      release = {
+        ...JSON.parse(payload),
+        id: 9,
+        assets: [],
+        upload_url: `${api.url}/upload{?name}`,
+        html_url: "https://github.com/Fixture-Org/Private-Project/releases/tag/v2.1.0",
+      };
+      return send(201, release);
+    }
+    if (pathname.startsWith("/upload?")) {
+      const assetName = new URL(pathname, api.url).searchParams.get("name");
+      const uploaded = { name: assetName, size: payload.length, digest: sha(payload) };
+      release.assets.push(uploaded);
+      return send(201, uploaded);
+    }
+    if (pathname.endsWith("/releases/9") && req.method === "PATCH") {
+      Object.assign(release, JSON.parse(payload));
+      return send(200, release);
+    }
+    res.writeHead(404);
+    res.end();
   });
 
   try {
@@ -506,25 +537,25 @@ test("private promote, checked-artifacts, release and oci-artifact actions use G
 
     // 6. Release via actions/release
     const releaseTemp = mkdtempSync(path.join(root, "rel-"));
-    const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 10000,
-      env: {
-        ...process.env,
-        GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main",
-        GITHUB_EVENT_PATH: eventPath, RUNNER_TEMP: releaseTemp,
-        GITHUB_API_URL: api.url, GITHUB_SERVER_URL: "https://github.com",
-        NDDEV_CI_OCI_REGISTRY_URL: reg.url,
-        "INPUT_API-URL": api.url, "INPUT_GITHUB-TOKEN": "ghs_test", "INPUT_WAIT-MINUTES": "0",
-        INPUT_ARTIFACTS: "release", "INPUT_RELEASE-METADATA": "qualification.json",
-        GITHUB_OUTPUT: path.join(releaseTemp, "outputs"), GITHUB_STEP_SUMMARY: path.join(releaseTemp, "summary"),
-      },
+    const releaseScript = fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url));
+    const releaseEnv = Object.assign({}, process.env, {
+      GITHUB_REPOSITORY: where.repository,
+      GITHUB_SHA: where.sha,
+      GITHUB_REF: "refs/heads/main",
+      GITHUB_EVENT_PATH: eventPath,
+      RUNNER_TEMP: releaseTemp,
+      GITHUB_API_URL: api.url,
+      GITHUB_SERVER_URL: "https://github.com",
+      NDDEV_CI_OCI_REGISTRY_URL: reg.url,
+      "INPUT_API-URL": api.url,
+      "INPUT_GITHUB-TOKEN": "ghs_test",
+      "INPUT_WAIT-MINUTES": "0",
+      INPUT_ARTIFACTS: "release",
+      "INPUT_RELEASE-METADATA": "qualification.json",
+      GITHUB_OUTPUT: path.join(releaseTemp, "outputs"),
+      GITHUB_STEP_SUMMARY: path.join(releaseTemp, "summary"),
     });
-    let output = "";
-    child.stdout.on("data", (chunk) => { output += chunk; });
-    child.stderr.on("data", (chunk) => { output += chunk; });
-    const [code] = await once(child, "close");
-    assert.equal(code, 0, output);
+    await execFileAsync(process.execPath, [releaseScript], { env: releaseEnv, timeout: 10000 });
     assert.equal(release.draft, false);
     assert.deepEqual(release.assets.map((a) => a.name).sort(), ["SHA256SUMS", "app.tar.gz", "qualification.json"]);
     assert.equal(actionsArtifactsCalls, 0, "private repository must never call Actions artifacts API");
