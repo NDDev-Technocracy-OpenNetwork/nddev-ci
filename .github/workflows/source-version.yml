@@ -37,7 +37,7 @@ concurrency:
 jobs:
   ready:
     name: source version
-    runs-on: ${{ (!github.event.repository.private || contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github')) && 'ubuntu-24.04' || inputs.runner }}
+    runs-on: ${{ (!github.event.repository.private || contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github')) && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.sender.type == 'Bot' && github.event.pull_request.user.type == 'Bot' && github.actor == github.triggering_actor && fromJSON('{"nddev-linux-bounded":"nddev-linux-bounded-maintenance","nddev-linux-light":"nddev-linux-light-maintenance","nddev-linux-small":"nddev-linux-small-maintenance","nddev-linux-standart":"nddev-linux-standart-maintenance"}')[inputs.runner] || inputs.runner) }}
     timeout-minutes: 15
     permissions:
       statuses: read

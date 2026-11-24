@@ -284,25 +284,29 @@ sources.
 
 Public projects use the selected GitHub-hosted runner. Private projects use `runner`:
 
-| Managed class | Project commands | Image builds | Planning, joins, merge stops, image tags, daily scans |
-| --- | --- | --- | --- |
-| `nddev-linux-standart` | Linux x64 | Same class | `nddev-linux-light` |
-| `nddev-linux-small` | Linux x64 | Same class | `nddev-linux-light` |
-| `nddev-linux-light` | Linux x64 or ARM64 | Same class | Same class |
-| `nddev-linux-arm64` | Linux ARM64 | Same class | Same class |
-| `nddev-macos` | Native macOS ARM64 | `nddev-linux-arm64` | `nddev-linux-light` |
+| Managed class | Project commands | Image builds | Planning, joins, merge stops, daily scans | Releases, promotions, image tags |
+| --- | --- | --- | --- | --- |
+| `nddev-linux-standart` | Linux x64 | Same class | `nddev-linux-light` | `nddev-linux-release` |
+| `nddev-linux-small` | Linux x64 | Same class | `nddev-linux-light` | `nddev-linux-release` |
+| `nddev-linux-light` | Linux x64 or ARM64 | Same class | Same class | `nddev-linux-release` |
+| `nddev-linux-release` | Linux x64 or ARM64 | Same class | Same class | Same class |
+| `nddev-linux-arm64` | Linux ARM64 | Same class | Same class | Same class |
+| `nddev-macos` | Native macOS ARM64 | `nddev-linux-arm64` | `nddev-linux-light` | `nddev-linux-release` |
 
-The jobs of the last column are light and architecture-independent, so they can run on any
-available Linux x64 or ARM64 runner and leave standard x64 slots to native builds and tests.
-The protected technology registry check stays on `nddev-linux-small` because its CLI asset is
-Linux x64.
+Light, architecture-independent jobs run on any available Linux x64 or ARM64 runner and leave
+standard x64 slots to native builds and tests. Release and promotion workflows (`release.yml`,
+`promote.yml`, `image-tag.yml` and `merge-on-green.yml`) default to `nddev-linux-release` so the
+runner service can place them ahead of branch and pull request checks. The protected technology
+registry check stays on `nddev-linux-small` because its CLI asset is Linux x64.
 
-The shared check workflow routes private Linux PRs authored and triggered by a bot to the matching
-`nddev-linux-light-maintenance`, `nddev-linux-small-maintenance` or
-`nddev-linux-standart-maintenance` label.
-The runner service registers those labels against the same hardware and class.
-A person's run or rerun, a branch check and a release use the ordinary managed
-label. Explicit hosted selections keep their existing route.
+Private pull requests authored and triggered by a bot route their managed check, recipe, image,
+merge-stop, registry and source-version jobs to the matching `-maintenance` label
+(`nddev-linux-light-maintenance`, `nddev-linux-small-maintenance`,
+`nddev-linux-standart-maintenance`, `nddev-linux-bounded-maintenance`, `nddev-macos-maintenance`
+or `nddev-windows-maintenance`). The runner service registers those labels against the same
+hardware and class and places them only when no release or foreground job waits. A person's run or
+rerun and branch checks use the ordinary managed label. Explicit hosted selections keep their
+existing route.
 
 Configure `runner-profile` for each private `check.yml` or `recipe.yml` call that supports
 profile-scoped GitHub-hosted runs. The caller listens for PR `labeled` events and declares the

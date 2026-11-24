@@ -8,4 +8,4 @@ paths:
       - 'reusable workflow call "\$/\.github/workflows/[a-z0-9-]+\.yml" at "uses" is not following the format'
 
 self-hosted-runner:
-  labels: [nddev-linux-light, nddev-linux-small]
+  labels: [nddev-linux-light, nddev-linux-release, nddev-linux-small]
