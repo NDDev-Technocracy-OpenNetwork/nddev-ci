@@ -185,6 +185,18 @@ on:
         description: Optional JSON map from check part IDs (including short) to private runner labels.
         type: string
         default: '{}'
+      reuse-receipts:
+        description: Reuse verified step receipts when the exact tree, recipes, lockfiles, toolchain, workflow and epoch match.
+        type: boolean
+        default: true
+      cache-epoch:
+        description: Salt mixed into every step-receipt key; bump to invalidate cached receipts cleanly.
+        type: string
+        default: '1'
+      canary-percent:
+        description: Percentage (0-100) of eligible dev push runs re-executed fresh to compare against cached receipts.
+        type: number
+        default: 5
     secrets:
       REGISTRY_SNAPSHOT_FIRST:
         description: Protected environment snapshot fragment.
@@ -235,7 +247,11 @@ jobs:
       contents: read
     outputs:
       split: ${{ steps.plan.outputs.split }}
-      matrix: ${{ steps.plan.outputs.matrix }}
+      matrix: ${{ steps.receipts.outputs.matrix || steps.plan.outputs.matrix }}
+      all-reused: ${{ steps.receipts.outputs.all-reused }}
+      reused: ${{ steps.receipts.outputs.reused }}
+      canary: ${{ steps.receipts.outputs.canary }}
+      bypass-reason: ${{ steps.receipts.outputs.bypass-reason }}
     steps:
       - name: Start
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
@@ -256,6 +272,17 @@ jobs:
         with:
           # Named reports are required of the job that runs verify, so verify stays one job.
           whole: ${{ inputs.reports != '' && 'the caller names reports the whole verify leaves' || '' }}
+      - name: Check verified step receipts
+        id: receipts
+        uses: $/actions/step-receipt
+        env:
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        with:
+          mode: plan
+          matrix: ${{ steps.plan.outputs.matrix }}
+          split: ${{ steps.plan.outputs.split }}
+          receipt-inputs: ${{ toJSON(inputs) }}
+          github-token: ${{ github.token }}
       - name: Job record
         if: always()
         uses: $/actions/job-record
@@ -316,7 +343,7 @@ jobs:
   check:
     name: ${{ matrix.part.label }}
     needs: [plan, registry-project]
-    if: ${{ !cancelled() && (github.event_name == 'pull_request' || inputs.whole-full-check || needs.plan.result == 'success') }}
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || inputs.whole-full-check || (needs.plan.result == 'success' && needs.plan.outputs.matrix != '[]')) }}
     strategy:
       fail-fast: false
       matrix:
@@ -353,12 +380,14 @@ jobs:
       # a new merge commit. A label that selects this job's hosted route also runs it in full.
       - name: A passed short check of the same merge
         id: reuse
-        if: github.event_name == 'pull_request' && (github.event.action == 'edited' || (github.event.action == 'labeled' && github.event.label.name != 'runner:github' &&
+        if: >-
+          !github.event.repository.private && inputs.reuse-receipts &&
+          github.event_name == 'pull_request' && (github.event.action == 'edited' || (github.event.action == 'labeled' && github.event.label.name != 'runner:github' &&
           github.event.label.name != format('runner:github:{0}', inputs.runner-profile)))
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/nddev-ci-short-pass
-          key: nddev-ci-short-pass-${{ github.sha }}-${{ runner.environment }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.runner-profile }}
+          key: nddev-ci-short-pass-${{ inputs.cache-epoch }}-${{ github.sha }}-${{ runner.environment }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.runner-profile }}
           lookup-only: true
 
       - name: The pass is reused
@@ -420,20 +449,21 @@ jobs:
         with:
           setup: ${{ inputs.setup }}
           part: ${{ toJSON(matrix.part.argv) }}
+          receipt-inputs: ${{ toJSON(inputs) }}
 
-      # The mark that this merge's short check passed, read by a later text or label event.
+      # The mark that this merge's short check passed in public repositories, read by a later text or label event.
       - name: Mark the pass of this merge
-        if: github.event_name == 'pull_request' && steps.project.outcome == 'success'
+        if: ${{ !github.event.repository.private && inputs.reuse-receipts && github.event_name == 'pull_request' && steps.project.outcome == 'success' }}
         run: |
           mkdir -p "$RUNNER_TEMP/nddev-ci-short-pass"
           date -u +%FT%TZ > "$RUNNER_TEMP/nddev-ci-short-pass/passed"
 
       - name: Keep the pass of this merge
-        if: github.event_name == 'pull_request' && steps.project.outcome == 'success'
+        if: ${{ !github.event.repository.private && inputs.reuse-receipts && github.event_name == 'pull_request' && steps.project.outcome == 'success' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/nddev-ci-short-pass
-          key: nddev-ci-short-pass-${{ github.sha }}-${{ runner.environment }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.runner-profile }}
+          key: nddev-ci-short-pass-${{ inputs.cache-epoch }}-${{ github.sha }}-${{ runner.environment }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.runner-profile }}
 
       # In parts, the part whose recipes left the deployment artifact keeps it; another part that
       # left the same name would fail its upload.
@@ -500,11 +530,21 @@ jobs:
       - name: Every part passed
         env:
           RESULT: ${{ needs.check.result }}
+          ALL_REUSED: ${{ needs.plan.outputs.all-reused }}
         run: |
-          if [ "$RESULT" != success ]; then
+          if [ "$RESULT" != success ] && { [ "$RESULT" != skipped ] || [ "$ALL_REUSED" != true ]; }; then
             echo "::error::A part of the full check ended with $RESULT; its job names the cause. A part that reads what another part leaves names that part as its dependency in the justfile."
             exit 1
           fi
+      - name: Step receipt reuse summary
+        id: receipt-summary
+        if: needs.plan.outputs.reused != '' && needs.plan.outputs.reused != '[]' || needs.plan.outputs.bypass-reason != '' || needs.plan.outputs.canary == 'true'
+        uses: $/actions/step-receipt
+        with:
+          mode: summary
+          reused: ${{ needs.plan.outputs.reused }}
+          bypass-reason: ${{ needs.plan.outputs.bypass-reason }}
+          canary: ${{ needs.plan.outputs.canary }}
       - name: One part left the deployment artifact
         if: ${{ !github.event.repository.private && inputs.artifact != '' }}
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

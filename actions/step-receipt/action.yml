@@ -1,0 +1,47 @@
+name: Step receipts
+description: >-
+  Filters planned full-check parts against verified step receipts on identical inputs, or renders
+  the reused-step summary table for a joined check.
+inputs:
+  mode:
+    description: "Operation mode: plan or summary."
+    required: true
+  matrix:
+    description: Planned check matrix JSON array from actions/plan.
+    default: "[]"
+  split:
+    description: Whether verify was split into parts.
+    default: "false"
+  receipt-inputs:
+    description: JSON snapshot of caller workflow inputs for receipt key and policy evaluation.
+    default: "{}"
+  github-token:
+    description: Existing job token used only for reading the repository compare diff.
+    default: ""
+  reused:
+    description: JSON array of reused parts from plan (summary mode).
+    default: "[]"
+  bypass-reason:
+    description: Bypass reason reported by plan (summary mode).
+    default: ""
+  canary:
+    description: Whether plan marked this run as a canary check (summary mode).
+    default: "false"
+outputs:
+  matrix:
+    description: Runnable check matrix JSON array after omitting verified reused parts.
+  all-reused:
+    description: "`true` when every planned part was satisfied by a verified receipt."
+  reused:
+    description: JSON array of parts satisfied by verified receipts with source run metadata.
+  canary:
+    description: "`true` when this run is a probabilistic canary re-execution."
+  bypass-reason:
+    description: Non-empty reason when step-receipt reuse was bypassed.
+  receipt-mode:
+    description: "Receipt mode for the job record: reused, executed, bypassed or canary."
+  reused-run-id:
+    description: Numeric GitHub run ID of the reused receipt source, if any.
+runs:
+  using: node24
+  main: run.mjs
