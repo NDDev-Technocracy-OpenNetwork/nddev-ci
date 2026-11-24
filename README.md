@@ -325,6 +325,14 @@ newest run and revalidating its attempt before consuming artifacts. The reposito
 primary workflow. Both actor IDs must match the configured App and its exact attempt must have a
 successful `check / full check` job. Additional required workflows take their exact push checks.
 
+For an owner-approved branch fallback, configure the caller as in the example and set
+`NDDEV_BRANCH_FALLBACK_ACTOR_ID` to the scheduler App's numeric bot user ID. Operators invoke
+`tools/hosted-fallback.mjs` using a scheduler App installation token in `GH_TOKEN` and that actor
+ID in `NDDEV_BRANCH_FALLBACK_ACTOR_ID`. Pass the repository, workflow filename, branch, full SHA,
+runner profile and push run ID in that order. The fallback has its own concurrency group for that commit. The operator command confirms that
+GitHub created the eligible fallback before cancelling the same commit's push. Older commits keep
+their push runs.
+
 The unqualified PR label `runner:github` and a manual `runner: github` without a profile move the
 whole check and its portable jobs. For a call without a profile, the manual selection keeps its
 legacy hosted label. Public calls always use GitHub-hosted runners. A public recipe can use
