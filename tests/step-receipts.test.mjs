@@ -342,7 +342,7 @@ test("source proof requires the green PR attempt and the exact OIDC merge tree",
   const seen = [];
   function proof(runResponse = run, commitResponse = commit) {
     return createSourceProof({ GITHUB_WORKFLOW_REF: `${repository}/${workflowPath}@refs/heads/dev` }, {
-      workflowSha: wfSha, treeSha, repository, repositoryId: "12345", token: "test-token",
+      workflowSha: wfSha, treeSha, baseSha, repository, repositoryId: "12345", token: "test-token",
     }, async (url) => {
       seen.push(url);
       return Response.json(url.endsWith("/55001") ? runResponse : commitResponse);
@@ -359,6 +359,7 @@ test("source proof requires the green PR attempt and the exact OIDC merge tree",
   assert.equal(await proof({ ...run, path: ".github/workflows/other.yml" })(receipt, "check"), false);
   assert.equal(await proof({ ...run, head_sha: baseSha })(receipt, "check"), false);
   assert.equal(await proof(run, { ...commit, tree: { sha: headSha } })(receipt, "check"), false);
+  assert.equal(await proof(run, { ...commit, parents: [{ sha: wfSha }, { sha: headSha }] })(receipt, "check"), false);
   assert.equal(await proof(null)(receipt, "check"), false);
 });
 
@@ -477,7 +478,7 @@ test("unsplit verify with a body skips PR-verified prior deps and runs only buil
     const devPlan = await checkPrepare({
       ...commonEnv, EVENT: "push", GITHUB_REF: "refs/heads/dev", GITHUB_RUN_ID: "88002", PART: "[\"verify\"]",
       RECEIPT_INPUTS: JSON.stringify({ "reuse-receipts": true, "cache-epoch": "1", "canary-percent": 0 }),
-    }, { fetchChangedFiles: async () => ["src/web.ts"] });
+    }, { ...verifiedSource, fetchChangedFiles: async () => ["src/web.ts"] });
     assert.deepEqual(devPlan.steps.map((s) => [s.argv.join(" "), s.skip]), [
       ["check", true], ["test", true], ["build", false], ["--no-deps verify", false],
     ]);
@@ -485,7 +486,7 @@ test("unsplit verify with a body skips PR-verified prior deps and runs only buil
     const canaryPlan = await checkPrepare({
       ...commonEnv, EVENT: "push", GITHUB_REF: "refs/heads/dev", GITHUB_RUN_ID: "88003", PART: "[\"check\"]",
       RECEIPT_INPUTS: JSON.stringify({ "reuse-receipts": true, "cache-epoch": "1", "canary-percent": 100 }),
-    }, { fetchChangedFiles: async () => ["src/web.ts"] });
+    }, { ...verifiedSource, fetchChangedFiles: async () => ["src/web.ts"] });
     assert.equal(canaryPlan.canary, true);
     assert.equal(canaryPlan.steps[0].skip, false);
     assert.equal(canaryPlan.steps[0].cachedHit, true);
