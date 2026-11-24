@@ -6,10 +6,13 @@ zizmor_version := "1.32.0"
 zizmor_sha256 := "84a6acb975accc13408786a2bd274b572537ca19c933ebbc13e78f3988562071"
 shellcheck_version := "0.11.0"
 shellcheck_sha256 := "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6"
+betterleaks_version := "1.10.1"
+betterleaks_sha256 := "c174b42d7aa60caf58c0c3e555c0e4bed01fe6b0d99a412bce777b5af4ce913e"
 tools := env_var_or_default("NDDEV_CI_CHECK_TOOLS", justfile_directory() / ".tools")
 actionlint := tools / "checks" / ("actionlint-" + actionlint_sha256) / "actionlint"
 zizmor := tools / "checks" / ("zizmor-" + zizmor_sha256) / "zizmor"
 shellcheck := tools / "checks" / ("shellcheck-" + shellcheck_sha256)
+betterleaks := tools / "checks" / ("betterleaks-" + betterleaks_sha256)
 
 # Lists the commands.
 default:
@@ -19,7 +22,7 @@ default:
 setup: tools
 
 # Format, JavaScript syntax, workflow structure and workflow security.
-check: (_tools "check")
+check: (_tools "check") scan-source-secrets
     just --fmt --check
     rustfmt --edition 2024 --check tests/recipe-routing.rs
     node tools/renovate-sdk.mjs --check
@@ -133,6 +136,11 @@ check: (_tools "check")
     PATH="{{ shellcheck }}:$PATH" "{{ actionlint }}" .github/workflows/*.yml
     "{{ zizmor }}" --strict-collection --min-severity medium .github actions
 
+# Finds secrets on changed source lines. An edit passes its file as an argument.
+[positional-arguments]
+scan-source-secrets *files:
+    PATH="{{ betterleaks }}:$PATH" node tools/scan-source-secrets.mjs "$@"
+
 # The documented caller workflow is valid.
 test:
     PATH="{{ shellcheck }}:$PATH" "{{ actionlint }}" examples/*.yml
@@ -184,11 +192,15 @@ _tools mode:
       local folder="{{ tools }}/checks/$tool-$sha"
       local name identity output first digest
       case "$tool" in
+        betterleaks) name="betterleaks_${version}_linux_x64.tar.gz"; identity="betterleaks/betterleaks@v$version/$name $sha" ;;
         actionlint) name="actionlint_${version}_linux_amd64.tar.gz"; identity="rhysd/actionlint@v$version/$name $sha" ;;
         zizmor) name="zizmor-$version-py3-none-manylinux_2_28_x86_64.whl"; identity="pypi:zizmor@$version/$name $sha" ;;
         shellcheck) name="shellcheck-v$version.linux.x86_64.tar.gz"; identity="koalaman/shellcheck@v$version/$name $sha" ;;
         *) exit 1 ;;
       esac
+      tool_version() {
+        if [ "$tool" = betterleaks ]; then "$1" version; else "$1" --version; fi
+      }
       valid() {
         local recorded computed
         [ -d "$folder" ] && [ ! -L "$folder" ] &&
@@ -200,7 +212,7 @@ _tools mode:
         [[ "$recorded" =~ ^[a-f0-9]{64}$ ]] || return 1
         computed=$(sha256sum "$folder/$tool") || return 1
         [ "$recorded" = "${computed%% *}" ] || return 1
-        output=$("$folder/$tool" --version) || return 1
+        output=$(tool_version "$folder/$tool") || return 1
         first=${output%%$'\n'*}
         if [ "$tool" = shellcheck ]; then first=$(sed -n 2p <<< "$output"); fi
         [ "$first" = "$expected" ] || [[ "$first" == "$expected "* ]]
@@ -213,9 +225,12 @@ _tools mode:
       printf 'Preparing check tool %s (%s)\n' "$tool" "$version"
       stage=$(mktemp -d "{{ tools }}/checks/.prepare.XXXXXX")
       mkdir "$stage/ready"
-      if [ "$tool" = actionlint ] || [ "$tool" = shellcheck ]; then
-        repository=rhysd/actionlint
-        if [ "$tool" = shellcheck ]; then repository=koalaman/shellcheck; fi
+      if [ "$tool" != zizmor ]; then
+        case "$tool" in
+          actionlint) repository=rhysd/actionlint ;;
+          betterleaks) repository=betterleaks/betterleaks ;;
+          shellcheck) repository=koalaman/shellcheck ;;
+        esac
         auth=()
         if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
         if [ -n "${NDDEV_CI_ARTIFACT_REGISTRY:-}" ]; then
@@ -239,8 +254,8 @@ _tools mode:
         curl -fsSL -o "$stage/archive" "$url"
       fi
       echo "$sha  $stage/archive" | sha256sum --check --quiet
-      if [ "$tool" = actionlint ]; then
-        tar -xOzf "$stage/archive" actionlint > "$stage/ready/$tool"
+      if [ "$tool" = actionlint ] || [ "$tool" = betterleaks ]; then
+        tar -xOzf "$stage/archive" "$tool" > "$stage/ready/$tool"
       elif [ "$tool" = shellcheck ]; then
         tar -xOzf "$stage/archive" "shellcheck-v$version/shellcheck" > "$stage/ready/$tool"
       else
@@ -248,7 +263,7 @@ _tools mode:
         python3 -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]))' "$stage/archive" "zizmor-$version.data/scripts/zizmor" > "$stage/ready/$tool"
       fi
       chmod 0755 "$stage/ready/$tool"
-      output=$("$stage/ready/$tool" --version)
+      output=$(tool_version "$stage/ready/$tool")
       first=${output%%$'\n'*}
       if [ "$tool" = shellcheck ]; then first=$(sed -n 2p <<< "$output"); fi
       if [ "$first" != "$expected" ] && [[ "$first" != "$expected "* ]]; then
@@ -267,14 +282,15 @@ _tools mode:
     fetch actionlint {{ actionlint_version }} {{ actionlint_sha256 }} "{{ actionlint_version }}"
     fetch zizmor {{ zizmor_version }} {{ zizmor_sha256 }} "zizmor {{ zizmor_version }}"
     fetch shellcheck {{ shellcheck_version }} {{ shellcheck_sha256 }} "version: {{ shellcheck_version }}"
+    fetch betterleaks {{ betterleaks_version }} {{ betterleaks_sha256 }} "{{ betterleaks_version }}"
     if [ "$mode" = setup ]; then
       rm -f -- "{{ tools }}/actionlint" "{{ tools }}/actionlint.tar.gz"
       rm -rf -- "{{ tools }}/zizmor"
       for previous in "{{ tools }}"/checks/*; do
         case "$previous" in
-          "{{ tools }}/checks/actionlint-{{ actionlint_sha256 }}"|"{{ tools }}/checks/zizmor-{{ zizmor_sha256 }}"|"{{ tools }}/checks/shellcheck-{{ shellcheck_sha256 }}") continue ;;
+          "{{ tools }}/checks/actionlint-{{ actionlint_sha256 }}"|"{{ tools }}/checks/zizmor-{{ zizmor_sha256 }}"|"{{ tools }}/checks/shellcheck-{{ shellcheck_sha256 }}"|"{{ tools }}/checks/betterleaks-{{ betterleaks_sha256 }}") continue ;;
         esac
-        if [[ "${previous##*/}" =~ ^(actionlint|zizmor|shellcheck)-[a-f0-9]{64}$ ]]; then rm -rf -- "$previous"; fi
+        if [[ "${previous##*/}" =~ ^(actionlint|zizmor|shellcheck|betterleaks)-[a-f0-9]{64}$ ]]; then rm -rf -- "$previous"; fi
       done
     fi
 
