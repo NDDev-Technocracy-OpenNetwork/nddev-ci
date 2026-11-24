@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { receive, send } from "../lib/pre-push-executor.mjs";
+import { receive, send, sendManaged } from "../lib/pre-push-executor.mjs";
 import { beforePush } from "../lib/verify-parts.mjs";
 
 function verify(cwd = process.cwd(), env = process.env) {
@@ -23,6 +23,8 @@ try {
   const [operation, ...args] = process.argv.slice(2);
   if (operation === "--send" && args.length === 3) {
     await send(...args, readFileSync(0, "utf8"));
+  } else if (operation === "--send-managed" && args.length === 4) {
+    await sendManaged(...args, readFileSync(0, "utf8"));
   } else if (operation === "--receive" && args.length === 4) {
     process.exitCode = await receive(...args, verify);
   } else if (operation === undefined) {
