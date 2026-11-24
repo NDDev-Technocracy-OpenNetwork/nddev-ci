@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -226,8 +226,7 @@ test("input digest changes on source, mode, lockfile, recipe, SDK, workflow SHA 
     assert.notEqual(d0, snap({ ...baseEnv, NDDEV_CI_SDK_LOCK_SHA256: "d".repeat(64) }));
     assert.notEqual(d0, snap(baseEnv, "1", wfSha, { "rust-version": "1.100.0" }));
 
-    chmodSync(path.join(dir, "scripts/run.sh"), 0o755);
-    git(dir, ["add", "scripts/run.sh"]);
+    git(dir, ["update-index", "--chmod=+x", "scripts/run.sh"]);
     git(dir, ["commit", "-q", "-m", "chmod"]);
     const dMode = snap();
     assert.notEqual(d0, dMode);

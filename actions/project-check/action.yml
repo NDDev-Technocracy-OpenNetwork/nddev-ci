@@ -78,21 +78,23 @@ runs:
           fi
         }
         if [ -n "${RECEIPT_PLAN:-}" ] && [ -f "$RECEIPT_PLAN" ]; then
-          if [ "$(jq -r '.all_skipped' "$RECEIPT_PLAN")" = true ]; then
+          all_skipped=$(jq -r '.all_skipped' "$RECEIPT_PLAN")
+          if [ "${all_skipped%$'\r'}" = true ]; then
             jq -r '.steps[] | "Reused step receipt for `just " + (.argv | join(" ")) + "` from run #" + (.reusedRunId // "?") + " (" + (.reusedRunUrl // "") + ")"' "$RECEIPT_PLAN"
           else
             if [ "$SETUP" = true ]; then
               project_just setup
             fi
             count=$(jq -r '.steps | length' "$RECEIPT_PLAN")
+            count=${count%$'\r'}
             for ((i = 0; i < count; i++)); do
               skip=$(jq -r --argjson i "$i" '.steps[$i].skip' "$RECEIPT_PLAN")
-              if [ "$skip" = true ]; then
+              if [ "${skip%$'\r'}" = true ]; then
                 jq -r --argjson i "$i" '.steps[$i] | "Reused step receipt for `just " + (.argv | join(" ")) + "` from run #" + (.reusedRunId // "?") + " (" + (.reusedRunUrl // "") + ")"' "$RECEIPT_PLAN"
                 continue
               fi
               argv=()
-              while IFS= read -r argument; do argv+=("$argument"); done < <(jq -r --argjson i "$i" '.steps[$i].argv[]' "$RECEIPT_PLAN")
+              while IFS= read -r argument; do argv+=("${argument%$'\r'}"); done < <(jq -r --argjson i "$i" '.steps[$i].argv[]' "$RECEIPT_PLAN")
               if project_just "${argv[@]}"; then
                 printf '%s\n' "$i" >> "${RECEIPT_RESULTS}"
               else
