@@ -12,7 +12,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { createHash } from "node:crypto";
 import {
+  prepareScanner,
   scannerPin,
   scannerPins,
   scanSources,
@@ -120,24 +122,19 @@ const linux = {
     process.platform === "linux" ? false : "the dependency guard is Linux-only",
 };
 
+async function startStubRegistry(t, root, day, extraEnv = {}) {
+  const log = path.join(root, "registry.log");
+  const child = spawn(process.execPath, ["-e", stubRegistry, log, day], { stdio: ["ignore", "pipe", "inherit"] });
+  const cleanup = () => { child.kill(); rmSync(root, { recursive: true, force: true }); };
+  t.after(cleanup);
+  const address = await new Promise((done) => child.stdout.once("data", (chunk) => done(`http://127.0.0.1:${String(chunk).trim()}/`)));
+  return { log, environment: { ...process.env, ...extraEnv, NDDEV_CI_ARTIFACT_REGISTRY: address } };
+}
+
 test("a declared registry provides the day's databases and the scanner downloads nothing", linux, async (t) => {
   const { root, binary, input, calls } = comparison();
-  const log = path.join(root, "registry.log");
   const day = "2026-11-10";
-  const registry = spawn(process.execPath, ["-e", stubRegistry, log, day], {
-    stdio: ["ignore", "pipe", "inherit"],
-  });
-  t.after(() => {
-    registry.kill();
-    rmSync(root, { recursive: true, force: true });
-  });
-  const port = await new Promise((resolve) =>
-    registry.stdout.once("data", (bytes) => resolve(String(bytes).trim())),
-  );
-  const environment = {
-    ...process.env,
-    NDDEV_CI_ARTIFACT_REGISTRY: `http://127.0.0.1:${port}/`,
-  };
+  const { log, environment } = await startStubRegistry(t, root, day);
   const result = await scanSources(binary, root, input, environment, day);
   assert.deepEqual(
     result.databases.map((entry) => entry.path),
@@ -188,4 +185,63 @@ test("without a declared registry the scanner downloads its databases once", lin
     "offline base",
     "offline head",
   ]);
+});
+
+test("a declared registry caches daily databases under NDDEV_BUILD_CACHE_ROOT and prunes stale days", linux, async (t) => {
+  const { root, binary, input } = comparison();
+  const cacheRoot = path.join(root, "build-cache");
+  const stale = path.join(cacheRoot, "osv-databases", "2026-11-09", "npm");
+  mkdirSync(stale, { recursive: true });
+  writeFileSync(path.join(stale, "all.zip"), "stale");
+  const day = "2026-11-10";
+  const { log, environment } = await startStubRegistry(t, root, day, {
+    NDDEV_BUILD_CACHE_ROOT: cacheRoot,
+  });
+  await scanSources(binary, root, input, environment, day);
+  assert.equal(readFileSync(log, "utf8").trim(), `GET /osv/${day}/npm/all.zip`);
+  assert.throws(() => readFileSync(path.join(stale, "all.zip")));
+
+  // A second scan on the same UTC day reuses the cached zip with zero registry requests.
+  const second = comparison();
+  t.after(() => rmSync(second.root, { recursive: true, force: true }));
+  const result = await scanSources(second.binary, second.root, second.input, environment, day);
+  assert.equal(result.databases.length, 1);
+  assert.equal(readFileSync(log, "utf8").trim(), `GET /osv/${day}/npm/all.zip`);
+});
+
+test("prepareScanner reuses an exact preinstalled scanner on PATH without downloading", linux, async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "dependency-preinstalled-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const binDir = path.join(root, "sdk-bin");
+  mkdirSync(binDir, { recursive: true });
+  const preinstalled = path.join(binDir, "osv-scanner");
+  const body = `#!${process.execPath}\nconsole.log("osv-scanner version: 2.7.1");\n`;
+  writeFileSync(preinstalled, body);
+  chmodSync(preinstalled, 0o755);
+  const bytes = Buffer.from(body);
+  const pin = {
+    version: "2.7.1",
+    repository: "google/osv-scanner",
+    tag: "v2.7.1",
+    name: "osv-scanner_linux_amd64",
+    asset: 1,
+    size: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+  const found = await prepareScanner(
+    path.join(root, "work"),
+    { PATH: `${binDir}:${process.env.PATH || ""}`, NDDEV_CI_ARTIFACT_REGISTRY: "http://127.0.0.1:1" },
+    pin,
+  );
+  assert.equal(found, preinstalled);
+
+  // A mismatched digest on PATH must not be trusted and must fall through to the registry.
+  await assert.rejects(
+    prepareScanner(
+      path.join(root, "work2"),
+      { PATH: `${binDir}:${process.env.PATH || ""}`, NDDEV_CI_ARTIFACT_REGISTRY: "http://127.0.0.1:1" },
+      { ...pin, sha256: "0".repeat(64) },
+    ),
+    /could not provide the pinned scanner/,
+  );
 });

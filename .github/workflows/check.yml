@@ -258,14 +258,29 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: ${{ inputs.sparse-checkout }}
-          sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
+          filter: ${{ inputs.filter || (inputs.sparse-checkout == '' && 'blob:none' || '') }}
+          sparse-checkout: |-
+            ${{ inputs.sparse-checkout != '' && inputs.sparse-checkout || 'justfile' }}
+            ${{ inputs.sparse-checkout == '' && '**/justfile' || '' }}
+            ${{ inputs.sparse-checkout == '' && 'Justfile' || '' }}
+            ${{ inputs.sparse-checkout == '' && '**/Justfile' || '' }}
+            ${{ inputs.sparse-checkout == '' && '.justfile' || '' }}
+            ${{ inputs.sparse-checkout == '' && '**/.justfile' || '' }}
+            ${{ inputs.sparse-checkout == '' && '*.just' || '' }}
+            ${{ inputs.sparse-checkout == '' && '**/*.just' || '' }}
+          sparse-checkout-cone-mode: ${{ inputs.sparse-checkout != '' && inputs.sparse-checkout-cone-mode || false }}
       - name: Outside telemetry off
         uses: $/actions/telemetry
       - name: Native task runner
         uses: $/actions/frontend
         with:
           managed: ${{ runner.environment == 'self-hosted' }}
+      - name: Full tree fallback if the justfile imports other files
+        if: inputs.sparse-checkout == ''
+        run: |
+          if ! just --dump --dump-format json >/dev/null 2>&1; then
+            git sparse-checkout disable
+          fi
       - name: Plan
         id: plan
         uses: $/actions/plan

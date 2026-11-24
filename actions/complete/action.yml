@@ -148,17 +148,9 @@ runs:
 
     - name: Revoke App read token
       if: always() && inputs.read-token != ''
-      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      uses: $/actions/revoke-token
       with:
-        github-token: ${{ inputs.read-token }}
-        script: |
-          try {
-            await github.request('DELETE /installation/token');
-            core.info('Scoped App read token revoked.');
-          } catch (error) {
-            if (error.status !== 401) throw error;
-            core.info('Scoped App read token is already expired or revoked.');
-          }
+        token: ${{ inputs.read-token }}
 
     - name: Job record
       if: always()
