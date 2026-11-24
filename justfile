@@ -84,6 +84,7 @@ check: (_tools "check")
     node --check lib/secret-scan.mjs
     node --check actions/secret-scan/run.mjs
     node --check tools/scan-before-push.mjs
+    node --check tools/scan-source-secrets.mjs
     node --check lib/security-policy.mjs
     node --check tests/license-policy.test.mjs
     node --check tests/security-report.test.mjs
@@ -146,7 +147,7 @@ test:
 package-tools:
     mkdir -p dist
     git archive --format=zip --prefix=nddev-ci/ --output=dist/qualify-merge.zip HEAD tools/qualify-merge.mjs lib/merge-on-green.mjs lib/qualification.mjs lib/release.mjs
-    git archive --format=zip --prefix=nddev-ci/ --output=dist/scan-before-push.zip HEAD tools/scan-before-push.mjs lib/secret-scan.mjs lib/secret-policy.mjs lib/security-policy.mjs
+    git archive --format=zip --prefix=nddev-ci/ --output=dist/scan-before-push.zip HEAD tools/scan-before-push.mjs tools/scan-source-secrets.mjs lib/secret-scan.mjs lib/secret-policy.mjs lib/security-policy.mjs
 
 # Everything the full check on dev runs.
 verify: check test package-tools

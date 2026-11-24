@@ -144,6 +144,11 @@ Existing ref updates exclude their advertised old commits. New refs use the remo
 branch as their base. Both the local hook and the PR stop scan commit patches, including merge
 commits, and load the scanner policy from the published base.
 
+The same archive includes tools/scan-source-secrets.mjs for an offline source check. Pass edited
+paths for an edit hook or omit paths for a local check of changes and untracked files. The scan
+reads the policy at the worktree's common base with origin/dev, or uses the built-in policy when
+there is no published base. It reports the file, line and rule for findings on new lines.
+
 For a reviewed, deliberately synthetic fixture that has to be checked in, add one
 `[[allowlists]]` entry to the base branch's `.betterleaks.toml`. Set `condition = "AND"`, match
 the exact fixture path in `paths` and match the exact fake value in `regexes`. Anchor both
