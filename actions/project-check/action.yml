@@ -37,7 +37,7 @@ runs:
         if [ "$EVENT" = pull_request ]; then
           project_just check
           recipes=$(just --dump --dump-format json)
-          if jq -e '(.recipes | has("test")) or (.aliases | has("test"))' <<< "$recipes" >/dev/null; then
+          if node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8")); process.exit((Object.hasOwn(r.recipes||{},"test")||Object.hasOwn(r.aliases||{},"test"))?0:1)' <<< "$recipes"; then
             project_just test
           else
             echo "This repository declares no test recipe."
@@ -46,7 +46,7 @@ runs:
           argv=(verify)
           if [ -n "${PART:-}" ] && [ "$PART" != "[]" ]; then
             argv=()
-            while IFS= read -r argument; do argv+=("$argument"); done < <(jq -r '.[]' <<< "$PART")
+            while IFS= read -r argument; do argv+=("$argument"); done < <(node -e 'for(const x of JSON.parse(process.argv[1])) console.log(x)' "$PART")
           fi
           project_just "${argv[@]}"
         fi

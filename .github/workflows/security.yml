@@ -139,7 +139,7 @@ jobs:
               curl -fsSL -o "$download" "${NDDEV_CI_ARTIFACT_REGISTRY%/}/github-releases/sha256/$2/$repository/releases/download/$tag/$name"
             else
               asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
-                jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
+                node -e 'const assets=(JSON.parse(require("fs").readFileSync(0,"utf8")).assets||[]).filter(x=>x.name===process.argv[1]); if(assets.length!==1||typeof assets[0].id!=="number") throw new Error("release asset is missing or ambiguous"); console.log(assets[0].id)' "$name")
               curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$download" "https://api.github.com/repos/$repository/releases/assets/$asset"
             fi
             echo "$2  $download" | sha256sum --check --quiet
