@@ -55,6 +55,7 @@ on:
 jobs:
   promote:
     name: promote
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion != 'cancelled'
     # Public repositories promote on GitHub's runners, private ones on ours.
     runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || ((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light') && 'nddev-linux-release' || inputs.runner) }}
     environment: ${{ inputs.environment }}
