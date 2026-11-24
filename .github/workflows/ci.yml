@@ -23,6 +23,7 @@ jobs:
       rust-components: clippy,rustfmt
       artifact: dist
       artifact-name: qualify-merge
+      new-clones: true
     permissions:
       contents: read
 
@@ -32,6 +33,7 @@ jobs:
     uses: ./.github/workflows/merge-stops.yml
     with:
       hosted-runner: ubuntu-24.04-arm
+      new-clones: true
     permissions:
       contents: read
 
