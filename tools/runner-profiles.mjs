@@ -6,9 +6,10 @@ const nonLinux = "(inputs.runner-profile == 'macos-arm64' || inputs.runner-profi
 const helper = "(inputs.runner == 'nddev-macos' && 'linux-arm64' || " +
   nonLinux + " && 'linux-x64' || inputs.runner-profile || " +
   "inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || " +
-  "(inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '')";
-const lightRunner = "(inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || " +
-  "(inputs.runner == 'nddev-linux-standart' || " + nonLinux + ") && 'nddev-linux-small' || inputs.runner)";
+  "(inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '')";
+const lightRunner = "((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || " +
+  nonLinux + ") && 'nddev-linux-light' || inputs.runner)";
+const partRunner = "(fromJSON(inputs['part-runners'])[matrix.part.group] || inputs.runner)";
 
 const defaultImage = "'" + profileHostedLabels["linux-x64"] + "'";
 const privateRepo = "github.event.repository.private";
@@ -25,8 +26,12 @@ const botPullRequest = [
   "github.actor == github.triggering_actor",
 ].join(" && ");
 const maintenanceLabels = {
+  "nddev-linux-bounded": "nddev-linux-bounded-maintenance",
+  "nddev-linux-light": "nddev-linux-light-maintenance",
   "nddev-linux-small": "nddev-linux-small-maintenance",
   "nddev-linux-standart": "nddev-linux-standart-maintenance",
+  "nddev-macos": "nddev-macos-maintenance",
+  "nddev-windows": "nddev-windows-maintenance",
 };
 
 function maintenanceRunner(managed) {
@@ -52,26 +57,21 @@ function route(file, {
   const managedRoute = recipe ? "!" + manual + " && " + managedLane : managedLane;
   const legacyImage = recipe ? publicImage : defaultImage;
   return [
-    "$" + "{{",
-    "!" + privateRepo + " && " + publicImage,
-    "|| " + privateRepo + " && (",
-    "  " + scoped + " && " + image(profile),
-    "  || " + manual + " && (" + image(profile) + " || " + legacyImage + ")",
-    "  || " + managedRoute,
-    ") || ''",
-    "}}",
+    "$" + "{{ !" + privateRepo + " && " + publicImage + " || " + privateRepo + " && (" +
+      scoped + " && " + image(profile) + " || " + manual + " && (" + image(profile) + " || " + legacyImage + ")",
+    "|| " + managedRoute + ") || '' }}",
   ].map((line) => "      " + line).join("\n");
 }
 
 const paths = {
   "check.yml": {
-    plan: { profile: helper, managed: lightRunner },
+    plan: { profile: helper, managed: lightRunner, maintenance: true },
     registry: { managed: "'nddev-linux-small'", maintenance: true, managedOnly: true },
-    check: { maintenance: true },
-    join: { profile: helper, managed: lightRunner },
+    check: { managed: partRunner, maintenance: true },
+    join: { profile: helper, managed: lightRunner, maintenance: true },
   },
   "merge-stops.yml": { stops: { profile: helper, managed: lightRunner, maintenance: true } },
-  "recipe.yml": { recipe: { recipe: true } },
+  "recipe.yml": { recipe: { recipe: true, maintenance: true } },
 };
 const marked = /(^    # runner-profile:(\S+)\n)    runs-on:[^\n]*(?:\n      [^\n]+)*/gm;
 

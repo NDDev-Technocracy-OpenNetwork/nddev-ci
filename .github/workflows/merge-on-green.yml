@@ -30,14 +30,14 @@ on:
       runner:
         description: The label of our runners, used by private repositories.
         type: string
-        default: nddev-linux-small
+        default: nddev-linux-release
 
 permissions: {}
 
 jobs:
   merge:
     name: merge on green
-    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || inputs.runner }}
+    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || ((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light') && 'nddev-linux-release' || inputs.runner) }}
     environment: ${{ inputs.environment }}
     concurrency:
       group: nddev-ci-merge-${{ github.repository }}

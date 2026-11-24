@@ -41,7 +41,7 @@ on:
       runner:
         description: The label of our runners, used by private repositories.
         type: string
-        default: nddev-linux-small
+        default: nddev-linux-release
     outputs:
       state:
         description: ready, current, unchecked or unversioned (the source still declares the newest released version).
@@ -56,7 +56,7 @@ jobs:
   promote:
     name: promote
     # Public repositories promote on GitHub's runners, private ones on ours.
-    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || inputs.runner }}
+    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || ((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light') && 'nddev-linux-release' || inputs.runner) }}
     environment: ${{ inputs.environment }}
     concurrency:
       group: nddev-ci-promote-${{ github.repository }}
@@ -75,8 +75,6 @@ jobs:
       - name: Choose the commit
         id: choose
         uses: $/actions/promote
-        env:
-          NDDEV_BRANCH_FALLBACK_ACTOR_ID: ${{ vars.NDDEV_BRANCH_FALLBACK_ACTOR_ID }}
         with:
           required-workflows: ${{ inputs.required-workflows }}
           release-metadata: ${{ inputs.release-metadata }}

@@ -64,8 +64,10 @@ own steps, and records a later failure of its own artifact or reports as the job
 | Push to `dev`, or manual run | `just verify` |
 
 `setup: true` runs `just setup` first. A missing optional test recipe is allowed;
-a failed command or invalid justfile fails the job. New PR pushes cancel their
-superseded checks. Each `dev` commit keeps its full check.
+a failed command or invalid justfile fails the job. New pull request pushes cancel
+their superseded checks, recipes and image builds. On a branch such as `dev`, one run
+executes at a time and a newer push waits behind it, replacing any push already
+waiting; releases are never cancelled.
 
 ### The full check in parts
 
@@ -83,8 +85,13 @@ justfile, and `just verify` stays the one command an agent runs.
   the caller names `reports`, which the job running `verify` must leave. Callers
   that always run the whole recipe can set `whole-full-check: true` to run
   `verify` without scheduling the planner.
-- Every part takes the same inputs, setup, runner choice, SDKs and caches. One run of each part runs
-  on a branch at a time; a newer push's waiting part replaces an older waiting one.
+- Every part uses the same inputs, setup, SDKs and caches. Private projects can set `part-runners`
+  to a JSON object such as `'{"check":"nddev-linux-light"}'` so architecture-independent lint and
+  format parts use a lighter class while native build and test parts stay on `runner`. The part ID
+  is its first recipe's name with punctuation other than `-` and `_` replaced by hyphens (`short`
+  for a pull request's short check). Unmapped parts use `runner`. The plan, join and GitHub-hosted
+  selection keep their own routes. One run of each part runs on a branch at a time; a newer push's waiting part replaces an
+  older waiting one.
 - The deployment `artifact` is kept by the part whose recipes left it; the joined result fails
   unless exactly one part did. Diagnostics are kept per part. Promotion reads the run as before.
 
@@ -97,9 +104,10 @@ checked build to release or deployment are kept for three days by default. Use
 repository's retention limit.
 
 Use `retain-runs: true` when a project requires a verdict for every run. This gives
-`check.yml` and its merge stops a separate concurrency group for each run. A project
-with native command jobs passes it directly to `merge-stops.yml` and owns concurrency
-for its own jobs.
+`check.yml`, `merge-stops.yml`, `recipe.yml`, `image.yml`, `select-registry-input.yml`
+and `source-version.yml` a separate concurrency group for each run. Callers with extra
+local jobs can also set workflow-level `concurrency:` (as in
+[examples/ci.yml](examples/ci.yml)) using a group prefix distinct from `nddev-ci-`.
 
 Subscribe the caller's pull request trigger to opened, synchronize, reopened, labeled and edited
 events, as in the example. Editing a title or description must rerun its metadata checks. The
@@ -276,39 +284,43 @@ sources.
 
 Public projects use the selected GitHub-hosted runner. Private projects use `runner`:
 
-| Managed class | Project commands | Image builds | Merge stops, image tags, daily scans |
-| --- | --- | --- | --- |
-| `nddev-linux-standart` | Linux x64 | Same class | `nddev-linux-small` |
-| `nddev-linux-small` | Linux x64 | Same class | Same class |
-| `nddev-linux-arm64` | Linux ARM64 | Same class | Same class |
-| `nddev-macos` | Native macOS ARM64 | `nddev-linux-arm64` | `nddev-linux-arm64` |
+| Managed class | Project commands | Image builds | Planning, joins, merge stops, daily scans | Releases, promotions, image tags |
+| --- | --- | --- | --- | --- |
+| `nddev-linux-standart` | Linux x64 | Same class | `nddev-linux-light` | `nddev-linux-release` |
+| `nddev-linux-small` | Linux x64 | Same class | `nddev-linux-light` | `nddev-linux-release` |
+| `nddev-linux-light` | Linux x64 or ARM64 | Same class | Same class | `nddev-linux-release` |
+| `nddev-linux-release` | Linux x64 or ARM64 | Same class | Same class | Same class |
+| `nddev-linux-arm64` | Linux ARM64 | Same class | Same class | Same class |
+| `nddev-macos` | Native macOS ARM64 | `nddev-linux-arm64` | `nddev-linux-light` | `nddev-linux-release` |
 
-The jobs of the last column are light by their nature, so they leave the standard class to a
-project's own builds and tests.
+Light, architecture-independent jobs run on any available Linux x64 or ARM64 runner and leave
+standard x64 slots to native builds and tests. Release and promotion workflows (`release.yml`,
+`promote.yml`, `image-tag.yml` and `merge-on-green.yml`) default to `nddev-linux-release` so the
+runner service can place them ahead of branch and pull request checks. The protected technology
+registry check stays on `nddev-linux-small` because its CLI asset is Linux x64.
 
-The shared check workflow routes private Linux x64 PRs authored and triggered
-by a bot to the matching `nddev-linux-small-maintenance` or `nddev-linux-standart-maintenance` label.
-The runner service registers those labels against the same hardware and class.
-A person's run or rerun, a branch check and a release use the ordinary managed
-label. Explicit hosted selections keep their existing route.
+Private pull requests authored and triggered by a bot route their managed check, recipe, image,
+merge-stop, registry and source-version jobs to the matching `-maintenance` label
+(`nddev-linux-light-maintenance`, `nddev-linux-small-maintenance`,
+`nddev-linux-standart-maintenance`, `nddev-linux-bounded-maintenance`, `nddev-macos-maintenance`
+or `nddev-windows-maintenance`). The runner service registers those labels against the same
+hardware and class and places them only when no release or foreground job waits. A person's run or
+rerun and branch checks use the ordinary managed label. Explicit hosted selections keep their
+existing route.
 
 Configure `runner-profile` for each private `check.yml` or `recipe.yml` call that supports
-automatic fallback. The caller listens for PR `labeled` events and declares the optional string
-`runner-profile` alongside its `runner` choice in `workflow_dispatch`. A scheduler restarts the
-run using `runner:github:<profile>` on a PR or `runner=github` plus `runner-profile=<profile>`
-on a branch. Only matching jobs use a GitHub-hosted runner in the replacement run. Other jobs
+profile-scoped GitHub-hosted runs. The caller listens for PR `labeled` events and declares the
+optional string `runner-profile` alongside its `runner` choice in `workflow_dispatch`. Adding
+`runner:github:<profile>` on a PR or dispatching with `runner=github` and
+`runner-profile=<profile>` moves only matching jobs to a GitHub-hosted runner. Other jobs
 continue to target their managed labels. Lightweight Linux jobs use the profile of their own
 runner class.
 
 The supported profiles are Linux x64, Linux ARM64, macOS ARM64 and Windows x64. Each
 selects a standard GitHub-hosted image of the same platform.
 
-For branch release checks, set the caller's run name to `Contour hosted fallback` when the
-dispatch selects both `runner=github` and a nonempty `runner-profile`, as in the example.
-The `NDDEV_BRANCH_FALLBACK_ACTOR_ID` configuration variable holds the scheduler App's numeric
-bot user ID. A push or a dispatch with that run name and both matching actor IDs qualifies the
-same exact repository, workflow, branch and commit. Promotion and release check the newest
-eligible run and revalidate its attempt before consuming the artifact receipt.
+Promotion and release qualify commits strictly from exact branch `push` runs of the configured
+workflow, checking the newest run and revalidating its attempt before consuming artifacts.
 
 The unqualified PR label `runner:github` and a manual `runner: github` without a profile move the
 whole check and its portable jobs. For a call without a profile, the manual selection keeps its

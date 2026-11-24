@@ -1,5 +1,4 @@
 name: ci
-run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'github' && inputs.runner-profile != '' && 'Contour hosted fallback' || '' }}
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, edited]
@@ -13,9 +12,12 @@ on:
         options: [ours, github]
         default: ours
       runner-profile:
-        description: Platform requested for automatic fallback.
+        description: Platform selected for a manual GitHub-hosted run.
         type: string
 permissions: {}
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   check:
     uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@RELEASE_COMMIT # RELEASE_VERSION
