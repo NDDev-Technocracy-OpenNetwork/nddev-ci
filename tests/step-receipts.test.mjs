@@ -68,6 +68,7 @@ function makeEnv(dir, tempDir, gatewayUrl, extra = {}) {
   return {
     PATH: process.env.PATH,
     PRIVATE_REPO: "true",
+    EVENT: "",
     GITHUB_EVENT_PATH: "",
     GITHUB_STEP_SUMMARY: "",
     GITHUB_OUTPUT: "",
