@@ -36,6 +36,9 @@ inputs:
   artifact-days:
     description: How many days the artifact is kept.
     default: '3'
+  part:
+    description: Optional full-check part label recorded in private OCI artifact annotations.
+    default: ''
   reports:
     description: Workspace-relative reports, one per line, kept whatever the result; a missing one fails the job.
     default: ''
@@ -51,14 +54,26 @@ runs:
     - name: Artifact
       id: artifact
       # A passed full run keeps what the project deploys, so a deployment takes the exact build of a
-      # checked commit instead of building again.
-      if: inputs.status == 'success' && github.event_name != 'pull_request' && inputs.artifact != ''
+      # checked commit instead of building again. Public repositories use workflow artifacts.
+      if: ${{ !github.event.repository.private && inputs.status == 'success' && github.event_name != 'pull_request' && inputs.artifact != '' }}
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ inputs.artifact-name }}
         path: ${{ inputs.artifact }}
         if-no-files-found: error
         retention-days: ${{ inputs.artifact-days }}
+
+    - name: Artifact (OCI)
+      id: artifact-oci
+      # Private repositories push checked artifacts to GHCR as content-addressed OCI artifacts.
+      if: ${{ github.event.repository.private && inputs.status == 'success' && github.event_name != 'pull_request' && inputs.artifact != '' }}
+      uses: $/actions/oci-artifact
+      with:
+        mode: push
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.artifact }}
+        part: ${{ inputs.part }}
+        github-token: ${{ github.token }}
 
     - name: Reports
       id: reports
@@ -152,9 +167,9 @@ runs:
         task: ${{ inputs.task }}
         task-type: ${{ inputs.task-type }}
         # A passed job whose own artifact or reports then failed has failed.
-        status: ${{ (inputs.status == 'success' && (steps.artifact.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure')) && 'failure' || inputs.status }}
+        status: ${{ (inputs.status == 'success' && (steps.artifact.outcome == 'failure' || steps.artifact-oci.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure')) && 'failure' || inputs.status }}
         # The project's commands or reports, or the steps around them (nddev_ci.failure.layer).
-        failure-layer: ${{ (inputs.status == 'failure' || steps.artifact.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure') && ((inputs.project-outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && 'project' || 'library') || '' }}
+        failure-layer: ${{ (inputs.status == 'failure' || steps.artifact.outcome == 'failure' || steps.artifact-oci.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure') && ((inputs.project-outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && 'project' || 'library') || '' }}
         runner-reason: ${{ inputs.runner-reason }}
         check-run-id: ${{ inputs.check-run-id }}
         started-file: ${{ runner.temp }}/nddev-ci-started

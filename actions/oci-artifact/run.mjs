@@ -1,0 +1,117 @@
+import { appendFileSync, existsSync, mkdirSync, realpathSync } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { defaultRegistryUrl, inspectOciArtifact, pullOciArtifacts, pushOciArtifact } from "../../lib/oci-artifacts.mjs";
+
+function writeOutputs(file, entries) {
+  if (!file) return;
+  const lines = Object.entries(entries)
+    .filter(([, value]) => value !== undefined && value !== null)
+    .map(([key, value]) => {
+      const text = String(value);
+      if (/[\r\n]/.test(text)) throw new Error(`Output ${key} cannot span multiple lines.`);
+      return `${key}=${text}`;
+    });
+  if (lines.length) appendFileSync(file, `${lines.join("\n")}\n`);
+}
+
+export async function main(environment = process.env) {
+  const input = (name) => (environment[`INPUT_${name.toUpperCase()}`] ?? "").trim();
+  const mode = input("mode") || "push";
+  const name = input("name");
+  if (!name) throw new Error("An artifact name or digest is required.");
+  const repository = environment.GITHUB_REPOSITORY ?? "";
+  const sha = environment.GITHUB_SHA ?? "";
+  const branch = environment.GITHUB_REF_NAME ?? "";
+  const runId = Number(environment.GITHUB_RUN_ID ?? 0);
+  const runAttempt = Number(environment.GITHUB_RUN_ATTEMPT ?? 0);
+  const token = input("github-token");
+  const actor = environment.GITHUB_ACTOR || "x-access-token";
+  const registryUrl = input("registry-url") || environment.NDDEV_CI_OCI_REGISTRY_URL || defaultRegistryUrl;
+  const outputFile = environment.GITHUB_OUTPUT;
+
+  if (mode === "push") {
+    const cwd = environment.GITHUB_WORKSPACE || process.cwd();
+    const allowedRoots = [cwd, environment.RUNNER_TEMP].filter(Boolean);
+    const result = await pushOciArtifact({
+      repository,
+      sha,
+      branch,
+      runId,
+      runAttempt,
+      name,
+      part: input("part"),
+      pathsText: environment.INPUT_PATH ?? "",
+      cwd,
+      allowedRoots,
+      token,
+      actor,
+      registryUrl,
+    });
+    writeOutputs(outputFile, { digest: result.digest, reference: result.reference, part: input("part") });
+    console.log(`Pushed OCI artifact ${name} (${result.files.length} files): ${result.reference}`);
+    return result;
+  }
+
+  if (mode === "verify") {
+    const result = await inspectOciArtifact({
+      repository,
+      sha,
+      branch,
+      runId,
+      runAttempt,
+      nameOrDigest: name,
+      token,
+      actor,
+      registryUrl,
+      retryReads: true,
+    });
+    writeOutputs(outputFile, { digest: result.digest, reference: result.reference, part: result.part });
+    console.log(`Verified OCI artifact ${result.name}: ${result.reference}`);
+    return result;
+  }
+
+  if (mode === "pull") {
+    const temp = environment.RUNNER_TEMP;
+    if (!temp) throw new Error("Pulling an OCI artifact requires RUNNER_TEMP.");
+    const root = realpathSync(temp);
+    const rawTarget = input("directory");
+    if (!rawTarget) throw new Error("Pulling an OCI artifact requires a destination directory.");
+    const resolvedTemp = path.resolve(temp);
+    const normalized = path.isAbsolute(rawTarget) && (rawTarget === resolvedTemp || rawTarget.startsWith(resolvedTemp + path.sep))
+      ? path.join(root, path.relative(resolvedTemp, rawTarget))
+      : rawTarget;
+    const directory = path.resolve(root, normalized);
+    const relative = path.relative(root, directory);
+    if (!relative || relative.startsWith(`..${path.sep}`) || relative === ".." || path.isAbsolute(relative) || existsSync(directory))
+      throw new Error("OCI artifact destination must be a new path inside RUNNER_TEMP.");
+    mkdirSync(path.dirname(directory), { recursive: true, mode: 0o700 });
+    const result = await pullOciArtifacts({
+      repository,
+      sha,
+      branch: "",
+      runId,
+      runAttempt,
+      names: [name],
+      destination: directory,
+      topLevelOnly: false,
+      token,
+      actor,
+      registryUrl,
+      retryReads: true,
+    });
+    const first = result.artifacts[0];
+    writeOutputs(outputFile, { digest: first.digest, reference: first.reference, directory });
+    console.log(`Pulled OCI artifact ${first.name} (${result.files.length} files): ${first.reference}`);
+    return result;
+  }
+
+  throw new Error(`Unknown OCI artifact mode: ${mode}`);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(`::error::${String(error.message).replace(/[\r\n%]/g, " ")}`);
+    process.exitCode = 1;
+  });
+}

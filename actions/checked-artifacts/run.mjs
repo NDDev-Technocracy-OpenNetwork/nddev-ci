@@ -16,7 +16,14 @@ export async function main(environment = process.env) {
   catch { throw new Error("A valid qualification receipt is required."); }
   if (!input("github-token")) throw new Error("A metadata read token is required.");
   const result = await transferArtifacts(client(input("github-token"), input("api-url") || environment.GITHUB_API_URL),
-    qualified, input("artifacts"), directory, {apiUrl: input("artifact-api-url"), token: input("artifact-token")});
+    qualified, input("artifacts"), directory, {
+      apiUrl: input("artifact-api-url"),
+      token: input("artifact-token"),
+      githubToken: input("github-token"),
+      actor: environment.GITHUB_ACTOR || "x-access-token",
+      registryUrl: environment.NDDEV_CI_OCI_REGISTRY_URL || undefined,
+      env: environment,
+    });
   appendFileSync(environment.GITHUB_OUTPUT, `directory=${directory}\nmanifest=${JSON.stringify(result)}\n`);
   console.log(`Transferred ${result.artifacts.length} artifacts and verified ${result.files.length} files.`);
   return result;

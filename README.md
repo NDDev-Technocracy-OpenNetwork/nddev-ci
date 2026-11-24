@@ -472,6 +472,26 @@ expiration, size and digest must agree. Files are bounded regular top-level entr
 package directory trees into an archive first. API and artifact transports have
 separate explicit inputs, and storage redirects receive no API credentials.
 
+Private repositories upload and download no GitHub Actions workflow artifacts: checked artifacts
+(`check.yml`, `recipe.yml`, `actions/complete`, `actions/checked-artifacts`, `promote.yml`,
+`release.yml`) and caller SBOMs (`security.yml` `sboms` via [oci-artifact](actions/oci-artifact/action.yml))
+travel through GHCR (`ghcr.io/<owner>/<repository>/ci-artifacts`) as content-addressed OCI Image
+Manifests verified by digest and exact source, run, attempt and artifact-name annotations. Public
+repositories keep using GitHub Actions workflow artifacts unchanged.
+
+Because reusable workflows cannot elevate `GITHUB_TOKEN` beyond the calling job's ceiling, callers
+declare permissions on their calling job:
+- `check.yml` and `recipe.yml`: `contents: read`, plus `packages: write` when a private repository
+  passes `artifact`.
+- `promote.yml`: `actions: read` and `contents: read`, plus `packages: read` when a private
+  repository passes `artifacts`.
+- `release.yml`: `actions: read` and `contents: write`, plus `packages: read` when a private
+  repository passes `artifacts`.
+- `security.yml`: `contents: read`, plus `packages: read` when a private repository passes `sboms`.
+- Direct calls to `actions/complete` with `artifact` or `actions/oci-artifact` (`mode: push`) in a
+  private repository need `packages: write`; direct calls to `actions/checked-artifacts` or
+  `actions/oci-artifact` (`mode: pull` or `verify`) need `packages: read`.
+
 `release.yml` reuses this implementation: `main` releases the exact successful `dev`
 commit, reuses its files, adds `SHA256SUMS`, and publishes a verified draft. Tags use
 `v<major>.<minor>.<patch>` and never move. Reruns reconcile the same release.

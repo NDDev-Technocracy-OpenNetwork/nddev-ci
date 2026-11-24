@@ -13,7 +13,8 @@ function declared(workflow) {
   const start = source.indexOf("      read-app-client-id:\n");
   const end = source.indexOf("      read-repositories:\n", start);
   const after = source.indexOf("        default:", end);
-  const secrets = source.slice(source.indexOf("    secrets:\n"), source.indexOf("\npermissions:"));
+  const secretStart = source.indexOf("    secrets:\n");
+  const secrets = source.slice(secretStart, source.indexOf("\n\n", secretStart));
   return [source.slice(start, source.indexOf("\n", after)), secrets.trimEnd()];
 }
 

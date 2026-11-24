@@ -65,8 +65,14 @@ async function main() {
   const folder = path.join(parent, sha);
   let files = [];
   if (names.length) {
-    const transferred = await transferArtifacts(github, qualified, names.join("\n"), folder,
-      {apiUrl: input("artifact-api-url"), token: input("artifact-token"), fallbackActorId});
+    const transferred = await transferArtifacts(github, qualified, names.join("\n"), folder, {
+      apiUrl: input("artifact-api-url"),
+      token: input("artifact-token"),
+      githubToken: input("github-token"),
+      actor: process.env.GITHUB_ACTOR || "x-access-token",
+      registryUrl: process.env.NDDEV_CI_OCI_REGISTRY_URL || undefined,
+      fallbackActorId,
+    });
     files = transferred.files;
   } else mkdirSync(folder, {recursive: true, mode: 0o700});
   const planned = checkFiles(files);

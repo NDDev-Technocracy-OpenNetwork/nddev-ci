@@ -50,8 +50,8 @@ on:
         description: The commit the target branch moved to.
         value: ${{ jobs.promote.outputs.sha }}
 
-permissions: {}
-
+# Callers declare permissions on their calling job: `actions: read` and `contents: read`, plus
+# `packages: read` when a private repository inspects checked release metadata via GHCR.
 jobs:
   promote:
     name: promote
@@ -62,9 +62,6 @@ jobs:
       group: nddev-ci-promote-${{ github.repository }}
       cancel-in-progress: false
     timeout-minutes: 15
-    permissions:
-      actions: read # read the checks
-      contents: read # compare the branches
     outputs:
       state: ${{ steps.choose.outputs.state }}
       sha: ${{ steps.choose.outputs.sha }}

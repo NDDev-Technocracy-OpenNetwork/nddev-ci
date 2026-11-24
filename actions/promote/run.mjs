@@ -30,7 +30,13 @@ export async function main(environment = process.env) {
       mkdirSync(temp, {recursive: true});
       const parent = mkdtempSync(path.join(temp, "nddev-ci-promotion-"));
       try {
-        const {files} = await transferArtifacts(github, qualifications[0], input("artifacts"), path.join(parent, "checked"), {fallbackActorId});
+        const {files} = await transferArtifacts(github, qualifications[0], input("artifacts"), path.join(parent, "checked"), {
+          fallbackActorId,
+          githubToken: token,
+          actor: environment.GITHUB_ACTOR || "x-access-token",
+          registryUrl: environment.NDDEV_CI_OCI_REGISTRY_URL || undefined,
+          env: environment,
+        });
         result.version = await releaseVersion(github, {repository: environment.GITHUB_REPOSITORY,
           sha: result.sha, files, metadata: input("release-metadata")});
       } catch (error) {
