@@ -7,9 +7,6 @@ inputs:
   part:
     description: The full-check part's literal argument array, or empty to run just verify.
     default: ''
-  receipt-token:
-    description: Repository token used only to check the receipt's source run.
-    default: ''
   receipt-inputs:
     description: JSON snapshot of caller workflow inputs for receipt key and policy evaluation.
     default: '{}'
@@ -41,7 +38,6 @@ runs:
         SETUP: ${{ inputs.setup }}
         PART: ${{ inputs.part }}
         PRIVATE_REPO: ${{ github.event.repository.private }}
-        GH_TOKEN: ${{ inputs.receipt-token }}
         RECEIPT_INPUTS: ${{ inputs.receipt-inputs }}
         NDDEV_CI_ACTION_REF: ${{ github.action_ref }}
         NDDEV_CI_ACTION_REPO: ${{ github.action_repository }}

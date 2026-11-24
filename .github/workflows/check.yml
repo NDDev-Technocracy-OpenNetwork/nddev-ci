@@ -442,8 +442,9 @@ jobs:
       - name: Check
         id: project
         uses: $/actions/project-check
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
-          receipt-token: ${{ github.token }}
           setup: ${{ inputs.setup }}
           part: ${{ toJSON(matrix.part.argv) }}
           receipt-inputs: ${{ toJSON(inputs) }}
