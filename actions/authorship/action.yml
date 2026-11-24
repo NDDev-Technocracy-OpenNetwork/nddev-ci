@@ -7,6 +7,10 @@ inputs:
   head:
     description: Exact pull request head commit.
     required: true
+  upstream-branch:
+    description: Optional branch in this repository that mirrors a fork's upstream; its ancestry is skipped.
+    required: false
+    default: ''
 runs:
   using: node24
   main: run.mjs
