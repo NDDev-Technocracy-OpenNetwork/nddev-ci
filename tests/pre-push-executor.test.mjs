@@ -69,13 +69,21 @@ test("managed push transfers one exact standalone source and binds its registry 
     });
     assert.equal(send.status, 0, send.stderr);
     const argv = readFileSync(argumentsFile, "utf8").trim().split("\n");
-    assert.deepEqual(argv.slice(0, 8), [
+    assert.deepEqual(argv, [
       "-T", "-oBatchMode=yes", "-oConnectTimeout=15", "--", "build-test", "/trusted/build-check",
-      "example/project", tip,
     ]);
-    const ref = argv[8];
+    const framed = readFileSync(bundle);
+    const newline = framed.indexOf(10);
+    assert.ok(newline > 0);
+    const request = JSON.parse(framed.subarray(0, newline));
+    const ref = request.transfer_ref;
     assert.match(ref, /^refs\/contour\/pre-push\/[a-f0-9-]{36}$/);
-    assert.deepEqual(argv.slice(9), [registered]);
+    assert.deepEqual(request, {
+      schema_version: 1, repository: "example/project", commit: tip,
+      transfer_ref: ref, registry_commit: registered,
+    });
+    const gitBundle = framed.subarray(newline + 1);
+    writeFileSync(bundle, gitBundle);
     assert.equal(git("for-each-ref", "refs/contour/pre-push"), "");
     assert.equal(git("bundle", "list-heads", bundle), tip + " " + ref);
 
@@ -93,7 +101,7 @@ test("managed push transfers one exact standalone source and binds its registry 
     };
     const run = (selected, env) => spawnSync(process.execPath, [
       cli, "--receive", "example/project", selected, ref, "none",
-    ], { cwd: receiver, env, encoding: "utf8", input: readFileSync(bundle) });
+    ], { cwd: receiver, env, encoding: "utf8", input: gitBundle });
     const wrongSource = run("b".repeat(40), admission);
     assert.equal(wrongSource.status, 1);
     assert.match(wrongSource.stderr, /transferred source does not match/);
