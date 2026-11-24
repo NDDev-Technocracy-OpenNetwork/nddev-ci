@@ -47,3 +47,37 @@ test("tracked build lines that break a convention are named; comments, documents
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("Dockerfiles running package installs without mirror ARGs emit dockerfile-mirror-args warnings", () => {
+  const root = mkdtempSync(join(tmpdir(), "build-conventions-docker-"));
+  try {
+    writeFileSync(
+      join(root, "Dockerfile"),
+      [
+        "FROM rust:1.95 AS bad-rust",
+        "RUN cargo build --locked --release",
+        "FROM rust:1.95 AS good-rust",
+        "ARG CARGO_SOURCE_CRATES_IO_REPLACE_WITH",
+        "ARG CARGO_SOURCE_MIRROR_REGISTRY",
+        "RUN cargo build --locked --release",
+        "FROM oven/bun:1.4 AS bad-web",
+        "RUN bun install --frozen-lockfile",
+        "FROM oven/bun:1.4 AS good-web",
+        "ARG NPM_CONFIG_REGISTRY",
+        "RUN bun install --frozen-lockfile",
+        "",
+      ].join("\n"),
+    );
+    execFileSync("git", ["-C", root, "init", "-q"]);
+    execFileSync("git", ["-C", root, "add", "Dockerfile"]);
+    assert.deepEqual(
+      findings(root).map(({ path, line, rule }) => [path, line, rule]),
+      [
+        ["Dockerfile", 2, "dockerfile-mirror-args"],
+        ["Dockerfile", 8, "dockerfile-mirror-args"],
+      ],
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

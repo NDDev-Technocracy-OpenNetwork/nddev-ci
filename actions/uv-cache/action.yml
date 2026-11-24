@@ -1,0 +1,11 @@
+name: Warm locked uv wheels
+description: >-
+  Pre-populate UV_CACHE_DIR from the runner's artifact registry for locked PyPI wheels so later
+  uv sync --locked steps read from local cache instead of fetching directly from upstream.
+inputs:
+  working-directory:
+    description: Optional subdirectory to search for uv.lock files; empty or '.' searches the workspace.
+    default: '.'
+runs:
+  using: node24
+  main: run.mjs

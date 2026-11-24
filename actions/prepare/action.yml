@@ -337,6 +337,12 @@ runs:
         managed: ${{ inputs.managed }}
         working-directory: ${{ inputs.working-directory }}
 
+    - name: Warm locked uv wheels from the artifact registry
+      if: inputs.managed != 'false' && env.NDDEV_CI_ARTIFACT_REGISTRY != '' && env.UV_CACHE_DIR != ''
+      uses: $/actions/uv-cache
+      with:
+        working-directory: ${{ inputs.working-directory }}
+
     - name: Prepare in-job image builds
       id: image-builder
       if: inputs.images == 'true'
