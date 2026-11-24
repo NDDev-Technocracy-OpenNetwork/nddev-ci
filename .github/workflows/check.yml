@@ -69,6 +69,10 @@ on:
         description: Reads sparse-checkout as cone directories; false reads gitignore-style patterns.
         type: boolean
         default: true
+      new-clones:
+        description: Reject new code clones using the pull request base's .jscpd.json.
+        type: boolean
+        default: false
       sparse-merge-stops:
         description: Keep only .github and the policy files used by the independent merge stops.
         type: boolean
@@ -535,5 +539,6 @@ jobs:
       artifact-registry: ${{ inputs.artifact-registry }}
       hosted-runner: ${{ inputs.hosted-runner }}
       sparse-checkout: ${{ inputs.sparse-merge-stops }}
+      new-clones: ${{ inputs.new-clones }}
     permissions:
       contents: read
