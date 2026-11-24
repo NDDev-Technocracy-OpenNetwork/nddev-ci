@@ -111,6 +111,8 @@ check: (_tools "check")
     node --check tools/security-schedule.mjs
     node --check tests/security-schedule.test.mjs
     node --check lib/verify-parts.mjs
+    node --check actions/planner-speed/run.mjs
+    node --check tests/planner-speed.test.mjs
     node --check actions/plan/run.mjs
     node --check tests/verify-parts.test.mjs
     node --check tests/ci-times.test.mjs

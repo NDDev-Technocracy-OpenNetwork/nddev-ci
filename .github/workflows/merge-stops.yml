@@ -414,6 +414,12 @@ jobs:
             "$output/jscpd-report.json"
           exit "$status"
 
+      - name: Planner speed
+        uses: $/actions/planner-speed
+        with:
+          base: ${{ github.event.pull_request.base.sha }}
+          merge: ${{ github.sha }}
+
       - name: No dangerous workflow
         id: workflows
         run: |

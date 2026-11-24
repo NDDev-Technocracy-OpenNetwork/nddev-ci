@@ -140,6 +140,11 @@ merge-stops.yml to reject new code clones. The job scans the proposed merge and 
 the exact base using the base's .jscpd.json. Existing clones stay in the baseline. The enabled job
 needs the full checkout, including files the pull request did not change.
 
+The library declares its planner speed budget in `.nddev-ci-planner-speed.json` on the base
+branch. The merge stop measures the planner at the exact base and checked merge on one runner.
+It takes the median CPU time of five batches for each source and rejects a slowdown beyond the
+declared margin.
+
 The message rules leave out a commit whose author is exactly Dependabot: it writes one long line
 for a grouped update and offers no setting for it. A repository's own `committed.toml` replaces
 the default rules whole.
