@@ -54,14 +54,9 @@ function route(file, {
   const managedRoute = recipe ? "!" + manual + " && " + managedLane : managedLane;
   const legacyImage = recipe ? publicImage : defaultImage;
   return [
-    "$" + "{{",
-    "!" + privateRepo + " && " + publicImage,
-    "|| " + privateRepo + " && (",
-    "  " + scoped + " && " + image(profile),
-    "  || " + manual + " && (" + image(profile) + " || " + legacyImage + ")",
-    "  || " + managedRoute,
-    ") || ''",
-    "}}",
+    "$" + "{{ !" + privateRepo + " && " + publicImage + " || " + privateRepo + " && (" +
+      scoped + " && " + image(profile) + " || " + manual + " && (" + image(profile) + " || " + legacyImage + ")",
+    "|| " + managedRoute + ") || '' }}",
   ].map((line) => "      " + line).join("\n");
 }
 
