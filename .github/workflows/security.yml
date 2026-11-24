@@ -227,6 +227,7 @@ jobs:
 
       - name: Report
         env:
+          PRIVATE: ${{ github.event.repository.private }}
           POLICY: ${{ inputs.license-policy }}
           ALLOWED: ${{ steps.licences.outputs.allowed }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -235,8 +236,21 @@ jobs:
           python3 - "$RUNNER_TEMP/security/out" > "$RUNNER_TEMP/security/report.md" <<'PY'
           import json, pathlib, os, re, sys
           out = pathlib.Path(sys.argv[1])
+          is_private = os.environ.get("PRIVATE") == "true"
+          scanners = {
+              name: os.environ.get(var, "")
+              for name, var in [
+                  ("TruffleHog", "TRUFFLEHOG_VERSION"),
+                  ("Kingfisher", "KINGFISHER_VERSION"),
+                  ("OSV-Scanner", "OSV_SCANNER_VERSION"),
+                  ("Syft", "SYFT_VERSION"),
+                  ("Grype", "GRYPE_VERSION"),
+                  ("Trivy", "TRIVY_VERSION"),
+              ]
+              if os.environ.get(var)
+          }
           lines = ["The daily security scan: findings are reported without hiding scanner failures.", ""]
-          # The summary shows 50 rows a section; JSON and the run log keep every row.
+          # The summary shows 50 rows a section and stays within 1 MiB; JSON and the run log keep every row.
           full = list(lines)
           findings = []
           def finding(kind, scanner, identifier, target, info=None, severity=None, fixed_versions=(), **details):
@@ -366,21 +380,58 @@ jobs:
                           v.get("Severity"), [value.strip() for value in (v.get("FixedVersion") or "").split(",") if value.strip()],
                           package_target=result.get("Target") or "")
               section(f"Packages of {label} (SBOM by Syft)", sorted(rows))
+          counts = {
+              "secrets": sum(1 for row in findings if row["kind"] == "secret"),
+              "vulnerabilities": sum(1 for row in findings if row["kind"] == "vulnerability"),
+              "licenses_outside_policy": sum(1 for row in findings if row["kind"] == "license" and row["identifier"] != "UNKNOWN"),
+              "licenses_unknown": sum(1 for row in findings if row["kind"] == "license" and row["identifier"] == "UNKNOWN"),
+              "total": len(findings),
+          }
+          header = [
+              f"Findings: {counts['total']} total ({counts['secrets']} live secrets, {counts['vulnerabilities']} vulnerabilities, {counts['licenses_outside_policy']} licences outside policy, {counts['licenses_unknown']} unknown licences).",
+          ]
+          if scanners:
+              header.append("Scanners: " + ", ".join(f"{name} {version}" for name, version in scanners.items()) + ".")
+          header.append("")
+          lines[2:2] = header
+          full[2:2] = header
           run = f"Run: {os.environ['RUN']}"
           lines.append(run)
           full.append(run)
           (out / "full.md").write_text("\n".join(full) + "\n")
-          (out / "security-report.json").write_text(json.dumps({"schema_version": 1,
-              "run": os.environ["RUN"], "findings": findings}, indent=2) + "\n")
-          body = "\n".join(lines)
-          if len(body) > 60000:
-              body = body[: body.rfind("\n", 0, 59000)] + f"\n\n… The complete report is in the artifact and run log.\n\n{run}"
-          print(body)
+          document = {
+              "schema_version": 1,
+              "event.name": "nddev_ci.security.report",
+              "run": os.environ["RUN"],
+              "scanners": scanners,
+              "counts": counts,
+              "findings": findings,
+          }
+          (out / "security-report.json").write_text(json.dumps(document, indent=2) + "\n")
+          (out / "security-report.jsonl").write_text(json.dumps(document, separators=(",", ":")) + "\n")
+          # GitHub Actions limits each step's job summary to 1 MiB (1,048,576 UTF-8 bytes).
+          max_summary_bytes = 960 * 1024
+          body = "\n".join(lines) + "\n"
+          encoded = body.encode("utf-8")
+          if len(encoded) > max_summary_bytes:
+              where = "the run log" if is_private else "the artifact and run log"
+              suffix = f"\n\n… The complete report is in {where}.\n\n{run}\n".encode("utf-8")
+              budget = max(0, max_summary_bytes - len(suffix))
+              prefix = encoded[:budget]
+              cut = prefix.rfind(b"\n")
+              if cut > 0:
+                  prefix = prefix[:cut]
+              body = prefix.decode("utf-8", errors="ignore") + suffix.decode("utf-8")
+          sys.stdout.write(body)
           PY
           cat "$RUNNER_TEMP/security/out/full.md"
+          echo "::group::Structured security report"
+          cat "$RUNNER_TEMP/security/out/security-report.jsonl"
+          echo "::endgroup::"
           cat "$RUNNER_TEMP/security/report.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the security report
+        if: ${{ !github.event.repository.private }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: security-report-${{ github.run_attempt }}
