@@ -133,6 +133,11 @@ Use `sparse-merge-stops: true` with `check.yml`, or `sparse-checkout: true` dire
 `merge-stops.yml`, to keep only `.github` and the root merge-stop policy files in its worktree.
 Use this for repositories with retained payloads when their local action metadata lives in
 `.github`. The project check's own sparse checkout is configured independently.
+After a project's .jscpd.json is on its base branch, set new-clones: true in check.yml or
+merge-stops.yml to reject new code clones. The job scans the proposed merge and compares it with
+the exact base using the base's .jscpd.json. Existing clones stay in the baseline. The enabled job
+needs the full checkout, including files the pull request did not change.
+
 The message rules leave out a commit whose author is exactly Dependabot: it writes one long line
 for a grouped update and offers no setting for it. A repository's own `committed.toml` replaces
 the default rules whole.
