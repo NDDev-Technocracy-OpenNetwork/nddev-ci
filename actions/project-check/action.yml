@@ -34,6 +34,7 @@ runs:
   steps:
     - name: Prepare step receipts
       id: receipt-prepare
+      if: github.event.repository.private && runner.environment == 'self-hosted'
       shell: bash
       env:
         EVENT: ${{ github.event_name }}

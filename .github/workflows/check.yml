@@ -288,6 +288,7 @@ jobs:
           whole: ${{ inputs.reports != '' && 'the caller names reports the whole verify leaves' || '' }}
       - name: Check verified step receipts
         id: receipts
+        if: github.event.repository.private && runner.environment == 'self-hosted'
         uses: $/actions/step-receipt
         env:
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
@@ -389,28 +390,8 @@ jobs:
             *) echo "::error::hosted-runner must be a GitHub-hosted Linux label of this workflow"; exit 1 ;;
           esac
 
-      # A text edit or a label leaves the merge that a pull request's short check passed unchanged,
-      # so such an event reuses that pass and runs nothing again. A new commit or a moved base makes
-      # a new merge commit. A label that selects this job's hosted route also runs it in full.
-      - name: A passed short check of the same merge
-        id: reuse
-        if: >-
-          !github.event.repository.private && inputs.reuse-receipts &&
-          github.event_name == 'pull_request' && (github.event.action == 'edited' || (github.event.action == 'labeled' && github.event.label.name != 'runner:github' &&
-          github.event.label.name != format('runner:github:{0}', inputs.runner-profile)))
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/nddev-ci-short-pass
-          key: nddev-ci-short-pass-${{ inputs.cache-epoch }}-${{ github.sha }}-${{ runner.environment }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.runner-profile }}
-          lookup-only: true
-
-      - name: The pass is reused
-        if: steps.reuse.outputs.cache-hit == 'true'
-        run: echo "The short check of this exact merge passed in an earlier run of this pull request; this event runs nothing again."
-
       - name: Prepare the job
         id: setup
-        if: steps.reuse.outputs.cache-hit != 'true'
         uses: $/actions/prepare
         with:
           managed: ${{ runner.environment == 'self-hosted' }}
@@ -444,7 +425,7 @@ jobs:
           tool-assets: ${{ inputs.tool-assets }}
 
       - name: Receive the protected registry input
-        if: inputs.registry-commit != '' && steps.reuse.outputs.cache-hit != 'true'
+        if: inputs.registry-commit != ''
         uses: $/actions/registry-input
         with:
           commit: ${{ inputs.registry-commit }}
@@ -456,27 +437,12 @@ jobs:
 
       - name: Check
         id: project
-        if: steps.reuse.outputs.cache-hit != 'true'
         uses: $/actions/project-check
         with:
           receipt-token: ${{ github.token }}
           setup: ${{ inputs.setup }}
           part: ${{ toJSON(matrix.part.argv) }}
           receipt-inputs: ${{ toJSON(inputs) }}
-
-      # The mark that this merge's short check passed in public repositories, read by a later text or label event.
-      - name: Mark the pass of this merge
-        if: ${{ !github.event.repository.private && inputs.reuse-receipts && github.event_name == 'pull_request' && steps.project.outcome == 'success' }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/nddev-ci-short-pass"
-          date -u +%FT%TZ > "$RUNNER_TEMP/nddev-ci-short-pass/passed"
-
-      - name: Keep the pass of this merge
-        if: ${{ !github.event.repository.private && inputs.reuse-receipts && github.event_name == 'pull_request' && steps.project.outcome == 'success' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/nddev-ci-short-pass
-          key: nddev-ci-short-pass-${{ inputs.cache-epoch }}-${{ github.sha }}-${{ runner.environment }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.runner-profile }}
 
       # In parts, the part whose recipes left the deployment artifact keeps it; another part that
       # left the same name would fail its upload.
@@ -489,7 +455,7 @@ jobs:
           if [ -e "$ARTIFACT" ]; then echo "left=true" >> "$GITHUB_OUTPUT"; fi
 
       - name: Complete the job
-        if: always() && steps.reuse.outputs.cache-hit != 'true'
+        if: always()
         uses: $/actions/complete
         with:
           status: ${{ job.status }}
