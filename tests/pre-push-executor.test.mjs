@@ -56,8 +56,23 @@ test("managed push transfers one exact standalone source and binds its registry 
       "",
     ].join("\n"), { mode: 0o700 });
 
-    const send = spawnSync(process.execPath, [
-      cli, "--send-managed", "build-test", "/trusted/build-check", "example/project", lock,
+    const snapshot = path.join(temporary, "registered.json");
+    const bytes = Buffer.from(JSON.stringify({
+      schema_version: 1, registry_commit: registered, technologies_toml: "",
+    }));
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    writeFileSync(snapshot, bytes);
+    const resolver = path.join(bin, "snapshot");
+    writeFileSync(resolver, [
+      "#!/bin/sh",
+      'test "$1" = example/project && test "$2" = ' + registered + ' || exit 1',
+      'cat -- "$TEST_REGISTRY"',
+      "",
+    ].join("\n"), { mode: 0o700 });
+    environment.TEST_REGISTRY = snapshot;
+
+    const send = () => spawnSync(process.execPath, [
+      cli, "--send-managed", "build-test", "/trusted/build-check", "example/project", lock, resolver,
     ], {
       cwd: source, env: environment, encoding: "utf8",
       input: [
@@ -67,7 +82,8 @@ test("managed push transfers one exact standalone source and binds its registry 
         "",
       ].join("\n"),
     });
-    assert.equal(send.status, 0, send.stderr);
+    const sent = send();
+    assert.equal(sent.status, 0, sent.stderr);
     const argv = readFileSync(argumentsFile, "utf8").trim().split("\n");
     assert.deepEqual(argv, [
       "-T", "-oBatchMode=yes", "-oConnectTimeout=15", "--", "build-test", "/trusted/build-check",
@@ -80,23 +96,19 @@ test("managed push transfers one exact standalone source and binds its registry 
     assert.match(ref, /^refs\/contour\/pre-push\/[a-f0-9-]{36}$/);
     assert.deepEqual(request, {
       schema_version: 1, repository: "example/project", commit: tip,
-      transfer_ref: ref, registry_commit: registered,
+      transfer_ref: ref, registry: { commit: registered, sha256: digest, bytes: bytes.length },
     });
-    const gitBundle = framed.subarray(newline + 1);
+    assert.deepEqual(framed.subarray(newline + 1, newline + 1 + bytes.length), bytes);
+    const gitBundle = framed.subarray(newline + 1 + bytes.length);
     writeFileSync(bundle, gitBundle);
     assert.equal(git("for-each-ref", "refs/contour/pre-push"), "");
     assert.equal(git("bundle", "list-heads", bundle), tip + " " + ref);
 
-    const snapshot = path.join(temporary, "registered.json");
-    const bytes = JSON.stringify({
-      schema_version: 1, registry_commit: registered, technologies_toml: "",
-    });
-    writeFileSync(snapshot, bytes);
     const admission = {
       ...environment,
       NDDEV_CI_PRE_PUSH_REGISTRY_COMMIT: registered,
       NDDEV_CI_PRE_PUSH_REGISTRY_LOCK: lock,
-      NDDEV_CI_PRE_PUSH_REGISTRY_SHA256: createHash("sha256").update(bytes).digest("hex"),
+      NDDEV_CI_PRE_PUSH_REGISTRY_SHA256: digest,
       NDDEV_CI_REGISTRY_SNAPSHOT: snapshot,
     };
     const run = (selected, env) => spawnSync(process.execPath, [
@@ -111,6 +123,14 @@ test("managed push transfers one exact standalone source and binds its registry 
     const accepted = run(tip, admission);
     assert.equal(accepted.status, 0, accepted.stderr);
     assert.deepEqual(readdirSync(receiver), []);
+
+    writeFileSync(snapshot, JSON.stringify({
+      schema_version: 1, registry_commit: "b".repeat(40), technologies_toml: "",
+    }));
+    const rejected = send();
+    assert.equal(rejected.status, 1);
+    assert.match(rejected.stderr, /differs from the selected source/);
+    assert.deepEqual(readFileSync(argumentsFile, "utf8").trim().split("\n"), argv);
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }

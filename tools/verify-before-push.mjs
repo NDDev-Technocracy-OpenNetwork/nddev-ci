@@ -23,7 +23,7 @@ try {
   const [operation, ...args] = process.argv.slice(2);
   if (operation === "--send" && args.length === 3) {
     await send(...args, readFileSync(0, "utf8"));
-  } else if (operation === "--send-managed" && args.length === 4) {
+  } else if (operation === "--send-managed" && args.length === 5) {
     await sendManaged(...args, readFileSync(0, "utf8"));
   } else if (operation === "--receive" && args.length === 4) {
     process.exitCode = await receive(...args, verify);
