@@ -67,6 +67,10 @@ function readDump(dir) {
 function makeEnv(dir, tempDir, gatewayUrl, extra = {}) {
   return {
     PATH: process.env.PATH,
+    PRIVATE_REPO: "true",
+    GITHUB_EVENT_PATH: "",
+    GITHUB_STEP_SUMMARY: "",
+    GITHUB_OUTPUT: "",
     GITHUB_WORKSPACE: dir,
     RUNNER_TEMP: tempDir,
     RUNNER_ENVIRONMENT: "self-hosted",
