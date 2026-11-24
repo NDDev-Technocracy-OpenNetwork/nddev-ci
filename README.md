@@ -64,8 +64,10 @@ own steps, and records a later failure of its own artifact or reports as the job
 | Push to `dev`, or manual run | `just verify` |
 
 `setup: true` runs `just setup` first. A missing optional test recipe is allowed;
-a failed command or invalid justfile fails the job. New PR pushes cancel their
-superseded checks. Each `dev` commit keeps its full check.
+a failed command or invalid justfile fails the job. New pull request pushes cancel
+their superseded checks, recipes and image builds. On a branch such as `dev`, one run
+executes at a time and a newer push waits behind it, replacing any push already
+waiting; releases are never cancelled.
 
 ### The full check in parts
 
@@ -97,9 +99,10 @@ checked build to release or deployment are kept for three days by default. Use
 repository's retention limit.
 
 Use `retain-runs: true` when a project requires a verdict for every run. This gives
-`check.yml` and its merge stops a separate concurrency group for each run. A project
-with native command jobs passes it directly to `merge-stops.yml` and owns concurrency
-for its own jobs.
+`check.yml`, `merge-stops.yml`, `recipe.yml`, `image.yml`, `select-registry-input.yml`
+and `source-version.yml` a separate concurrency group for each run. Callers with extra
+local jobs can also set workflow-level `concurrency:` (as in
+[examples/ci.yml](examples/ci.yml)) using a group prefix distinct from `nddev-ci-`.
 
 Subscribe the caller's pull request trigger to opened, synchronize, reopened, labeled and edited
 events, as in the example. Editing a title or description must rerun its metadata checks. The

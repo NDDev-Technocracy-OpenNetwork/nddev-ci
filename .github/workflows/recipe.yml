@@ -166,6 +166,10 @@ on:
       timeout-minutes:
         type: number
         default: 30
+      retain-runs:
+        description: Keep a separate concurrency group per run instead of cancelling or replacing earlier runs.
+        type: boolean
+        default: false
     # jscpd:ignore-start -- shared workflow_call secrets contract enforced with check.yml by tests/read-access.test.mjs
     secrets:
       REGISTRY_SNAPSHOT_FIRST:
@@ -193,6 +197,11 @@ on:
 # jscpd:ignore-end
 # Callers declare permissions on their calling job: `contents: read`, plus `packages: write`
 # when a private repository retains a deployment artifact via GHCR.
+# Pull requests cancel superseded recipe runs; branch runs queue one waiting push per recipe target.
+concurrency:
+  group: nddev-ci-recipe-${{ github.workflow }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || github.ref }}-${{ inputs.runner }}-${{ inputs.hosted-runner }}-${{ inputs.runner-profile }}-${{ inputs.working-directory }}-${{ inputs.justfile }}-${{ inputs.recipe }}-${{ inputs.arguments }}
+  cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
+
 jobs:
   recipe:
     # Hosted fallback selects the declared platform while keeping the same recipe.
@@ -206,8 +215,8 @@ jobs:
         || !(contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && inputs.runner
       ) || ''
       }}
-    timeout-minutes: ${{ inputs.timeout-minutes }}
     environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     steps:
       - name: Prepare the job
         id: setup

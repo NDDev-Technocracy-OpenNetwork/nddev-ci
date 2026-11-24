@@ -206,6 +206,12 @@ on:
 
 # Callers declare permissions on their calling job: `contents: read`, plus `packages: write`
 # when a private repository retains a deployment artifact via GHCR. Helper jobs narrow below.
+# A new push to a pull request cancels its older check of the same profile. On a branch one full
+# check runs at a time, and the newest push waits behind it and replaces any push already waiting.
+concurrency:
+  group: nddev-ci-check-${{ github.workflow }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || github.ref }}-${{ inputs.runner }}-${{ inputs.hosted-runner }}-${{ inputs.runner-profile }}
+  cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
+
 defaults:
   run:
     shell: bash
@@ -329,11 +335,6 @@ jobs:
         || (github.event_name == 'pull_request' && github.event.sender.type == 'Bot' && github.event.pull_request.user.type == 'Bot' && github.actor == github.triggering_actor && fromJSON('{"nddev-linux-small":"nddev-linux-small-maintenance","nddev-linux-standart":"nddev-linux-standart-maintenance"}')[inputs.runner] || inputs.runner)
       ) || ''
       }}
-    # A new push to a pull request cancels its older check of the same profile. On a branch one run of each part runs,
-    # and the newest push waits behind it and replaces any push that was already waiting.
-    concurrency:
-      group: nddev-ci-check-${{ github.workflow }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}-${{ inputs.hosted-runner }}-${{ inputs.runner-profile }}-${{ matrix.part.group }}
-      cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
     steps:
