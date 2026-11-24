@@ -124,6 +124,9 @@ check: (_tools "check") scan-source-secrets
     node --check tests/verify-parts.test.mjs
     node --check tests/ci-times.test.mjs
     node --check lib/qualification.mjs
+    node --check lib/oci-artifacts.mjs
+    node --check actions/oci-artifact/run.mjs
+    node --check tests/oci-artifacts.test.mjs
     node --check lib/commit-status.mjs
     node --check actions/require-status/run.mjs
     node --check tests/commit-status.test.mjs
@@ -162,7 +165,7 @@ test:
 # Package the checked source for services running outside GitHub Actions.
 package-tools:
     mkdir -p dist
-    git archive --format=zip --prefix=nddev-ci/ --output=dist/qualify-merge.zip HEAD tools/qualify-merge.mjs lib/merge-on-green.mjs lib/qualification.mjs lib/release.mjs
+    git archive --format=zip --prefix=nddev-ci/ --output=dist/qualify-merge.zip HEAD tools/qualify-merge.mjs lib/merge-on-green.mjs lib/qualification.mjs lib/oci-artifacts.mjs lib/release.mjs
     git archive --format=zip --prefix=nddev-ci/ --output=dist/scan-before-push.zip HEAD tools/scan-before-push.mjs tools/scan-source-secrets.mjs lib/secret-scan.mjs lib/secret-policy.mjs lib/security-policy.mjs tools/verify-before-push.mjs lib/pre-push-executor.mjs lib/verify-parts.mjs lib/pre-push-registry-input.mjs lib/registry-snapshot.mjs
     git show HEAD:tools/prepare-source-secrets.mjs > dist/prepare-source-secrets.mjs
 

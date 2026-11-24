@@ -1,0 +1,38 @@
+name: Transfer an OCI artifact through GHCR
+description: >-
+  Pushes, verifies or pulls a content-addressed CI artifact on GHCR for private repositories
+  without using GitHub Actions artifact storage.
+inputs:
+  mode:
+    description: push, verify or pull.
+    default: push
+  name:
+    description: Plain artifact name, or sha256 digest when pulling by digest.
+    required: true
+  path:
+    description: Workspace or RUNNER_TEMP paths/globs to push, one per line (required for push).
+    default: ''
+  directory:
+    description: Destination directory inside RUNNER_TEMP (required for pull).
+    default: ''
+  part:
+    description: Optional full-check part label recorded in manifest annotations.
+    default: ''
+  registry-url:
+    description: Optional OCI registry origin; empty uses https://ghcr.io.
+    default: ''
+  github-token:
+    description: Token with packages:write (push) or packages:read (pull/verify).
+    default: ${{ github.token }}
+outputs:
+  digest:
+    description: Verified OCI manifest digest (sha256:...).
+  reference:
+    description: Immutable GHCR reference (<registry>/<owner>/<repo>/ci-artifacts@sha256:...).
+  part:
+    description: Full-check part label recorded in the manifest, if any.
+  directory:
+    description: Directory holding verified pulled files.
+runs:
+  using: node24
+  main: run.mjs

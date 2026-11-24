@@ -189,8 +189,8 @@ on:
           private key.
         required: false
 
-permissions: {}
-
+# Callers declare permissions on their calling job: `contents: read`, plus `packages: write`
+# when a private repository retains a deployment artifact via GHCR.
 jobs:
   recipe:
     # Hosted fallback selects the declared platform while keeping the same recipe.
@@ -206,8 +206,6 @@ jobs:
       }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
-    permissions:
-      contents: read
     steps:
       - name: Prepare the job
         id: setup

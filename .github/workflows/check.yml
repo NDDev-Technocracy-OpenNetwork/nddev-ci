@@ -204,8 +204,8 @@ on:
           private key.
         required: false
 
-permissions: {}
-
+# Callers declare permissions on their calling job: `contents: read`, plus `packages: write`
+# when a private repository retains a deployment artifact via GHCR. Helper jobs narrow below.
 defaults:
   run:
     shell: bash
@@ -336,8 +336,6 @@ jobs:
       cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
-    permissions:
-      contents: read
     steps:
       - name: Require the registry result
         if: >-
@@ -468,20 +466,22 @@ jobs:
           artifact: ${{ (needs.plan.outputs.split != 'true' || steps.left.outputs.left == 'true') && inputs.artifact || '' }}
           artifact-name: ${{ inputs.artifact-name }}
           artifact-days: ${{ inputs.artifact-days }}
+          part: ${{ matrix.part.label }}
           reports: ${{ inputs.reports }}
           diagnostics: ${{ inputs.diagnostics }}
           read-token: ${{ steps.setup.outputs.read-token }}
 
-      # A few bytes that tell the joined result which part left the deployment artifact.
+      # A few bytes that tell the joined result which part left the deployment artifact in public
+      # repositories; private repositories read the same part annotation from GHCR.
       - name: Receipt of the deployment artifact
-        if: success() && steps.left.outputs.left == 'true'
+        if: ${{ !github.event.repository.private && success() && steps.left.outputs.left == 'true' }}
         run: |
           mkdir -p "$RUNNER_TEMP/nddev-ci-left"
           printf '%s\n' "$PART" > "$RUNNER_TEMP/nddev-ci-left/part.json"
         env:
           PART: ${{ matrix.part.label }}
       - name: Keep the receipt
-        if: success() && steps.left.outputs.left == 'true'
+        if: ${{ !github.event.repository.private && success() && steps.left.outputs.left == 'true' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nddev-ci-left-${{ inputs.artifact-name }}
@@ -505,8 +505,6 @@ jobs:
       ) || ''
       }}
     timeout-minutes: 10
-    permissions:
-      contents: read
     steps:
       - name: Start
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
@@ -519,14 +517,28 @@ jobs:
             exit 1
           fi
       - name: One part left the deployment artifact
-        if: inputs.artifact != ''
+        if: ${{ !github.event.repository.private && inputs.artifact != '' }}
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: nddev-ci-left-${{ inputs.artifact-name }}
           path: ${{ runner.temp }}/nddev-ci-left
       - name: The part that left it
-        if: inputs.artifact != ''
+        if: ${{ !github.event.repository.private && inputs.artifact != '' }}
         run: echo "The deployment artifact came from $(cat "$RUNNER_TEMP/nddev-ci-left/part.json")."
+      - name: One part left the deployment artifact (OCI)
+        id: artifact-oci
+        if: ${{ github.event.repository.private && inputs.artifact != '' }}
+        uses: $/actions/oci-artifact
+        with:
+          mode: verify
+          name: ${{ inputs.artifact-name }}
+          github-token: ${{ github.token }}
+      - name: The part that left it (OCI)
+        if: ${{ github.event.repository.private && inputs.artifact != '' }}
+        env:
+          PART: ${{ steps.artifact-oci.outputs.part }}
+          DIGEST: ${{ steps.artifact-oci.outputs.digest }}
+        run: echo "The deployment artifact came from $PART ($DIGEST)."
       - name: Job record
         if: always()
         uses: $/actions/job-record

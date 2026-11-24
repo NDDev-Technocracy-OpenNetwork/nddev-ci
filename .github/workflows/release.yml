@@ -64,8 +64,8 @@ on:
         description: The release page.
         value: ${{ jobs.release.outputs.url }}
 
-permissions: {}
-
+# Callers declare permissions on their calling job: `actions: read` and `contents: write`, plus
+# `packages: read` when a private repository publishes checked artifacts via GHCR.
 jobs:
   release:
     name: release
@@ -76,9 +76,6 @@ jobs:
       group: nddev-ci-release-${{ github.workflow }}
       cancel-in-progress: false
     timeout-minutes: 60
-    permissions:
-      actions: read # find the full check of the commit on dev and its artifacts
-      contents: write # create the tag and the release
     outputs:
       state: ${{ steps.release.outputs.state }}
       version: ${{ steps.release.outputs.version }}
