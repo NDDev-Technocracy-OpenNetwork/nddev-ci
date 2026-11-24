@@ -265,9 +265,10 @@ test("workflow concurrency cancels superseded pull requests, queues branch pushe
 
 test("the split check identifies a deployment artifact from multiple paths or a glob", () => {
   const source = read(".github/workflows/check.yml");
-  const [, step] = source.split("      - name: Deployment artifact of a part\n");
-  const script = step.match(/        run: \|\n((?: {10}[^\n]*\n)+)/)[1]
-    .split("\n").map((line) => line.slice(10)).join("\n");
+  const [, afterStepName] = source.split("      - name: Deployment artifact of a part\n");
+  const [step] = afterStepName.split("\n      - name:");
+  const [, run] = step.split("        run: |\n");
+  const script = run.split("\n").map((line) => line.slice(10)).join("\n");
   const work = mkdtempSync(join(tmpdir(), "nddev-ci-artifact-paths-"));
   const output = join(work, "output");
   try {
