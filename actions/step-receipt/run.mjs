@@ -56,8 +56,8 @@ export async function runPlan(environment = process.env, deps = {}) {
     });
     return result;
   };
-  if (!Array.isArray(matrix) || matrix.length === 0) {
-    return emit({ matrix: [], allReused: false, reused: [], canary: false, bypassReason: "", mode: "executed", reusedRunId: "" });
+  if (!Array.isArray(matrix) || matrix.length === 0 || !environment.NDDEV_CI_RECEIPT_GATEWAY) {
+    return emit({ matrix: Array.isArray(matrix) ? matrix : [], allReused: false, reused: [], canary: false, bypassReason: "", mode: "executed", reusedRunId: "" });
   }
 
   const session = await buildReceiptSession(environment, workflowInputs, { wholeJobArtifact: !split, deps });

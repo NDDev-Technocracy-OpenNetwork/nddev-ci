@@ -49,7 +49,9 @@ export async function prepare(environment = process.env, deps = {}) {
   const tempDir = environment.RUNNER_TEMP || cwd;
   const workflowInputs = parseJsonSafe(environment.RECEIPT_INPUTS, {});
   const setup = environment.SETUP === "true" || workflowInputs.setup === true || workflowInputs.setup === "true";
-  const dump = (deps.readJustDump ?? readJustDump)(cwd);
+  const dump = environment.NDDEV_CI_RECEIPT_GATEWAY
+    ? (deps.readJustDump ?? readJustDump)(cwd)
+    : null;
   if (!dump) {
     writeActionOutputs(environment.GITHUB_OUTPUT, { "plan-file": "", "results-file": "" });
     return null;
