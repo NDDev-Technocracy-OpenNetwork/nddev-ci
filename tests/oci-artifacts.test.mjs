@@ -228,7 +228,7 @@ test("collectFiles supports single files, directories, multi-line globs and refu
     const single = await collectFiles("dist/app", { cwd: work, allowedRoots: [work], topLevelOnly: true });
     assert.equal(single.length, 1);
     assert.equal(single[0].title, "app");
-    assert.equal(single[0].executable, true);
+    if (process.platform !== "win32") assert.equal(single[0].executable, true);
 
     const dir = await collectFiles("dist", { cwd: work, allowedRoots: [work] });
     assert.deepEqual(dir.map((f) => f.title), ["app", "manifest.json", "sub/nested.txt"]);
@@ -239,7 +239,7 @@ test("collectFiles supports single files, directories, multi-line globs and refu
     const realTemp = path.join(root, "real-temp");
     const linkTemp = path.join(root, "link-temp");
     mkdirSync(path.join(realTemp, "sboms"), { recursive: true });
-    symlinkSync(realTemp, linkTemp);
+    symlinkSync(realTemp, linkTemp, process.platform === "win32" ? "junction" : "dir");
     writeFileSync(path.join(realTemp, "sboms", "empty.txt"), "");
     const viaLinkRoot = await collectFiles(path.join(linkTemp, "sboms"), { cwd: work, allowedRoots: [work, linkTemp] });
     assert.deepEqual(viaLinkRoot.map((f) => [f.title, f.size]), [["empty.txt", 0]]);
@@ -249,7 +249,7 @@ test("collectFiles supports single files, directories, multi-line globs and refu
     );
 
     await assert.rejects(collectFiles("../outside", { cwd: work, allowedRoots: [work] }), /escapes/);
-    symlinkSync(bin, path.join(work, "linked"));
+    symlinkSync(path.join(work, "dist"), path.join(work, "linked"), process.platform === "win32" ? "junction" : "dir");
     await assert.rejects(collectFiles("linked", { cwd: work, allowedRoots: [work] }), /symbolic link/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -319,7 +319,7 @@ test("OCI push, chunked upload, deduplication, redirect credential isolation and
     });
     assert.equal(pulled.files.length, 2);
     assert.deepEqual(readFileSync(path.join(destByName, "tool")), binary);
-    assert.equal(statSync(path.join(destByName, "tool")).mode & 0o100, 0o100);
+    if (process.platform !== "win32") assert.equal(statSync(path.join(destByName, "tool")).mode & 0o100, 0o100);
     assert.ok(reg.storageAuthHeaders.length >= 2);
     assert.ok(reg.storageAuthHeaders.every((header) => header === undefined));
 
