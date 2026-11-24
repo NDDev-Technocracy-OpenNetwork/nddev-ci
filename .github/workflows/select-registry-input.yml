@@ -39,8 +39,5 @@ jobs:
           set -euo pipefail
           [[ "$LOCK" =~ ^[A-Za-z0-9_-][A-Za-z0-9._/-]*\.json$ ]]
           case "/$LOCK/" in */../* | */./* | *//*) exit 1 ;; esac
-          commit=$(git show "HEAD:$LOCK" | jq -er '
-            select(.schema_version == 1) | .registry_commit |
-            strings | select(test("^[0-9a-f]{40}$"))
-          ')
+          commit=$(git show "HEAD:$LOCK" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8")); if(d.schema_version!==1||typeof d.registry_commit!=="string"||!/^[0-9a-f]{40}$/.test(d.registry_commit)) process.exit(1); console.log(d.registry_commit)')
           printf 'commit=%s\n' "$commit" >> "$GITHUB_OUTPUT"

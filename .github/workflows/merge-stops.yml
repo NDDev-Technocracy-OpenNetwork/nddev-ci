@@ -211,7 +211,7 @@ jobs:
             else
               local asset
               asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
-                jq -er --arg name "$name" '[.assets[] | select(.name == $name)] | if length == 1 then .[0].id | numbers else error("release asset is missing or ambiguous") end')
+                node -e 'const a=(JSON.parse(require("fs").readFileSync(0,"utf8")).assets||[]).filter(x=>x.name===process.argv[1]); if(a.length!==1||typeof a[0].id!=="number") throw new Error("release asset is missing or ambiguous"); console.log(a[0].id)' "$name")
               curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/$repository/releases/assets/$asset"
             fi
             echo "$sha  $archive" | sha256sum --check --quiet
@@ -230,7 +230,7 @@ jobs:
               origin="https://files.pythonhosted.org/"
             fi
             url=$(curl -fsSL -H 'Accept: application/vnd.pypi.simple.v1+json' "$metadata" |
-              jq -er --arg name "$name" '[.files[] | select(.filename == $name)] | if length == 1 then .[0].url | strings else error("wheel is missing or ambiguous") end')
+              node -e 'const f=(JSON.parse(require("fs").readFileSync(0,"utf8")).files||[]).filter(x=>x.filename===process.argv[1]); if(f.length!==1||typeof f[0].url!=="string") throw new Error("wheel is missing or ambiguous"); console.log(f[0].url)' "$name")
             case "$url" in "$origin"*) ;; *) echo "Wheel origin differs from the configured registry" >&2; exit 1 ;; esac
             curl -fsSL -o "$archive" "$url"
             echo "$(digest ZIZMOR)  $archive" | sha256sum --check --quiet
@@ -471,9 +471,7 @@ jobs:
             echo "::error::The clone detector produced no report."
             exit 1
           fi
-          jq -c '.duplicates[] | select(.isNew == true) |
-            {first: (.firstFile | {name, start, end}), second: (.secondFile | {name, start, end})}' \
-            "$output/jscpd-report.json"
+          node -e 'for(const d of JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).duplicates||[]) if(d.isNew) console.log(JSON.stringify({first:{name:d.firstFile.name,start:d.firstFile.start,end:d.firstFile.end},second:{name:d.secondFile.name,start:d.secondFile.start,end:d.secondFile.end}}))' "$output/jscpd-report.json"
           exit "$status"
 
       - name: No dangerous workflow

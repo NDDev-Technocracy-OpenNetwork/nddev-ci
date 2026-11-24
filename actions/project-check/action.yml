@@ -78,22 +78,22 @@ runs:
           fi
         }
         if [ -n "${RECEIPT_PLAN:-}" ] && [ -f "$RECEIPT_PLAN" ]; then
-          all_skipped=$(jq -r '.all_skipped' "$RECEIPT_PLAN" | tr -d '\r')
+          all_skipped=$(node -e 'console.log(Boolean(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).all_skipped))' "$RECEIPT_PLAN" | tr -d '\r')
           if [ "$all_skipped" = true ]; then
-            jq -r '.steps[] | "Reused step receipt for `just " + (.argv | join(" ")) + "` from run #" + (.reusedRunId // "?") + " (" + (.reusedRunUrl // "") + ")"' "$RECEIPT_PLAN" | tr -d '\r'
+            node -e 'for(const s of JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).steps) console.log("Reused step receipt for `just "+s.argv.join(" ")+"` from run #"+(s.reusedRunId??"?")+" ("+(s.reusedRunUrl??"")+")")' "$RECEIPT_PLAN" | tr -d '\r'
           else
             if [ "$SETUP" = true ]; then
               project_just setup
             fi
-            count=$(jq -r '.steps | length' "$RECEIPT_PLAN" | tr -d '\r')
+            count=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).steps.length)' "$RECEIPT_PLAN" | tr -d '\r')
             for ((i = 0; i < count; i++)); do
-              skip=$(jq -r --argjson i "$i" '.steps[$i].skip' "$RECEIPT_PLAN" | tr -d '\r')
+              skip=$(node -e 'console.log(Boolean(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).steps[Number(process.argv[2])].skip))' "$RECEIPT_PLAN" "$i" | tr -d '\r')
               if [ "$skip" = true ]; then
-                jq -r --argjson i "$i" '.steps[$i] | "Reused step receipt for `just " + (.argv | join(" ")) + "` from run #" + (.reusedRunId // "?") + " (" + (.reusedRunUrl // "") + ")"' "$RECEIPT_PLAN" | tr -d '\r'
+                node -e 'const s=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).steps[Number(process.argv[2])]; console.log("Reused step receipt for `just "+s.argv.join(" ")+"` from run #"+(s.reusedRunId??"?")+" ("+(s.reusedRunUrl??"")+")")' "$RECEIPT_PLAN" "$i" | tr -d '\r'
                 continue
               fi
               argv=()
-              while IFS= read -r argument; do argv+=("$argument"); done < <(jq -r --argjson i "$i" '.steps[$i].argv[]' "$RECEIPT_PLAN" | tr -d '\r')
+              while IFS= read -r argument; do argv+=("$argument"); done < <(node -e 'for(const a of JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).steps[Number(process.argv[2])].argv) console.log(a)' "$RECEIPT_PLAN" "$i" | tr -d '\r')
               if project_just "${argv[@]}"; then
                 printf '%s\n' "$i" >> "${RECEIPT_RESULTS}"
               else
@@ -110,7 +110,7 @@ runs:
           if [ "$EVENT" = pull_request ]; then
             project_just check
             recipes=$(just --dump --dump-format json)
-            if jq -e '(.recipes | has("test")) or (.aliases | has("test"))' <<< "$recipes" >/dev/null; then
+            if node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8")); process.exit((Object.hasOwn(r.recipes||{},"test")||Object.hasOwn(r.aliases||{},"test"))?0:1)' <<< "$recipes"; then
               project_just test
             else
               echo "This repository declares no test recipe."
@@ -119,7 +119,7 @@ runs:
             argv=(verify)
             if [ -n "${PART:-}" ] && [ "$PART" != "[]" ]; then
               argv=()
-              while IFS= read -r argument; do argv+=("$argument"); done < <(jq -r '.[]' <<< "$PART")
+              while IFS= read -r argument; do argv+=("$argument"); done < <(node -e 'for(const x of JSON.parse(process.argv[1])) console.log(x)' "$PART" | tr -d '\r')
             fi
             project_just "${argv[@]}"
           fi
