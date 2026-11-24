@@ -6,9 +6,10 @@ const nonLinux = "(inputs.runner-profile == 'macos-arm64' || inputs.runner-profi
 const helper = "(inputs.runner == 'nddev-macos' && 'linux-arm64' || " +
   nonLinux + " && 'linux-x64' || inputs.runner-profile || " +
   "inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || " +
-  "(inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '')";
-const lightRunner = "(inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || " +
-  "(inputs.runner == 'nddev-linux-standart' || " + nonLinux + ") && 'nddev-linux-small' || inputs.runner)";
+  "(inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light') && 'linux-x64' || '')";
+const lightRunner = "((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || " +
+  nonLinux + ") && 'nddev-linux-light' || inputs.runner)";
+const partRunner = "(fromJSON(inputs['part-runners'])[matrix.part.group] || inputs.runner)";
 
 const defaultImage = "'" + profileHostedLabels["linux-x64"] + "'";
 const privateRepo = "github.event.repository.private";
@@ -25,6 +26,7 @@ const botPullRequest = [
   "github.actor == github.triggering_actor",
 ].join(" && ");
 const maintenanceLabels = {
+  "nddev-linux-light": "nddev-linux-light-maintenance",
   "nddev-linux-small": "nddev-linux-small-maintenance",
   "nddev-linux-standart": "nddev-linux-standart-maintenance",
 };
@@ -67,7 +69,7 @@ const paths = {
   "check.yml": {
     plan: { profile: helper, managed: lightRunner },
     registry: { managed: "'nddev-linux-small'", maintenance: true, managedOnly: true },
-    check: { maintenance: true },
+    check: { managed: partRunner, maintenance: true },
     join: { profile: helper, managed: lightRunner },
   },
   "merge-stops.yml": { stops: { profile: helper, managed: lightRunner, maintenance: true } },

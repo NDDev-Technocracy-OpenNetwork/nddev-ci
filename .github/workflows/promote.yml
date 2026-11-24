@@ -41,7 +41,7 @@ on:
       runner:
         description: The label of our runners, used by private repositories.
         type: string
-        default: nddev-linux-small
+        default: nddev-linux-light
     outputs:
       state:
         description: ready, current, unchecked or unversioned (the source still declares the newest released version).

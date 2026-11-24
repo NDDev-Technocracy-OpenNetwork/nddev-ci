@@ -41,10 +41,11 @@ function route(file, job) {
     .replaceAll("inputs.runner-profile", "inputs['runner-profile']")
     .replaceAll("inputs.hosted-runner", "inputs['hosted-runner']");
   // The emitted expressions use only these three actions primitives and boolean selection.
-  const evaluate = new Function("github", "inputs", "contains", "format", "fromJSON", "return (" + expression + ")");
+  const evaluate = new Function("github", "inputs", "matrix", "contains", "format", "fromJSON", "return (" + expression + ")");
   return ({ labels = [], target = "", provider = "github", event = "pull_request",
     profile = "", runner = "managed-example", hosted = "", privateRepo = true,
     actor = "developer", triggeringActor = actor, sender = "User", author = "User",
+    group = "", partRunners = {},
   } = {}) => evaluate({
     actor,
     triggering_actor: triggeringActor,
@@ -55,7 +56,8 @@ function route(file, job) {
       pull_request: { labels: event === "pull_request" ? labels : [], user: { type: author } },
       inputs: { runner: provider, "runner-profile": target },
     },
-  }, { runner, "runner-profile": profile, "hosted-runner": hosted },
+  }, { runner, "runner-profile": profile, "hosted-runner": hosted, "part-runners": JSON.stringify(partRunners) },
+  { part: { group } },
   (values, value) => values.includes(value), (form, value) => form.replace("{0}", value), JSON.parse);
 }
 
@@ -82,17 +84,37 @@ test("a scoped restart moves just the matching work to the same platform", () =>
   }
 });
 
-test("light jobs follow their own Linux class", () => {
+test("light jobs follow the cross-architecture Linux light class", () => {
   for (const [file, job] of [["check.yml", "plan"], ["check.yml", "join"], ["merge-stops.yml", "stops"]]) {
     const select = route(file, job);
     const mac = {runner:"nddev-macos", profile:"macos-arm64"};
-    assert.equal(select({...mac, labels:["runner:github:macos-arm64"]}), "nddev-linux-arm64");
+    assert.equal(select({...mac, labels:["runner:github:macos-arm64"]}), "nddev-linux-light");
     assert.equal(select({...mac, labels:["runner:github:linux-arm64"]}), profileHostedLabels["linux-arm64"]);
     const windows = {runner:"example-windows", profile:"windows-x64"};
-    assert.equal(select({...windows, target:"windows-x64", event:"workflow_dispatch"}), "nddev-linux-small");
+    assert.equal(select({...windows, target:"windows-x64", event:"workflow_dispatch"}), "nddev-linux-light");
     assert.equal(select({...windows, target:"linux-x64", event:"workflow_dispatch"}), profileHostedLabels["linux-x64"]);
-    assert.equal(select({runner:"nddev-linux-standart", profile:"linux-x64"}), "nddev-linux-small");
+    assert.equal(select({runner:"nddev-linux-standart", profile:"linux-x64"}), "nddev-linux-light");
+    assert.equal(select({runner:"nddev-linux-small", profile:"linux-x64"}), "nddev-linux-light");
+    assert.equal(select({runner:"nddev-linux-light"}), "nddev-linux-light");
+    assert.equal(select({runner:"nddev-linux-light", labels:["runner:github:linux-x64"]}), profileHostedLabels["linux-x64"]);
   }
+});
+
+test("a private check can opt in to per-part runner labels", () => {
+  const select = route("check.yml", "check");
+  const partRunners = { check: "nddev-linux-light", test: "nddev-linux-standart" };
+  const args = { event: "push", partRunners, profile: "linux-x64" };
+  assert.equal(select({ ...args, group: "check" }), "nddev-linux-light");
+  assert.equal(select({ ...args, group: "test" }), "nddev-linux-standart");
+  assert.equal(select({ ...args, group: "build" }), "managed-example");
+  assert.equal(select({ ...args, group: "short", event: "pull_request" }), "managed-example");
+  assert.equal(select({ ...args, group: "short", event: "pull_request", partRunners: { short: "nddev-linux-light" } }),
+    "nddev-linux-light");
+  assert.equal(select({ ...args, group: "short", event: "pull_request", partRunners: { short: "nddev-linux-light" },
+    actor: "renovate[bot]", author: "Bot", sender: "Bot" }), "nddev-linux-light-maintenance");
+  assert.equal(select({ ...args, group: "check", privateRepo: false }), profileHostedLabels["linux-x64"]);
+  assert.equal(select({ ...args, group: "check", event: "workflow_dispatch", target: "linux-x64" }),
+    profileHostedLabels["linux-x64"]);
 });
 
 test("public and unqualified manual selection preserve their routes", () => {
@@ -113,7 +135,7 @@ test("bot-only private Linux PR checks use the maintenance lane", () => {
   const mergeStops = route("merge-stops.yml", "stops");
   const registry = route("check.yml", "registry");
   const bot = { actor: "renovate[bot]", author: "Bot", sender: "Bot", profile: "linux-x64" };
-  for (const runner of ["nddev-linux-small", "nddev-linux-standart"]) {
+  for (const runner of ["nddev-linux-light", "nddev-linux-small", "nddev-linux-standart"]) {
     assert.equal(check({ ...bot, runner }), runner + "-maintenance");
     assert.equal(check({ ...bot, runner, triggeringActor: "developer" }), runner);
     assert.equal(check({ ...bot, runner, sender: "User", actor: "developer" }), runner);
@@ -124,8 +146,8 @@ test("bot-only private Linux PR checks use the maintenance lane", () => {
     assert.equal(check({ ...bot, runner, labels: ["runner:github:linux-x64"] }), "ubuntu-24.04");
     assert.equal(check({ ...bot, runner, privateRepo: false }), "ubuntu-24.04");
     assert.equal(recipe({ ...bot, runner }), runner);
-    assert.equal(mergeStops({ ...bot, runner }), "nddev-linux-small-maintenance");
-    assert.equal(mergeStops({ ...bot, runner, triggeringActor: "developer" }), "nddev-linux-small");
+    assert.equal(mergeStops({ ...bot, runner }), "nddev-linux-light-maintenance");
+    assert.equal(mergeStops({ ...bot, runner, triggeringActor: "developer" }), "nddev-linux-light");
   }
   assert.equal(check({ ...bot, runner: "nddev-linux-arm64" }), "nddev-linux-arm64");
   assert.equal(registry(bot), "nddev-linux-small-maintenance");

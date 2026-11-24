@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
 jobs:
   select:
-    runs-on: ${{ github.event.repository.private && 'nddev-linux-small' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.event.repository.private && 'nddev-linux-light' || 'ubuntu-24.04' }}
     timeout-minutes: 5
     permissions:
       contents: read

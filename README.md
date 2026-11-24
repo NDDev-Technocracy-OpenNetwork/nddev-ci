@@ -85,8 +85,13 @@ justfile, and `just verify` stays the one command an agent runs.
   the caller names `reports`, which the job running `verify` must leave. Callers
   that always run the whole recipe can set `whole-full-check: true` to run
   `verify` without scheduling the planner.
-- Every part takes the same inputs, setup, runner choice, SDKs and caches. One run of each part runs
-  on a branch at a time; a newer push's waiting part replaces an older waiting one.
+- Every part uses the same inputs, setup, SDKs and caches. Private projects can set `part-runners`
+  to a JSON object such as `'{"check":"nddev-linux-light"}'` so architecture-independent lint and
+  format parts use a lighter class while native build and test parts stay on `runner`. The part ID
+  is its first recipe's name with punctuation other than `-` and `_` replaced by hyphens (`short`
+  for a pull request's short check). Unmapped parts use `runner`. The plan, join and GitHub-hosted
+  selection keep their own routes. One run of each part runs on a branch at a time; a newer push's waiting part replaces an
+  older waiting one.
 - The deployment `artifact` is kept by the part whose recipes left it; the joined result fails
   unless exactly one part did. Diagnostics are kept per part. Promotion reads the run as before.
 
@@ -279,18 +284,22 @@ sources.
 
 Public projects use the selected GitHub-hosted runner. Private projects use `runner`:
 
-| Managed class | Project commands | Image builds | Merge stops, image tags, daily scans |
+| Managed class | Project commands | Image builds | Planning, joins, merge stops, image tags, daily scans |
 | --- | --- | --- | --- |
-| `nddev-linux-standart` | Linux x64 | Same class | `nddev-linux-small` |
-| `nddev-linux-small` | Linux x64 | Same class | Same class |
+| `nddev-linux-standart` | Linux x64 | Same class | `nddev-linux-light` |
+| `nddev-linux-small` | Linux x64 | Same class | `nddev-linux-light` |
+| `nddev-linux-light` | Linux x64 or ARM64 | Same class | Same class |
 | `nddev-linux-arm64` | Linux ARM64 | Same class | Same class |
-| `nddev-macos` | Native macOS ARM64 | `nddev-linux-arm64` | `nddev-linux-arm64` |
+| `nddev-macos` | Native macOS ARM64 | `nddev-linux-arm64` | `nddev-linux-light` |
 
-The jobs of the last column are light by their nature, so they leave the standard class to a
-project's own builds and tests.
+The jobs of the last column are light and architecture-independent, so they can run on any
+available Linux x64 or ARM64 runner and leave standard x64 slots to native builds and tests.
+The protected technology registry check stays on `nddev-linux-small` because its CLI asset is
+Linux x64.
 
-The shared check workflow routes private Linux x64 PRs authored and triggered
-by a bot to the matching `nddev-linux-small-maintenance` or `nddev-linux-standart-maintenance` label.
+The shared check workflow routes private Linux PRs authored and triggered by a bot to the matching
+`nddev-linux-light-maintenance`, `nddev-linux-small-maintenance` or
+`nddev-linux-standart-maintenance` label.
 The runner service registers those labels against the same hardware and class.
 A person's run or rerun, a branch check and a release use the ordinary managed
 label. Explicit hosted selections keep their existing route.

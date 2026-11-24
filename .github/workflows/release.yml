@@ -45,7 +45,7 @@ on:
       runner:
         description: The label of our runners, used by private repositories.
         type: string
-        default: nddev-linux-standart
+        default: nddev-linux-light
     secrets:
       artifact-token:
         description: Optional separate credential for the declared artifact transport.
