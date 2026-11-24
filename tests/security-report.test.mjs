@@ -9,7 +9,11 @@ const workflow = readFileSync(new URL("../.github/workflows/security.yml", impor
 const script = workflow.split("      - name: Report\n")[1].split("        run: |\n")[1]
   .split("      - name:")[0].split("\n").map((line) => line.replace(/^          /, "")).join("\n");
 
-function report(files = {}) {
+const scannerVersions = Object.fromEntries(
+  Array.from(workflow.matchAll(/^      ([A-Z_]+_VERSION): "([^"]+)"$/gm), ([, key, value]) => [key, value]),
+);
+
+function report(files = {}, extraEnv = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "security-report-"));
   try {
     const out = path.join(root, "security/out");
@@ -21,11 +25,13 @@ function report(files = {}) {
     mkdirSync(bin);
     writeFileSync(path.join(bin, "gh"), "#!/bin/sh\necho unexpected-issue-api >&2\nexit 99\n", {mode: 0o755});
     const summary = path.join(root, "summary.md");
-    const result = spawnSync("bash", ["-euo", "pipefail", "-s"], {cwd: root, encoding: "utf8", input: script,
-      env: {...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, RUNNER_TEMP: root, ALLOWED: "MIT", POLICY: "", RUN: "https://example.test/run/1", GITHUB_STEP_SUMMARY: summary}});
+    const result = spawnSync("bash", ["-euo", "pipefail", "-s"], {cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, input: script,
+      env: {...process.env, ...scannerVersions, PATH: `${bin}${path.delimiter}${process.env.PATH}`, RUNNER_TEMP: root, PRIVATE: "false", ALLOWED: "MIT", POLICY: "", RUN: "https://example.test/run/1", GITHUB_STEP_SUMMARY: summary, ...extraEnv}});
     assert.ifError(result.error);
     const jsonFile = path.join(out, "security-report.json");
+    const structured = result.stdout.split("::group::Structured security report\n")[1]?.split("\n::endgroup::")[0] ?? null;
     return {...result, summary: existsSync(summary) ? readFileSync(summary, "utf8") : "",
+      structured: structured ? JSON.parse(structured) : null,
       report: existsSync(jsonFile) ? JSON.parse(readFileSync(jsonFile, "utf8")) : null};
   } finally { rmSync(root, {recursive: true, force: true}); }
 }
@@ -98,10 +104,45 @@ test("missing or malformed scanner output still fails and produces no success re
   }
 });
 
-test("the workflow has no issue writer and retains the report with its existing upload provider", () => {
+test("the report includes scanner versions, finding counts and structured JSON in the job log", () => {
+  const result = report({"osv.json": osv([{id: "GHSA-001", database_specific: {severity: "MEDIUM"}}])}, {PRIVATE: "true"});
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.structured["event.name"], "nddev_ci.security.report");
+  assert.deepEqual(result.structured, result.report);
+  assert.deepEqual(result.structured.counts, {
+    secrets: 0, vulnerabilities: 1, licenses_outside_policy: 0, licenses_unknown: 0, total: 1,
+  });
+  assert.equal(result.structured.scanners.TruffleHog, scannerVersions.TRUFFLEHOG_VERSION);
+  assert.equal(result.structured.scanners.Trivy, scannerVersions.TRIVY_VERSION);
+  assert.match(result.summary, /Findings: 1 total \(0 live secrets, 1 vulnerabilities, 0 licences outside policy, 0 unknown licences\)\./);
+  assert.match(result.summary, new RegExp(`Scanners: TruffleHog ${scannerVersions.TRUFFLEHOG_VERSION.replaceAll(".", "\\.")}`));
+});
+
+test("the job summary stays strictly within 1 MiB of UTF-8 bytes even for oversized findings", () => {
+  const wide = "Ж".repeat(40000);
+  const items = Array.from({length: 20}, (_, i) => ({id: `GHSA-${String(i).padStart(3, "0")}-${wide}`}));
+  for (const [isPrivate, expected] of [["true", /in the run log\./], ["false", /in the artifact and run log\./]]) {
+    const result = report({"osv.json": osv(items)}, {PRIVATE: isPrivate});
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(Buffer.byteLength(result.summary, "utf8") <= 1024 * 1024, "summary exceeds 1 MiB");
+    assert.match(result.summary, expected);
+    if (isPrivate === "true") assert.doesNotMatch(result.summary, /in the artifact/);
+    assert.match(result.summary, /Findings: 20 total/);
+    assert.equal(result.structured.findings.length, 20);
+  }
+  const giantSingle = report({"osv.json": osv([{id: `GHSA-SINGLE-${"Ж".repeat(600000)}`}])}, {PRIVATE: "true"});
+  assert.equal(giantSingle.status, 0, giantSingle.stderr);
+  assert.ok(Buffer.byteLength(giantSingle.summary, "utf8") <= 1024 * 1024, "single-line summary exceeds 1 MiB");
+  assert.match(giantSingle.summary, /Findings: 1 total/);
+  assert.match(giantSingle.summary, /in the run log\./);
+});
+
+test("the workflow has no issue writer and uploads the report artifact only for public repositories", () => {
   assert.doesNotMatch(workflow, /issues:\s*write|gh issue\s/);
   assert.doesNotMatch(workflow.split("      - name: Report\n")[1].split("      - name:")[0], /GH_TOKEN:|REPOSITORY:/);
-  assert.match(workflow, /name: security-report-\$\{\{ github\.run_attempt \}\}/);
-  assert.match(workflow, /path: \$\{\{ runner\.temp \}\}\/security\/out\/security-report\.json/);
-  assert.match(workflow, /retention-days: 14/);
+  const uploadStep = workflow.split("      - name: Keep the security report\n")[1].split("      - name:")[0];
+  assert.match(uploadStep, /if: \$\{\{ !github\.event\.repository\.private \}\}/);
+  assert.match(uploadStep, /name: security-report-\$\{\{ github\.run_attempt \}\}/);
+  assert.match(uploadStep, /path: \$\{\{ runner\.temp \}\}\/security\/out\/security-report\.json/);
+  assert.match(uploadStep, /retention-days: 14/);
 });
