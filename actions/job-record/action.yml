@@ -34,6 +34,18 @@ inputs:
   runner-reason:
     description: A fixed reason code that attributes a failed job to the runner.
     default: ''
+  receipt-mode:
+    description: Optional step-receipt mode (reused, executed, bypassed or canary).
+    default: ''
+  reused-run-id:
+    description: Optional numeric GitHub run ID whose step receipt was reused.
+    default: ''
+  bypass-reason:
+    description: Optional short reason code when step-receipt reuse was bypassed.
+    default: ''
+  canary-result:
+    description: Optional canary comparison outcome (match or mismatch).
+    default: ''
 runs:
   using: node24
   main: run.mjs

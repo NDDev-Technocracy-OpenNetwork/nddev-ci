@@ -471,6 +471,37 @@ the daily scanner database routes on managed runners. Set `images: true` on `che
 Project setup must support its execution environment. Hosted setup uses the explicit
 SDK inputs and cannot require a private installer or private cache variable.
 
+### Step receipts and unchanged-work reuse
+
+`check.yml` and `recipe.yml` support content-addressed step receipts (`reuse-receipts`, default
+`true`) so unchanged sub-checks do not repeat across identical trees, including a `dev` push whose
+tree (`HEAD^{tree}`) already passed `just check` and `just test` in its pull request.
+
+- **Input digest.** Each sub-check receipt is keyed by a SHA-256 digest of the schema version,
+  `cache-epoch` (default `1`, also readable from `NDDEV_CI_CACHE_EPOCH` or `CACHE_EPOCH`), the
+  Git tree SHA (`HEAD^{tree}`, covering file bytes, executable modes and submodule pins), tracked
+  lockfiles and workspace manifests, the resolved `just` recipe and transitive dependency closure,
+  declared SDK and probed toolchain versions, runner OS/architecture/profile and SDK lock digest
+  (`NDDEV_CI_SDK_LOCK_SHA256` on managed runners; `ImageOS`/`ImageVersion` on hosted runners), and
+  the pinned `nddev-ci` reusable workflow SHA.
+- **Storage and trust.** Private managed runners authenticate to a local HTTP receipt gateway
+  (`NDDEV_CI_RECEIPT_GATEWAY`) with a short-lived GitHub OIDC JWT (callers opt in by adding
+  `id-token: write` beside `contents: read`; OIDC credentials are stripped from project commands),
+  verify Ed25519 DSSE envelopes fail-closed, and keep receipts in the shared network cache under
+  separate `trusted/` and `pr/` namespaces without using GitHub Actions artifacts. Public
+  repositories on GitHub-hosted runners store branch-scoped receipt entries in GitHub Actions Cache
+  without uploading artifacts.
+- **Bypass and canary verification.** Reuse is bypassed unconditionally (executing fresh while
+  keeping dependency and compiler caches) on release refs (`main`, tags, `release/*`), when
+  required `reports` or whole-job `artifact` outputs are declared, on dirty checkouts, when the
+  diff cannot be read, and whenever `.github/workflows/**`, `.github/actions/**`, `justfile` /
+  `*.just`, or lockfiles and toolchain pins change. A deterministic share of eligible `dev` pushes
+  (`canary-percent`, default `5`) re-executes fresh and compares against the cached green receipt,
+  reporting any mismatch in the job log, summary and `nddev_ci.job.completed` telemetry record.
+- **Job summaries.** Every job that reuses a receipt records the reused run link, source event,
+  tree SHA and input digest in `$GITHUB_STEP_SUMMARY`, and emits `nddev_ci.receipt.*` fields in
+  `nddev_ci.job.completed`.
+
 ## Checked artifacts and publication
 
 [qualify](actions/qualify/action.yml) selects the newest full check of an exact source

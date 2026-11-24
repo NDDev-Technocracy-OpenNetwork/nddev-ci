@@ -39,7 +39,11 @@ test("managed push transfers one exact standalone source and binds its registry 
     git("config", "user.name", "Check qualification");
     git("config", "user.email", "check@example.com");
     writeFileSync(path.join(source, "justfile"), [
-      "verify:",
+      'verify source=env_var_or_default("GITHUB_SHA", ""): check (native-verify source)',
+      "check:",
+      "    exit 84",
+      'native-verify source=env_var_or_default("GITHUB_SHA", ""):',
+      '    test "{{source}}" = "$GITHUB_SHA"',
       '    test "$GITHUB_SHA" = "$(git rev-parse HEAD)"',
       '    test -z "$(git status --porcelain)"',
       '    test -r "$NDDEV_CI_REGISTRY_SNAPSHOT"',
