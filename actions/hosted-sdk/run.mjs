@@ -148,6 +148,21 @@ function managedNode(environment, version) {
   return {bin, executable};
 }
 
+// A managed SDK keeps each registry line of Bun in its own tool-cache folder,
+// bun/<version>/<architecture>, so two lines can stand side by side while projects move from one
+// to the other. The declared line's folder goes first on PATH; a missing folder leaves PATH as it
+// is, and the measurement below decides.
+export function managedBun(environment, version = environment.SDK_BUN_VERSION ?? "", exists = existsSync) {
+  if (!version || !managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) return null;
+  const root = environment.RUNNER_TOOL_CACHE ?? "";
+  if (!path.isAbsolute(root) || /[\r\n\0]/.test(root))
+    throw new ActionError("The managed RUNNER_TOOL_CACHE must be an absolute path.");
+  const bin = path.join(root, "bun", version, process.arch);
+  const executable = path.join(bin, process.platform === "win32" ? "bun.exe" : "bun");
+  if (!exists(executable)) return null;
+  return {bin, executable};
+}
+
 // A managed SDK keeps every Python line of the registry where uv finds its own installations,
 // UV_PYTHON_INSTALL_DIR, one folder per version named cpython-<version>-<system>, and puts none of
 // them on PATH. The selected line's folder becomes the first PATH entry and uv's interpreter. A
@@ -227,11 +242,14 @@ function verifiedSelection(environment) {
   supported(selected);
   const node = managedNode(environment, selected.node);
   if (node) environment = prependPath(environment, node.bin);
+  const bun = managedBun(environment, selected.bun);
+  if (bun) environment = prependPath(environment, bun.bin);
   // Verification must not let rustup install a missing toolchain through a compiler proxy.
   if (selected.rust) environment = {...environment, RUSTUP_AUTO_INSTALL: "0"};
   const versions = {};
   for (const [name, expected] of Object.entries(selected)) {
-    const measured = measure(name, environment, name === "node" ? node?.executable : undefined);
+    const executable = name === "node" ? node?.executable : name === "bun" ? bun?.executable : undefined;
+    const measured = measure(name, environment, executable);
     if (measured[name] !== expected)
       throw new ActionError(`The selected ${name} executable does not provide version ${expected}.`);
     Object.assign(versions, measured);
@@ -250,7 +268,7 @@ function verifiedSelection(environment) {
       throw new ActionError(`The selected ${name} executable does not provide version ${expected}.`);
     tools[name] = measured;
   }
-  return {node, folders, receipt: {schema_version: 1, platform: process.platform, architecture: process.arch, versions, tools}};
+  return {node, bun, folders, receipt: {schema_version: 1, platform: process.platform, architecture: process.arch, versions, tools}};
 }
 
 export function verify(environment) {
@@ -298,11 +316,11 @@ export function main(mode, environment = process.env) {
   environment = mergeSelection(environment);
   selections(environment);
   const python = managedPython(environment);
-  const {node, folders, receipt} = verifiedSelection(python ? prependPath(environment, python.bin) : environment);
+  const {node, bun, folders, receipt} = verifiedSelection(python ? prependPath(environment, python.bin) : environment);
   const variables = {BUN_DO_NOT_TRACK: "1", DO_NOT_TRACK: "1"};
   if (python) variables.UV_PYTHON = python.executable;
-  // GitHub prepends each entry. Keep the verified Node directory first, just as during measurement.
-  const paths = [python?.bin, node?.bin, ...folders].filter(Boolean);
+  // GitHub prepends each entry. Keep the verified directories ahead of the default SDK bin.
+  const paths = [python?.bin, node?.bin, bun?.bin, ...folders].filter(Boolean);
   if (paths.length && environment.GITHUB_PATH)
     appendFileSync(environment.GITHUB_PATH, paths.join("\n") + "\n");
   if (receipt.versions.uv && !managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) {
