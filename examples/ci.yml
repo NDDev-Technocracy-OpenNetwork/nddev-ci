@@ -23,6 +23,7 @@ jobs:
     uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@RELEASE_COMMIT # RELEASE_VERSION
     permissions:
       contents: read
+      # Add `id-token: write` on private repositories with a receipt gateway to mint signed step receipts.
     # Select only the exact SDKs/tools the project's recipes need.
     # with:
     #   runner-profile: linux-x64

@@ -122,6 +122,10 @@ check: (_tools "check") scan-source-secrets
     node --check tools/security-schedule.mjs
     node --check tests/security-schedule.test.mjs
     node --check lib/verify-parts.mjs
+    node --check lib/step-receipts.mjs
+    node --check actions/step-receipt/run.mjs
+    node --check actions/project-check/receipts.mjs
+    node --check tests/step-receipts.test.mjs
     node --check actions/planner-speed/run.mjs
     node --check tests/planner-speed.test.mjs
     node --check actions/plan/run.mjs
