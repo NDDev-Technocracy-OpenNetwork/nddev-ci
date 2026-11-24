@@ -488,15 +488,14 @@ jobs:
         env:
           ARTIFACT: ${{ inputs.artifact }}
         run: |
-          shopt -s globstar 2>/dev/null || true
-          while read -r artifact_path || [ -n "$artifact_path" ]; do
-            artifact_path=${artifact_path%$'\r'}
-            [ -n "$artifact_path" ] || continue
-            if [ -e "$artifact_path" ] || compgen -G "$artifact_path" >/dev/null; then
-              printf 'left=true\n' >> "$GITHUB_OUTPUT"
-              break
-            fi
-          done <<< "$ARTIFACT"
+          node --input-type=module <<'JS'
+          import { appendFileSync, existsSync, globSync } from "node:fs";
+
+          const paths = process.env.ARTIFACT.split(/\r?\n/).map((path) => path.trim()).filter(Boolean);
+          if (paths.some((path) => existsSync(path) || globSync(path).length > 0)) {
+            appendFileSync(process.env.GITHUB_OUTPUT, "left=true\n");
+          }
+          JS
 
       - name: Complete the job
         if: always() && steps.reuse.outputs.cache-hit != 'true'
