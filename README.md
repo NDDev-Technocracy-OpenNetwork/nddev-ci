@@ -80,7 +80,9 @@ justfile, and `just verify` stays the one command an agent runs.
   a recipe run alone.
 - `verify` runs as one `full check` job when it has commands of its own, parameters, a recipe after
   `&&`, a computed, variadic or option-like argument, fewer than two independent parts, or when
-  the caller names `reports`, which the job running `verify` must leave.
+  the caller names `reports`, which the job running `verify` must leave. Callers
+  that always run the whole recipe can set `whole-full-check: true` to run
+  `verify` without scheduling the planner.
 - Every part takes the same inputs, setup, runner choice, SDKs and caches. One run of each part runs
   on a branch at a time; a newer push's waiting part replaces an older waiting one.
 - The deployment `artifact` is kept by the part whose recipes left it; the joined result fails

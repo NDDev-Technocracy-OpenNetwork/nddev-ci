@@ -11,6 +11,10 @@ on:
         description: Give each run its own concurrency group and let it finish.
         type: boolean
         default: false
+      whole-full-check:
+        description: Run the full verify recipe in one job without scheduling a planner.
+        type: boolean
+        default: false
       registry-commit:
         description: Exact commit of the protected registry input selected by the caller.
         type: string
@@ -207,7 +211,7 @@ jobs:
   # on, or `verify` whole. A light job: it evaluates nothing and needs no SDK.
   plan:
     name: plan the full check
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && !inputs.whole-full-check
     # runner-profile:plan
     runs-on: >-
       ${{
@@ -304,11 +308,12 @@ jobs:
   check:
     name: ${{ matrix.part.label }}
     needs: [plan, registry-project]
-    if: ${{ !cancelled() && (github.event_name == 'pull_request' || needs.plan.result == 'success') }}
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || inputs.whole-full-check || needs.plan.result == 'success') }}
     strategy:
       fail-fast: false
       matrix:
-        part: ${{ fromJSON(github.event_name == 'pull_request' && '[{"label":"short check","group":"short","argv":[]}]' || needs.plan.outputs.matrix) }}
+        part: ${{ fromJSON(github.event_name == 'pull_request' && '[{"label":"short check","group":"short","argv":[]}]' || inputs.whole-full-check &&
+          '[{"label":"full check","group":"verify","argv":["verify"]}]' || needs.plan.outputs.matrix) }}
     # Public repositories always run on GitHub's runners; an unknown hosted label fails below.
     # runner-profile:check
     runs-on: >-
