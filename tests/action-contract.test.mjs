@@ -177,16 +177,19 @@ test("workflow concurrency cancels superseded pull requests, queues branch pushe
         .replaceAll("inputs.hosted-runner", "inputs.hosted")
         .replaceAll("inputs.runner-profile", "inputs.profile")
         .replaceAll("inputs.working-directory", "inputs.workdir")
-        .replaceAll("inputs.lock-file", "inputs.lock"), { github, inputs, format })),
+        .replaceAll("inputs.lock-file", "inputs.lock"), {
+          github, inputs, format, vars: { NDDEV_BRANCH_FALLBACK_ACTOR_ID: "42" },
+        })),
     );
   }
 
-  const prBase = { workflow: "ci", ref: "refs/pull/8/merge", event_name: "pull_request" };
+  const event = { repository: { private: true } };
+  const prBase = { workflow: "ci", ref: "refs/pull/8/merge", event_name: "pull_request", event };
   const prFirst = { ...prBase, run_id: "101" };
   const prSecond = { ...prBase, run_id: "102" };
   const prOther = { ...prBase, ref: "refs/pull/9/merge", run_id: "103" };
-  const devFirst = { workflow: "ci", ref: "refs/heads/dev", event_name: "push", run_id: "104", sha: "aaa" };
-  const devSecond = { workflow: "ci", ref: "refs/heads/dev", event_name: "push", run_id: "105", sha: "bbb" };
+  const devFirst = { workflow: "ci", ref: "refs/heads/dev", event_name: "push", run_id: "104", sha: "aaa", event };
+  const devSecond = { workflow: "ci", ref: "refs/heads/dev", event_name: "push", run_id: "105", sha: "bbb", event };
 
   // check.yml uses workflow-level concurrency so plan, registry-project, split check parts and join share one lease.
   assert.equal(jobContract("check.yml", "check").concurrency, null);
@@ -196,6 +199,19 @@ test("workflow concurrency cancels superseded pull requests, queues branch pushe
   assert.equal(evaluate(caller[2], prFirst), "true");
   assert.equal(evaluate(caller[1], devFirst), evaluate(caller[1], devSecond));
   assert.equal(evaluate(caller[2], devFirst), "false");
+
+  const hosted = {
+    ...devSecond, event_name: "workflow_dispatch", actor_id: "42", actor: "scheduler[bot]",
+    triggering_actor: "scheduler[bot]",
+    event: { repository: { private: true }, inputs: { runner: "github", "runner-profile": "linux-x64" } },
+  };
+  for (const [, group, cancel] of [caller, workflowConcurrency(".github/workflows/check.yml")]) {
+    assert.notEqual(evaluate(group, hosted), evaluate(group, devSecond));
+    assert.notEqual(evaluate(group, hosted), evaluate(group, { ...hosted, sha: devFirst.sha }));
+    assert.equal(evaluate(cancel, hosted), "false");
+    assert.equal(evaluate(group, { ...hosted, actor_id: "13" }), evaluate(group, devSecond));
+    assert.equal(evaluate(group, { ...hosted, triggering_actor: "operator" }), evaluate(group, devSecond));
+  }
 
   const specs = [
     ["check.yml", workflowConcurrency(".github/workflows/check.yml"), { profile: "linux-arm64" }, true],

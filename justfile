@@ -153,6 +153,8 @@ check: (_tools "check") scan-source-secrets
     node --check lib/promotion.mjs
     node --check actions/promote/run.mjs
     node --check tests/promotion.test.mjs
+    node --check tools/hosted-fallback.mjs
+    node --check tests/hosted-fallback.test.mjs
     PATH="{{ shellcheck }}:$PATH" "{{ actionlint }}" .github/workflows/*.yml
     "{{ zizmor }}" --strict-collection --min-severity medium .github actions
 
