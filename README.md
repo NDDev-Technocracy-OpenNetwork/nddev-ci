@@ -161,6 +161,12 @@ paths for an edit hook or omit paths for a local check of changes and untracked 
 reads the policy at the worktree's common base with origin/dev, or uses the built-in policy when
 there is no published base. It reports the file, line and rule for findings on new lines.
 
+For an admitted pre-push build with protected registry input, the launcher provides the lock path,
+registry commit and snapshot digest through `NDDEV_CI_PRE_PUSH_REGISTRY_LOCK`,
+`NDDEV_CI_PRE_PUSH_REGISTRY_COMMIT` and `NDDEV_CI_PRE_PUSH_REGISTRY_SHA256`. It supplies the
+snapshot path as `NDDEV_CI_REGISTRY_SNAPSHOT`. The receiver checks the lock at the exact bundle
+commit and copies the verified bytes into the job's own directory before it runs a recipe.
+
 For a reviewed, deliberately synthetic fixture that has to be checked in, add one
 `[[allowlists]]` entry to the base branch's `.betterleaks.toml`. Set `condition = "AND"`, match
 the exact fixture path in `paths` and match the exact fake value in `regexes`. Anchor both
