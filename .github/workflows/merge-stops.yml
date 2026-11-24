@@ -1,6 +1,7 @@
 # The merge stops for a pull request: a secret in the change (Betterleaks), a
 # dangerous workflow (a broken file, an action not pinned by commit, a high-severity zizmor finding,
-# a poutine finding of warning or error level) and a new critical dependency with a known fix. The
+# a poutine finding of warning or error level), a new critical dependency with a known fix and new
+# code clones when the project enables the check. The
 # change's commit messages and the pull request's text are checked as hints that never stop a
 # merge. check.yml calls it; a
 # project whose commands run in its own native jobs calls it beside them, so one implementation
@@ -12,6 +13,10 @@ on:
     inputs:
       retain-runs:
         description: Give each run its own concurrency group and let it finish.
+        type: boolean
+        default: false
+      new-clones:
+        description: Reject new code clones using the pull request base's .jscpd.json.
         type: boolean
         default: false
       sparse-checkout:
@@ -64,6 +69,9 @@ jobs:
     permissions:
       contents: read
     env:
+      JSCPD_VERSION: "5.4.3"
+      JSCPD_SHA256_X64: "291452d6005e3fa17b531552bf76f87ff85bc4ae31533e0c17a7997f84079868"
+      JSCPD_SHA256_ARM64: "f363875348817f8e999ca090266b1265ba29322d6b5d1f6280aa0d136ab1ca9e"
       BETTERLEAKS_VERSION: "1.10.1"
       BETTERLEAKS_SHA256_X64: "c174b42d7aa60caf58c0c3e555c0e4bed01fe6b0d99a412bce777b5af4ce913e"
       BETTERLEAKS_SHA256_ARM64: "62a63199f9f61a6b5e5a6f58f048493db20fbc8c770014f4d903a4d97886e1bf"
@@ -106,12 +114,12 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           sparse-checkout: |-
-            ${{ inputs.sparse-checkout && '/.github/' || '' }}
-            ${{ inputs.sparse-checkout && '/committed.toml' || '' }}
-            ${{ inputs.sparse-checkout && '/.betterleaks.toml' || '' }}
-            ${{ inputs.sparse-checkout && '/.betterleaksignore' || '' }}
-            ${{ inputs.sparse-checkout && '/.gitleaks.toml' || '' }}
-            ${{ inputs.sparse-checkout && '/.gitleaksignore' || '' }}
+            ${{ !inputs.new-clones && inputs.sparse-checkout && '/.github/' || '' }}
+            ${{ !inputs.new-clones && inputs.sparse-checkout && '/committed.toml' || '' }}
+            ${{ !inputs.new-clones && inputs.sparse-checkout && '/.betterleaks.toml' || '' }}
+            ${{ !inputs.new-clones && inputs.sparse-checkout && '/.betterleaksignore' || '' }}
+            ${{ !inputs.new-clones && inputs.sparse-checkout && '/.gitleaks.toml' || '' }}
+            ${{ !inputs.new-clones && inputs.sparse-checkout && '/.gitleaksignore' || '' }}
           sparse-checkout-cone-mode: false
 
       - name: File contents of the change
@@ -142,6 +150,7 @@ jobs:
       - name: Tools
         env:
           GH_TOKEN: ${{ github.token }}
+          NEW_CLONES: ${{ inputs.new-clones }}
         run: |
           set -euo pipefail
           # The stops run natively on Linux x64 or ARM64; every archive has its own pinned digest.
@@ -175,6 +184,10 @@ jobs:
             echo "$2  $archive" | sha256sum --check --quiet
             tar -xzf "$archive" -C "$bin" "$3"
           }
+          if [ "$NEW_CLONES" = true ]; then
+            fetch "https://github.com/kucherenko/jscpd/releases/download/v$JSCPD_VERSION/jscpd-linux-$betterleaks-musl.tar.gz" \
+              "$(digest JSCPD)" jscpd
+          fi
           fetch "https://github.com/betterleaks/betterleaks/releases/download/v$BETTERLEAKS_VERSION/betterleaks_${BETTERLEAKS_VERSION}_linux_$betterleaks.tar.gz" \
             "$(digest BETTERLEAKS)" betterleaks
           fetch "https://github.com/boostsecurityio/poutine/releases/download/v$POUTINE_VERSION/poutine_Linux_$poutine.tar.gz" \
@@ -370,6 +383,37 @@ jobs:
           head: ${{ github.event.pull_request.head.sha }}
           merge: ${{ github.sha }}
 
+      - name: No new code clones
+        id: clones
+        if: inputs.new-clones
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          GIT_NO_LAZY_FETCH: "1"
+          GIT_NO_REPLACE_OBJECTS: "1"
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse HEAD^1)" != "$BASE" ]; then
+            echo "::error::The checked merge does not use the pull request base."
+            exit 1
+          fi
+          output=$(mktemp -d "$RUNNER_TEMP/new-clones.XXXXXXXX")
+          trap 'rm -r -- "$output"' EXIT
+          if ! git cat-file blob "$BASE:.jscpd.json" > "$output/policy.json"; then
+            echo "::error::Commit the project's .jscpd.json on the base branch before enabling the clone stop."
+            exit 1
+          fi
+          status=0
+          "$RUNNER_TEMP/nddev-ci/bin/jscpd" . --config "$output/policy.json" --baseline-from-ref "$BASE" \
+            --no-gitignore --fail-on-new-clones=0 --reporters json --silent --output "$output" || status=$?
+          if [ ! -f "$output/jscpd-report.json" ]; then
+            echo "::error::The clone detector produced no report."
+            exit 1
+          fi
+          jq -c '.duplicates[] | select(.isNew == true) |
+            {first: (.firstFile | {name, start, end}), second: (.secondFile | {name, start, end})}' \
+            "$output/jscpd-report.json"
+          exit "$status"
+
       - name: No dangerous workflow
         id: workflows
         run: |
@@ -408,5 +452,5 @@ jobs:
           status: ${{ job.status }}
           check-run-id: ${{ job.check_run_id }}
           # A stop that judged the change, or the steps around them (nddev_ci.failure.layer).
-          failure-layer: ${{ job.status == 'failure' && ((steps.authorship.outcome == 'failure' || steps.secrets.outcome == 'failure' || steps.dependencies.outcome == 'failure' || steps.workflows.outcome == 'failure') && 'project' || 'library') || '' }}
+          failure-layer: ${{ job.status == 'failure' && ((steps.authorship.outcome == 'failure' || steps.secrets.outcome == 'failure' || steps.dependencies.outcome == 'failure' || steps.clones.outcome == 'failure' || steps.workflows.outcome == 'failure') && 'project' || 'library') || '' }}
           started-file: ${{ runner.temp }}/nddev-ci-started
