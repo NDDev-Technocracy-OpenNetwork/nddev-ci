@@ -7,6 +7,9 @@ inputs:
   part:
     description: The full-check part's literal argument array, or empty to run just verify.
     default: ''
+  receipt-token:
+    description: Repository token used only to check the receipt's source run.
+    default: ''
   receipt-inputs:
     description: JSON snapshot of caller workflow inputs for receipt key and policy evaluation.
     default: '{}'
@@ -37,26 +40,12 @@ runs:
         SETUP: ${{ inputs.setup }}
         PART: ${{ inputs.part }}
         PRIVATE_REPO: ${{ github.event.repository.private }}
+        GH_TOKEN: ${{ inputs.receipt-token }}
         RECEIPT_INPUTS: ${{ inputs.receipt-inputs }}
         NDDEV_CI_ACTION_REF: ${{ github.action_ref }}
         NDDEV_CI_ACTION_REPO: ${{ github.action_repository }}
         GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
       run: node "$GITHUB_ACTION_PATH/receipts.mjs" prepare
-
-    - name: Restore public step receipts
-      id: public-restore
-      if: ${{ !github.event.repository.private && steps.receipt-prepare.outputs.public-cache-key != '' }}
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ${{ steps.receipt-prepare.outputs.public-cache-path }}
-        key: ${{ steps.receipt-prepare.outputs.public-cache-key }}
-
-    - name: Resolve restored public step receipts
-      if: ${{ !github.event.repository.private && steps.public-restore.outputs.cache-hit == 'true' }}
-      shell: bash
-      env:
-        RECEIPT_PLAN: ${{ steps.receipt-prepare.outputs.plan-file }}
-      run: node "$GITHUB_ACTION_PATH/receipts.mjs" resolve
 
     - id: command
       shell: bash
@@ -135,10 +124,3 @@ runs:
         RECEIPT_RESULTS: ${{ steps.receipt-prepare.outputs.results-file }}
         RUNNER_REASON: ${{ steps.command.outputs.runner-reason }}
       run: node "$GITHUB_ACTION_PATH/receipts.mjs" finish
-
-    - name: Save public step receipts
-      if: ${{ !github.event.repository.private && steps.command.outcome == 'success' && steps.receipt-finish.outputs.save-public-key != '' }}
-      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ${{ steps.receipt-finish.outputs.save-public-path }}
-        key: ${{ steps.receipt-finish.outputs.save-public-key }}

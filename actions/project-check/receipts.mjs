@@ -1,8 +1,7 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  buildPublicReceiptStatement,
   buildReceiptSession,
   checkIdForArgv,
   computeInputDigest,
@@ -10,17 +9,13 @@ import {
   formatReceiptSummary,
   inspectVerifyDecomposition,
   isArtifactProducingPart,
-  isReleaseRef,
   issueStepInSession,
   lookupStepInSession,
   makeSummaryEntry,
   parseJsonSafe,
-  publicCacheKey,
   readJustDump,
   recipeClosureDigest,
-  sha256Hex,
   summarizeReceiptEntries,
-  verifyReceiptStatement,
   writeActionOutputs,
   writeReceiptMetadata,
 } from "../../lib/step-receipts.mjs";
@@ -56,7 +51,7 @@ export async function prepare(environment = process.env, deps = {}) {
   const setup = environment.SETUP === "true" || workflowInputs.setup === true || workflowInputs.setup === "true";
   const dump = (deps.readJustDump ?? readJustDump)(cwd);
   if (!dump) {
-    writeActionOutputs(environment.GITHUB_OUTPUT, { "plan-file": "", "results-file": "", "public-cache-key": "", "public-cache-path": "" });
+    writeActionOutputs(environment.GITHUB_OUTPUT, { "plan-file": "", "results-file": "" });
     return null;
   }
 
@@ -81,7 +76,7 @@ export async function prepare(environment = process.env, deps = {}) {
       : "";
     const entry = {
       label: step.label, argv: step.argv, checkId, canSkip: step.canSkip,
-      canIssue: step.canIssue && !isReleaseRef(session.ref) && !session.dirty && Boolean(inputDigest),
+      canIssue: step.canIssue && session.eventName === "pull_request" && !session.bypass.bypass && Boolean(inputDigest),
       inputDigest, skip: false, reused: false, cachedHit: false, reusedRunId: "", reusedRunUrl: "", reusedEvent: "",
     };
     if (step.canSkip) {
@@ -103,12 +98,6 @@ export async function prepare(environment = process.env, deps = {}) {
     last.reused = false;
   }
 
-  const jobDigest = sha256Hex(plannedSteps.map((s) => `${s.checkId}:${s.inputDigest}`).join("\n"));
-  const publicCacheDir = path.join(tempDir, "nddev-ci-receipts", jobDigest.slice(0, 24));
-  const publicKey = (!session.privateRepo && !session.dirty && session.workflowSha && session.treeSha)
-    ? publicCacheKey({ cacheEpoch: session.cacheEpoch, inputDigest: jobDigest, checkId: eventName === "pull_request" ? "short" : "check" })
-    : "";
-
   const planFile = path.join(tempDir, "nddev-ci-receipt-plan.json");
   const resultsFile = path.join(tempDir, "nddev-ci-receipt-results.txt");
   writeFileSync(resultsFile, "");
@@ -116,8 +105,6 @@ export async function prepare(environment = process.env, deps = {}) {
     ...session,
     bypassReason: session.bypass.reason,
     bypassFlag: session.bypass.bypass,
-    publicCacheDir,
-    publicKey,
     all_skipped: plannedSteps.length > 0 && plannedSteps.every((s) => s.skip),
     steps: plannedSteps,
   };
@@ -125,42 +112,7 @@ export async function prepare(environment = process.env, deps = {}) {
   writeActionOutputs(environment.GITHUB_OUTPUT, {
     "plan-file": planFile,
     "results-file": resultsFile,
-    "public-cache-key": !session.bypass.bypass && publicKey ? publicKey : "",
-    "public-cache-path": !session.bypass.bypass && publicKey ? publicCacheDir : "",
   });
-  return planDoc;
-}
-
-export function resolvePublic(environment = process.env) {
-  const planFile = environment.RECEIPT_PLAN || "";
-  if (!planFile || !existsSync(planFile)) return null;
-  const planDoc = parseJsonSafe(readFileSync(planFile, "utf8"), null);
-  if (!planDoc || planDoc.privateRepo || planDoc.bypassFlag) return planDoc;
-  const allowedNamespaces = planDoc.eventName === "pull_request" ? ["trusted", "pr"] : ["trusted"];
-  for (const step of planDoc.steps) {
-    if (!step.canSkip || !step.inputDigest) continue;
-    const file = path.join(planDoc.publicCacheDir, `${step.inputDigest}.json`);
-    if (!existsSync(file)) continue;
-    const verified = verifyReceiptStatement(parseJsonSafe(readFileSync(file, "utf8"), null), {
-      repository: planDoc.repository, repositoryId: planDoc.repositoryId,
-      treeSha: planDoc.treeSha, inputDigest: step.inputDigest, workflowSha: planDoc.workflowSha,
-      cacheEpoch: planDoc.cacheEpoch, checkId: step.checkId, allowedNamespaces,
-    });
-    if (verified.valid) {
-      step.cachedHit = true;
-      step.reusedRunId = String(verified.receipt.run_id ?? "");
-      step.reusedRunUrl = String(verified.receipt.run_url ?? "");
-      step.reusedEvent = String(verified.receipt.event_name ?? "");
-      if (!planDoc.canary) { step.skip = true; step.reused = true; }
-    }
-  }
-  if (planDoc.artifact !== "" && planDoc.steps.length > 0 && planDoc.steps.every((s) => s.skip)) {
-    const last = planDoc.steps.at(-1);
-    last.skip = false;
-    last.reused = false;
-  }
-  planDoc.all_skipped = planDoc.steps.length > 0 && planDoc.steps.every((s) => s.skip);
-  writeFileSync(planFile, JSON.stringify(planDoc, null, 2));
   return planDoc;
 }
 
@@ -171,7 +123,7 @@ export async function finish(environment = process.env, deps = {}) {
   if (!planFile || !existsSync(planFile)) {
     writeActionOutputs(environment.GITHUB_OUTPUT, {
       "receipt-mode": "executed", "reused-run-id": "", "bypass-reason": "",
-      "canary-result": "", "save-public-key": "", "save-public-path": "",
+      "canary-result": "",
     });
     return null;
   }
@@ -192,7 +144,6 @@ export async function finish(environment = process.env, deps = {}) {
     : null;
 
   const summaryEntries = [];
-  let wrotePublic = false;
 
   for (let i = 0; i < planDoc.steps.length; i++) {
     const step = planDoc.steps[i];
@@ -219,13 +170,6 @@ export async function finish(environment = process.env, deps = {}) {
       if (planDoc.privateRepo && planDoc.gatewayUrl && oidc?.token) {
         const res = await issueStepInSession(planDoc, step, oidc.token, deps);
         if (!res.issued) console.log(`::notice::Step receipt was not stored for "${step.label}" (${res.reason}).`);
-      } else if (!planDoc.privateRepo && planDoc.publicKey && !isReleaseRef(planDoc.ref)) {
-        mkdirSync(planDoc.publicCacheDir, { recursive: true });
-        writeFileSync(
-          path.join(planDoc.publicCacheDir, `${step.inputDigest}.json`),
-          JSON.stringify(buildPublicReceiptStatement({ ...planDoc, checkId: step.checkId, argv: step.argv, inputDigest: step.inputDigest })),
-        );
-        wrotePublic = true;
       }
     }
     summaryEntries.push(makeSummaryEntry(base, { outcome, canaryResult: matched ? "match" : "" }));
@@ -235,20 +179,17 @@ export async function finish(environment = process.env, deps = {}) {
   if (environment.GITHUB_STEP_SUMMARY && (summaryEntries.length > 0 || planDoc.bypassReason)) {
     appendFileSync(environment.GITHUB_STEP_SUMMARY, `\n${formatReceiptSummary(summaryEntries, { bypassReason: planDoc.bypassReason, canary: planDoc.canary })}\n`);
   }
-  const savePublic = !planDoc.privateRepo && wrotePublic && failed.size === 0 && Boolean(planDoc.publicKey);
   writeReceiptMetadata(environment.RUNNER_TEMP, stats);
   writeActionOutputs(environment.GITHUB_OUTPUT, {
     "receipt-mode": stats.mode, "reused-run-id": stats.reusedRunId,
     "bypass-reason": stats.bypassReason, "canary-result": stats.canaryResult,
-    "save-public-key": savePublic ? planDoc.publicKey : "",
-    "save-public-path": savePublic ? planDoc.publicCacheDir : "",
   });
-  return { stats, summaryEntries, savePublic };
+  return { stats, summaryEntries };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const modes = { prepare, resolve: resolvePublic, finish };
+  const modes = { prepare, finish };
   const fn = modes[process.argv[2] || ""];
-  if (!fn) { console.error("::error::receipts mode must be prepare, resolve or finish"); process.exitCode = 1; }
+  if (!fn) { console.error("::error::receipts mode must be prepare or finish"); process.exitCode = 1; }
   else Promise.resolve(fn()).catch((error) => { console.error(`::error::${error.message.replace(/[\r\n%]/g, " ")}`); process.exitCode = 1; });
 }
