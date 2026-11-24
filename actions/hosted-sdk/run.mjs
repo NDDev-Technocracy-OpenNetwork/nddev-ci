@@ -257,16 +257,45 @@ export function verify(environment) {
   return verifiedSelection(environment).receipt;
 }
 
+function selectionPayload(environment) {
+  const fields = [
+    "SDK_RUNNER_ENVIRONMENT",
+    "SDK_MANAGED",
+    "SDK_TOOLS",
+    "SDK_RUST_COMPONENTS",
+    "SDK_RUST_TARGETS",
+    ...names.map(key),
+  ];
+  return Object.fromEntries(
+    fields.filter((field) => (environment[field] ?? "") !== "").map((field) => [field, environment[field]]),
+  );
+}
+
+function mergeSelection(environment) {
+  if (!environment.SDK_SELECTION) return environment;
+  let parsed;
+  try {
+    parsed = JSON.parse(environment.SDK_SELECTION);
+  } catch {
+    throw new ActionError("The validated SDK selection is invalid.");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    throw new ActionError("The validated SDK selection is invalid.");
+  return { ...parsed, ...environment };
+}
+
 export function main(mode, environment = process.env) {
   if (mode === "validate") {
     supported(selections(environment));
     const plan = cachePlan(environment);
+    const selection = JSON.stringify(selectionPayload(environment));
     if (environment.GITHUB_OUTPUT)
       appendFileSync(environment.GITHUB_OUTPUT,
-        `bootstrap=${!managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)}\ncache-key=${plan.key}\ncache-paths<<NDDEV_SDK_PATHS\n${plan.paths.join("\n")}\nNDDEV_SDK_PATHS\n`);
+        `bootstrap=${!managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)}\ncache-key=${plan.key}\nselection=${selection}\ncache-paths<<NDDEV_SDK_PATHS\n${plan.paths.join("\n")}\nNDDEV_SDK_PATHS\n`);
     return;
   }
   if (mode !== "verify") throw new ActionError("Unknown hosted SDK command.");
+  environment = mergeSelection(environment);
   selections(environment);
   const python = managedPython(environment);
   const {node, folders, receipt} = verifiedSelection(python ? prependPath(environment, python.bin) : environment);

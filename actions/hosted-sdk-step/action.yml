@@ -11,6 +11,8 @@ outputs:
     description: Exact tool-cache key for hosted SDK restoration.
   cache-paths:
     description: Tool-cache paths to restore and retain on hosted runners.
+  selection:
+    description: Validated SDK selections passed from validate to verify.
   url:
     description: Verified release redirect URL for the selected Bun asset.
   receipt:

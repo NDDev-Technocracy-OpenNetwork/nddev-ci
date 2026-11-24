@@ -171,20 +171,7 @@ runs:
       id: verify
       uses: $/actions/hosted-sdk-step
       env:
-        SDK_RUNNER_ENVIRONMENT: ${{ runner.environment }}
-        SDK_MANAGED: ${{ inputs.managed }}
-        SDK_NODE_VERSION: ${{ inputs.node-version }}
-        SDK_PYTHON_VERSION: ${{ inputs.python-version }}
-        SDK_UV_VERSION: ${{ inputs.uv-version }}
-        SDK_BUN_VERSION: ${{ inputs.bun-version }}
-        SDK_RUST_VERSION: ${{ inputs.rust-version }}
-        SDK_RUST_COMPONENTS: ${{ inputs.rust-components }}
-        SDK_RUST_TARGETS: ${{ inputs.rust-targets }}
-        SDK_JAVA_VERSION: ${{ inputs.java-version }}
-        SDK_GO_VERSION: ${{ inputs.go-version }}
-        SDK_FLUTTER_VERSION: ${{ inputs.flutter-version }}
-        SDK_DART_VERSION: ${{ inputs.dart-version }}
-        SDK_TOOLS: ${{ inputs.tools }}
+        SDK_SELECTION: ${{ steps.validate.outputs.selection }}
         SDK_PYTHON_PATH: ${{ steps.python.outputs.python-path }}
         BUN_DO_NOT_TRACK: '1'
         DO_NOT_TRACK: '1'

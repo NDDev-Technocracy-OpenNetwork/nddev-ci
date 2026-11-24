@@ -122,10 +122,8 @@ const linux = {
     process.platform === "linux" ? false : "the dependency guard is Linux-only",
 };
 
-test("a declared registry provides the day's databases and the scanner downloads nothing", linux, async (t) => {
-  const { root, binary, input, calls } = comparison();
+async function startStubRegistry(t, root, day, extraEnv = {}) {
   const log = path.join(root, "registry.log");
-  const day = "2026-11-10";
   const registry = spawn(process.execPath, ["-e", stubRegistry, log, day], {
     stdio: ["ignore", "pipe", "inherit"],
   });
@@ -136,10 +134,20 @@ test("a declared registry provides the day's databases and the scanner downloads
   const port = await new Promise((resolve) =>
     registry.stdout.once("data", (bytes) => resolve(String(bytes).trim())),
   );
-  const environment = {
-    ...process.env,
-    NDDEV_CI_ARTIFACT_REGISTRY: `http://127.0.0.1:${port}/`,
+  return {
+    log,
+    environment: {
+      ...process.env,
+      NDDEV_CI_ARTIFACT_REGISTRY: `http://127.0.0.1:${port}/`,
+      ...extraEnv,
+    },
   };
+}
+
+test("a declared registry provides the day's databases and the scanner downloads nothing", linux, async (t) => {
+  const { root, binary, input, calls } = comparison();
+  const day = "2026-11-10";
+  const { log, environment } = await startStubRegistry(t, root, day);
   const result = await scanSources(binary, root, input, environment, day);
   assert.deepEqual(
     result.databases.map((entry) => entry.path),
@@ -198,23 +206,10 @@ test("a declared registry caches daily databases under NDDEV_BUILD_CACHE_ROOT an
   const stale = path.join(cacheRoot, "osv-databases", "2026-11-09", "npm");
   mkdirSync(stale, { recursive: true });
   writeFileSync(path.join(stale, "all.zip"), "stale");
-  const log = path.join(root, "registry.log");
   const day = "2026-11-10";
-  const registry = spawn(process.execPath, ["-e", stubRegistry, log, day], {
-    stdio: ["ignore", "pipe", "inherit"],
-  });
-  t.after(() => {
-    registry.kill();
-    rmSync(root, { recursive: true, force: true });
-  });
-  const port = await new Promise((resolve) =>
-    registry.stdout.once("data", (bytes) => resolve(String(bytes).trim())),
-  );
-  const environment = {
-    ...process.env,
-    NDDEV_CI_ARTIFACT_REGISTRY: `http://127.0.0.1:${port}/`,
+  const { log, environment } = await startStubRegistry(t, root, day, {
     NDDEV_BUILD_CACHE_ROOT: cacheRoot,
-  };
+  });
   await scanSources(binary, root, input, environment, day);
   assert.equal(readFileSync(log, "utf8").trim(), `GET /osv/${day}/npm/all.zip`);
   assert.throws(() => readFileSync(path.join(stale, "all.zip")));
