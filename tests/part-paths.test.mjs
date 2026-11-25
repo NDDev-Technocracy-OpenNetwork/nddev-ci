@@ -147,6 +147,7 @@ test("single-job project-check honors part-paths without misreporting filtered p
       RUNNER_OS: "Linux",
       RUNNER_ARCH: "X64",
       EVENT: "push",
+      SETUP: "false",
       GITHUB_EVENT_NAME: "push",
       GITHUB_REF: "refs/heads/dev",
       GITHUB_REPOSITORY: "owner/repo",
