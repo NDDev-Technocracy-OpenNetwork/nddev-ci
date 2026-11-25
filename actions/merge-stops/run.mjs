@@ -219,7 +219,7 @@ function flushResult(name, result, summaryFile, targetSummary) {
 }
 
 export async function runMergeStops(environment = process.env, { customChecks = null } = {}) {
-  const cwd = environment.GITHUB_WORKSPACE || process.cwd();
+  const workspace = environment.GITHUB_WORKSPACE || process.cwd();
   const tempRoot = environment.RUNNER_TEMP || tmpdir();
   const binDir = environment.MERGE_STOPS_BIN || path.join(tempRoot, "nddev-ci", "bin");
   const base = environment.MERGE_STOPS_BASE || environment.INPUT_BASE || "";
@@ -232,13 +232,23 @@ export async function runMergeStops(environment = process.env, { customChecks = 
   const targetSummary = environment.GITHUB_STEP_SUMMARY || "";
   const outputFile = environment.GITHUB_OUTPUT || "";
 
-  const envWithBin = {
-    ...environment,
-    PATH: binDir ? `${binDir}${path.delimiter}${environment.PATH || ""}` : environment.PATH || "",
-  };
   const scratchDir = mkdtempSync(path.join(tempRoot, "nddev-merge-stops-"));
+  const isolate = environment.MERGE_STOPS_ISOLATED_WORKTREE === "true";
+  const cwd = isolate ? path.join(scratchDir, "source") : workspace;
+  let added = false;
 
   try {
+    if (isolate) {
+      if (!/^[a-f0-9]{40}$/.test(merge)) throw new Error("An exact merge commit is required for inline merge stops.");
+      const checkout = await spawnCapture("git", ["worktree", "add", "--detach", "--quiet", cwd, merge], { cwd: workspace, env: environment });
+      if (checkout.status !== 0) throw new Error(`Could not prepare the inline merge stops worktree. ${checkout.output.trim()}`);
+      added = true;
+    }
+    const envWithBin = {
+      ...environment,
+      GITHUB_WORKSPACE: cwd,
+      PATH: `${binDir}${path.delimiter}${environment.PATH || ""}`,
+    };
     const depSummary = path.join(scratchDir, "dep-summary.md");
     const checks = customChecks ?? [
       {
@@ -292,13 +302,17 @@ export async function runMergeStops(environment = process.env, { customChecks = 
       },
     ];
 
-    const results = await Promise.all(
+    const settled = await Promise.allSettled(
       checks.map(async (check) => {
-        const result = await check.run();
+        const result = await check.run({ cwd, env: envWithBin });
         flushResult(check.name, result, check.summaryFile, targetSummary);
         return { ...check, result };
       }),
     );
+    const results = settled.map((entry) => {
+      if (entry.status === "rejected") throw entry.reason;
+      return entry.value;
+    });
 
     // Run planner-speed uncontended after parallel checks settle so CPU timings stay clean.
     const plannerCheck = customChecks ? null : await runNodeAction("planner-speed/run.mjs", {
@@ -319,7 +333,14 @@ export async function runMergeStops(environment = process.env, { customChecks = 
     }
     return 0;
   } finally {
-    rmSync(scratchDir, { recursive: true, force: true });
+    try {
+      if (added) {
+        const removed = await spawnCapture("git", ["worktree", "remove", "--force", cwd], { cwd: workspace, env: environment });
+        if (removed.status !== 0) throw new Error(`Could not remove the inline merge stops worktree. ${removed.output.trim()}`);
+      }
+    } finally {
+      rmSync(scratchDir, { recursive: true, force: true });
+    }
   }
 }
 

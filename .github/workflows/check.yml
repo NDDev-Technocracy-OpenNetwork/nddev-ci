@@ -491,21 +491,10 @@ jobs:
           third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
           fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
 
-      - name: Check
-        id: project
-        if: steps.reuse.outputs.cache-hit != 'true'
-        uses: $/actions/project-check
-        env:
-          GH_TOKEN: ${{ github.token }}
-        with:
-          setup: ${{ inputs.setup }}
-          part: ${{ toJSON(matrix.part.argv) }}
-          receipt-inputs: ${{ toJSON(inputs) }}
-
       - name: Check technology registry
         id: registry-check
         if: >-
-          !cancelled() && inputs.registry-commit != '' && github.event.repository.private &&
+          inputs.registry-commit != '' && github.event.repository.private &&
           runner.environment == 'self-hosted' && runner.os == 'Linux' && runner.arch == 'X64' &&
           inputs.sparse-checkout == '' && needs.registry-project.result == 'skipped' &&
           ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
@@ -519,11 +508,23 @@ jobs:
       - name: Inline merge stops
         id: inline-stops
         if: >-
-          !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && inputs.inline-merge-stops
+          (github.event_name == 'pull_request' || github.event_name == 'merge_group') && inputs.inline-merge-stops
         uses: $/actions/merge-stops
         with:
+          isolated-worktree: 'true'
           new-clones: ${{ inputs.new-clones }}
           upstream-branch: ${{ inputs.upstream-branch }}
+
+      - name: Check
+        id: project
+        if: steps.reuse.outputs.cache-hit != 'true'
+        uses: $/actions/project-check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          setup: ${{ inputs.setup }}
+          part: ${{ toJSON(matrix.part.argv) }}
+          receipt-inputs: ${{ toJSON(inputs) }}
 
       # The mark that this merge's short check passed in public repositories, read by a later text or label event.
       - name: Mark the pass of this merge
