@@ -4,17 +4,17 @@ description: >-
   clone, planner-speed and hint checks concurrently on one Linux runner.
 inputs:
   base:
-    description: Exact pull request base commit.
-    required: true
+    description: Exact pull request base commit (defaults to the pull request base).
+    default: ''
   head:
-    description: Exact pull request head commit.
-    required: true
+    description: Exact pull request head commit (defaults to the pull request head).
+    default: ''
   merge:
-    description: Exact checked merge commit.
-    required: true
+    description: Exact checked merge commit (defaults to github.sha).
+    default: ''
   head-ref:
-    description: Pull request head branch name.
-    required: true
+    description: Pull request head branch name (defaults to github.head_ref).
+    default: ''
   new-clones:
     description: Reject new code clones using the pull request base's .jscpd.json.
     default: 'false'
@@ -34,9 +34,9 @@ runs:
     - name: File contents of the change
       uses: $/actions/change-objects
       with:
-        base: ${{ inputs.base }}
-        head: ${{ inputs.head }}
-        merge: ${{ inputs.merge }}
+        base: ${{ inputs.base || github.event.pull_request.base.sha }}
+        head: ${{ inputs.head || github.event.pull_request.head.sha }}
+        merge: ${{ inputs.merge || github.sha }}
 
     - name: Tools
       shell: bash
@@ -199,10 +199,10 @@ runs:
       id: run
       shell: bash
       env:
-        MERGE_STOPS_BASE: ${{ inputs.base }}
-        MERGE_STOPS_HEAD: ${{ inputs.head }}
-        MERGE_STOPS_MERGE: ${{ inputs.merge }}
-        MERGE_STOPS_HEAD_REF: ${{ inputs.head-ref }}
+        MERGE_STOPS_BASE: ${{ inputs.base || github.event.pull_request.base.sha }}
+        MERGE_STOPS_HEAD: ${{ inputs.head || github.event.pull_request.head.sha }}
+        MERGE_STOPS_MERGE: ${{ inputs.merge || github.sha }}
+        MERGE_STOPS_HEAD_REF: ${{ inputs.head-ref || github.head_ref }}
         MERGE_STOPS_NEW_CLONES: ${{ inputs.new-clones }}
         MERGE_STOPS_UPSTREAM_BRANCH: ${{ inputs.upstream-branch }}
         MERGE_STOPS_GITHUB_TOKEN: ${{ inputs.github-token }}

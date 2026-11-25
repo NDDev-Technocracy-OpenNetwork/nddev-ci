@@ -108,13 +108,8 @@ jobs:
         id: stops
         uses: $/actions/merge-stops
         with:
-          base: ${{ github.event.pull_request.base.sha }}
-          head: ${{ github.event.pull_request.head.sha }}
-          merge: ${{ github.sha }}
-          head-ref: ${{ github.head_ref }}
           new-clones: ${{ inputs.new-clones }}
           upstream-branch: ${{ inputs.upstream-branch }}
-          github-token: ${{ github.token }}
 
       - name: Job record
         if: always()

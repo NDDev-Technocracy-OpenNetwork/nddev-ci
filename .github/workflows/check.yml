@@ -440,13 +440,14 @@ jobs:
         if: steps.reuse.outputs.cache-hit != 'true'
         uses: $/actions/prepare
         with:
+          full-history: ${{ github.event_name == 'pull_request' && inputs.inline-merge-stops }}
           managed: ${{ runner.environment == 'self-hosted' }}
           artifact-registry: ${{ inputs.artifact-registry }}
           images: ${{ inputs.images && github.event_name != 'pull_request' }}
           diagnostics: ${{ inputs.diagnostics }}
           reports: ${{ inputs.reports }}
-          fetch-depth: ${{ (github.event_name == 'pull_request' && inputs.inline-merge-stops) && '0' || inputs.fetch-depth }}
-          filter: ${{ (github.event_name == 'pull_request' && inputs.inline-merge-stops && inputs.filter == '') && 'blob:none' || inputs.filter }}
+          fetch-depth: ${{ inputs.fetch-depth }}
+          filter: ${{ inputs.filter }}
           sparse-checkout: ${{ inputs.sparse-checkout }}
           sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
           submodules: ${{ inputs.submodules }}
@@ -481,10 +482,21 @@ jobs:
           third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
           fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
 
-      - name: Check direct choices
+      - name: Check
+        id: project
+        if: steps.reuse.outputs.cache-hit != 'true'
+        uses: $/actions/project-check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          setup: ${{ inputs.setup }}
+          part: ${{ toJSON(matrix.part.argv) }}
+          receipt-inputs: ${{ toJSON(inputs) }}
+
+      - name: Check technology registry
         id: registry-check
         if: >-
-          inputs.registry-commit != '' && github.event.repository.private &&
+          !cancelled() && inputs.registry-commit != '' && github.event.repository.private &&
           runner.environment == 'self-hosted' && runner.os == 'Linux' && runner.arch == 'X64' &&
           inputs.sparse-checkout == '' && needs.registry-project.result == 'skipped' &&
           ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
@@ -496,27 +508,12 @@ jobs:
 
       - name: Inline merge stops
         id: inline-stops
-        if: github.event_name == 'pull_request' && inputs.inline-merge-stops
+        if: >-
+          !cancelled() && github.event_name == 'pull_request' && inputs.inline-merge-stops
         uses: $/actions/merge-stops
         with:
-          base: ${{ github.event.pull_request.base.sha }}
-          head: ${{ github.event.pull_request.head.sha }}
-          merge: ${{ github.sha }}
-          head-ref: ${{ github.head_ref }}
           new-clones: ${{ inputs.new-clones }}
           upstream-branch: ${{ inputs.upstream-branch }}
-          github-token: ${{ github.token }}
-
-      - name: Check
-        id: project
-        if: steps.reuse.outputs.cache-hit != 'true'
-        uses: $/actions/project-check
-        env:
-          GH_TOKEN: ${{ github.token }}
-        with:
-          setup: ${{ inputs.setup }}
-          part: ${{ toJSON(matrix.part.argv) }}
-          receipt-inputs: ${{ toJSON(inputs) }}
 
       # The mark that this merge's short check passed in public repositories, read by a later text or label event.
       - name: Mark the pass of this merge

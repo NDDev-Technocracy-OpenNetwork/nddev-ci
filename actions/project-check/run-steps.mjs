@@ -103,8 +103,7 @@ async function runFallback(environment, cleanEnv, cwd) {
   return runProjectCommand("just", argv, { cwd, environment: cleanEnv, output });
 }
 
-export async function runSteps(environment = process.env) {
-  const cwd = environment.GITHUB_WORKSPACE || process.cwd();
+export async function runSteps(environment = process.env, cwd = process.cwd()) {
   const cleanEnv = sanitizeProjectEnv(environment);
   const planFile = environment.RECEIPT_PLAN || "";
   const resultsFile = environment.RECEIPT_RESULTS || "";
@@ -201,10 +200,5 @@ export async function runSteps(environment = process.env) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  runSteps().then((code) => {
-    process.exitCode = code;
-  }).catch((error) => {
-    console.error(`::error::${String(error.message).replace(/[\r\n%]/g, " ")}`);
-    process.exitCode = 1;
-  });
+  process.exitCode = await runSteps();
 }

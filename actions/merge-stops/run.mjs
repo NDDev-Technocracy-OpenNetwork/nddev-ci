@@ -103,18 +103,28 @@ async function runClones({ cwd, env, base, binDir, scratchDir }) {
     return { status: 1, output: "::error::The checked merge does not use the pull request base.\n" };
   }
   const cloneOut = mkdtempSync(path.join(scratchDir, "clones-"));
+  const worktreeDir = path.join(cloneOut, "head");
   const policyFile = path.join(cloneOut, "policy.json");
   const blob = spawnSync("git", ["cat-file", "blob", `${base}:.jscpd.json`], { cwd, env: gitEnv, encoding: "utf8" });
   if (blob.status !== 0) {
     return { status: 1, output: "::error::Commit the project's .jscpd.json on the base branch before enabling the clone stop.\n" };
   }
   writeFileSync(policyFile, blob.stdout);
+  const added = spawnSync("git", ["worktree", "add", "--detach", "--quiet", worktreeDir, "HEAD"], { cwd, env: gitEnv, encoding: "utf8" });
+  if (added.status !== 0) {
+    return { status: 1, output: `${added.stderr || ""}::error::Could not prepare a clean worktree for clone detection.\n` };
+  }
   const jscpd = path.join(binDir, "jscpd");
-  const res = await spawnCapture(
-    jscpd,
-    [".", "--config", policyFile, "--baseline-from-ref", base, "--no-gitignore", "--fail-on-new-clones=0", "--reporters", "json", "--silent", "--output", cloneOut],
-    { cwd, env: gitEnv },
-  );
+  let res;
+  try {
+    res = await spawnCapture(
+      jscpd,
+      [".", "--config", policyFile, "--baseline-from-ref", base, "--no-gitignore", "--fail-on-new-clones=0", "--reporters", "json", "--silent", "--output", cloneOut],
+      { cwd: worktreeDir, env: gitEnv },
+    );
+  } finally {
+    spawnSync("git", ["worktree", "remove", "--force", worktreeDir], { cwd, env: gitEnv, encoding: "utf8" });
+  }
   const reportPath = path.join(cloneOut, "jscpd-report.json");
   if (!existsSync(reportPath)) {
     return { status: 1, output: `${res.output}::error::The clone detector produced no report.\n` };
