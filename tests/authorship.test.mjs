@@ -168,8 +168,10 @@ test("invalid, missing or self-referential upstream branches are refused", (t) =
 test("the shared merge stop includes authorship in the project failure layer", () => {
   const workflow = readFileSync(new URL("../.github/workflows/merge-stops.yml", import.meta.url), "utf8");
   const checkWorkflow = readFileSync(new URL("../.github/workflows/check.yml", import.meta.url), "utf8");
-  assert.match(workflow, /id: authorship\n\s+uses: \$\/actions\/authorship/);
+  const runner = readFileSync(new URL("../actions/merge-stops/run.mjs", import.meta.url), "utf8");
+  assert.match(workflow, /id: stops\n\s+uses: \$\/actions\/merge-stops/);
   assert.match(workflow, /upstream-branch: \$\{\{ inputs\.upstream-branch \}\}/);
   assert.match(checkWorkflow, /upstream-branch: \$\{\{ inputs\.upstream-branch \}\}/);
-  assert.match(workflow, /steps\.authorship\.outcome == 'failure'/);
+  assert.match(workflow, /steps\.stops\.outputs\.failure-layer/);
+  assert.match(runner, /name: "Change authorship",\s+projectStop: true,\s+run: \(\) => runNodeAction\("authorship\/run\.mjs"/);
 });

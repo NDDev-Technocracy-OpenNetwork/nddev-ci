@@ -20,6 +20,9 @@ inputs:
   fetch-depth:
     description: How many commits the checkout fetches; 0 fetches the whole history.
     default: '1'
+  full-history:
+    description: "'true' fetches the full commit history (fetch-depth 0 and default blob:none filter)."
+    default: 'false'
   filter:
     description: A partial clone filter for the checkout, such as blob:none.
     default: ''
@@ -134,8 +137,8 @@ runs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
-        fetch-depth: ${{ inputs.fetch-depth }}
-        filter: ${{ inputs.filter }}
+        fetch-depth: ${{ inputs.full-history == 'true' && '0' || inputs.fetch-depth }}
+        filter: ${{ (inputs.full-history == 'true' && inputs.filter == '') && 'blob:none' || inputs.filter }}
         sparse-checkout: ${{ inputs.sparse-checkout }}
         sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
         submodules: ${{ inputs.submodules != 'exact' && inputs.submodules || 'false' }}

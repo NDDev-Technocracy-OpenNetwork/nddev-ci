@@ -128,6 +128,9 @@ check: (_tools "check") scan-source-secrets
     node --check lib/step-receipts.mjs
     node --check actions/step-receipt/run.mjs
     node --check actions/project-check/receipts.mjs
+    node --check actions/project-check/run-steps.mjs
+    node --check actions/merge-stops/run.mjs
+    node --check tests/merge-stops.test.mjs
     node --check tests/step-receipts.test.mjs
     node --check actions/planner-speed/run.mjs
     node --check tests/planner-speed.test.mjs
