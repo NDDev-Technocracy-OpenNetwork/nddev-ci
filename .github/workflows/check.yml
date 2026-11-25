@@ -24,9 +24,9 @@ on:
         type: boolean
         default: false
       inline-merge-stops:
-        description: Run pull request merge stops inside the short check job instead of a separate merge-stops job (Linux runners only).
+        description: Run pull request merge stops inside the short check job on full Linux checkouts (falls back to separate merge-stops for sparse checkouts or non-Linux runners).
         type: boolean
-        default: false
+        default: true
       retain-separate-merge-stops:
         description: Keep the separate merge stops context while a caller migrates its required checks to inline stops.
         type: boolean
@@ -426,7 +426,7 @@ jobs:
             *) echo "::error::hosted-runner must be a GitHub-hosted Linux label of this workflow"; exit 1 ;;
           esac
       - name: Inline merge stops requirements
-        if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && inputs.inline-merge-stops && (runner.os != 'Linux' || inputs.sparse-checkout != '')
+        if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && inputs.inline-merge-stops && inputs.sparse-checkout == '' && inputs.runner != 'nddev-macos' && inputs.runner != 'nddev-windows' && inputs['runner-profile'] != 'macos-arm64' && inputs['runner-profile'] != 'windows-x64' && runner.os != 'Linux'
         run: |
           echo "::error::inline-merge-stops requires a Linux runner and a full checkout (empty sparse-checkout)"
           exit 1
@@ -435,7 +435,7 @@ jobs:
         id: setup
         uses: $/actions/prepare
         with:
-          full-history: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && inputs.inline-merge-stops }}
+          full-history: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && inputs.inline-merge-stops && inputs.sparse-checkout == '' && inputs.runner != 'nddev-macos' && inputs.runner != 'nddev-windows' && inputs['runner-profile'] != 'macos-arm64' && inputs['runner-profile'] != 'windows-x64' }}
           managed: ${{ runner.environment == 'self-hosted' }}
           artifact-registry: ${{ inputs.artifact-registry }}
           images: ${{ inputs.images && github.event_name != 'pull_request' && !(github.event_name == 'merge_group' && !inputs['merge-group-full-check']) }}
@@ -476,7 +476,11 @@ jobs:
       - name: Inline merge stops
         id: inline-stops
         if: >-
-          (github.event_name == 'pull_request' || github.event_name == 'merge_group') && inputs.inline-merge-stops
+          (github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
+          inputs.inline-merge-stops && inputs.sparse-checkout == '' &&
+          inputs.runner != 'nddev-macos' && inputs.runner != 'nddev-windows' &&
+          inputs['runner-profile'] != 'macos-arm64' && inputs['runner-profile'] != 'windows-x64' &&
+          runner.os == 'Linux'
         uses: $/actions/merge-stops
         with:
           isolated-worktree: 'true'
@@ -630,7 +634,7 @@ jobs:
 
   merge-stops:
     # The merge stops, the same workflow a project with its own command jobs calls.
-    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && (!inputs.inline-merge-stops || inputs.retain-separate-merge-stops)
+    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && (!inputs.inline-merge-stops || inputs.retain-separate-merge-stops || inputs.sparse-checkout != '' || inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-windows' || inputs['runner-profile'] == 'macos-arm64' || inputs['runner-profile'] == 'windows-x64')
     uses: $/.github/workflows/merge-stops.yml
     with:
       retain-runs: ${{ inputs.retain-runs }}
