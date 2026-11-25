@@ -1,0 +1,44 @@
+name: Run nextest shard step
+description: Validate shard settings, build a single cargo-nextest archive or execute one shard from that archive.
+inputs:
+  mode:
+    description: plan, archive or run.
+    required: true
+  shards:
+    description: Number of shards (2-16), used in plan mode.
+    default: '2'
+  partition-strategy:
+    description: Nextest partition strategy (slice or hash).
+    default: slice
+  nextest-profile:
+    description: Optional cargo-nextest profile name.
+    default: ''
+  archive-file:
+    description: Path to the nextest .tar.zst archive file.
+    default: ''
+  extract-to:
+    description: Extraction directory for shard execution.
+    default: ''
+  partition:
+    description: Exact partition selector (slice:m/n or hash:m/n) for run mode.
+    default: ''
+  arguments:
+    description: Optional JSON array of extra cargo-nextest arguments.
+    default: '[]'
+  working-directory:
+    description: Working directory inside the workspace.
+    default: '.'
+  hosted-runner:
+    description: Optional hosted Linux runner label checked in plan mode for public repositories.
+    default: ''
+  private-repository:
+    description: Whether the repository is private (skips hosted-runner check in plan mode).
+    default: 'true'
+outputs:
+  matrix:
+    description: JSON matrix of shards in plan mode.
+  runner-reason:
+    description: Runner failure reason detected during cargo execution, if any.
+runs:
+  using: node24
+  main: run.mjs

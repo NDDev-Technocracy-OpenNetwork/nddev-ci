@@ -123,6 +123,7 @@ function evaluateJob(expression, github, needs = {plan: {result: "skipped", outp
     "split-full-check": Boolean(options.split),
     "part-runners": options.partRunners ?? "{}",
     "inline-merge-stops": Boolean(options.inlineStops),
+    "merge-group-full-check": Boolean(options.mergeGroupFull),
     "registry-commit": options.registryCommit ?? "",
     "sparse-checkout": options.sparseCheckout ?? "",
     "runner-profile": options.runnerProfile ?? "",
@@ -138,6 +139,7 @@ function evaluateJob(expression, github, needs = {plan: {result: "skipped", outp
     .replaceAll("inputs.whole-full-check", "inputs['whole-full-check']")
     .replaceAll("inputs.split-full-check", "inputs['split-full-check']")
     .replaceAll("inputs.inline-merge-stops", "inputs['inline-merge-stops']")
+    .replaceAll("inputs.merge-group-full-check", "inputs['merge-group-full-check']")
     .replaceAll("inputs.registry-commit", "inputs['registry-commit']")
     .replaceAll("inputs.sparse-checkout", "inputs['sparse-checkout']")
     .replaceAll("inputs.runner-profile", "inputs['runner-profile']");
@@ -202,6 +204,17 @@ test("full check runs in one job by default and splits only on split-full-check 
   assert.equal(checkName({event_name: "pull_request"}, needs), "short check");
   assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs, {inlineStops: true}), false);
   assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs, {inlineStops: false}), true);
+
+  // merge_group defaults to short check + merge-stops and can opt into full check without cancelling.
+  const mg = {event_name: "merge_group", event: {merge_group: {base_sha: "a".repeat(40), head_sha: "b".repeat(40)}}};
+  assert.equal(evaluateJob(plan.condition, mg, needs, {split: true}), false);
+  assert.equal(evaluateJob(check.condition, mg, needs), true);
+  assert.equal(checkName(mg, needs), "short check");
+  assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, mg, needs), true);
+  assert.equal(evaluateJob(jobContract("merge-stops.yml", "merge-stops").condition, mg, needs), true);
+  assert.equal(evaluateJob(jobContract("merge-stops.yml", "merge-stops").name, mg, needs), "merge stops");
+  assert.equal(evaluateJob(plan.condition, mg, needs, {split: true, mergeGroupFull: true}), true);
+  assert.equal(checkName(mg, needs, {mergeGroupFull: true}), "full check");
 });
 
 test("registry-project folds into check on private single-job Linux x64 managed runs and stays separate otherwise", () => {

@@ -71,6 +71,10 @@ const paths = {
     join: { profile: helper, managed: lightRunner, maintenance: true },
   },
   "merge-stops.yml": { stops: { profile: helper, managed: lightRunner, maintenance: true } },
+  "nextest-shards.yml": {
+    archive: { maintenance: true },
+    shard: { maintenance: true },
+  },
   "recipe.yml": { recipe: { recipe: true, maintenance: true } },
 };
 const marked = /(^    # runner-profile:(\S+)\n)    runs-on:[^\n]*(?:\n      [^\n]+)*/gm;

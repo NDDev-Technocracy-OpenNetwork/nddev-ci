@@ -55,7 +55,7 @@ runs:
       id: artifact
       # A passed full run keeps what the project deploys, so a deployment takes the exact build of a
       # checked commit instead of building again. Public repositories use workflow artifacts.
-      if: ${{ !github.event.repository.private && inputs.status == 'success' && github.event_name != 'pull_request' && inputs.artifact != '' }}
+      if: ${{ !github.event.repository.private && inputs.status == 'success' && github.event_name != 'pull_request' && github.event_name != 'merge_group' && inputs.artifact != '' }}
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ inputs.artifact-name }}
@@ -66,7 +66,7 @@ runs:
     - name: Artifact (OCI)
       id: artifact-oci
       # Private repositories push checked artifacts to GHCR as content-addressed OCI artifacts.
-      if: ${{ github.event.repository.private && inputs.status == 'success' && github.event_name != 'pull_request' && inputs.artifact != '' }}
+      if: ${{ github.event.repository.private && inputs.status == 'success' && github.event_name != 'pull_request' && github.event_name != 'merge_group' && inputs.artifact != '' }}
       uses: $/actions/oci-artifact
       with:
         mode: push
