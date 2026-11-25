@@ -7,15 +7,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { record } from "../actions/job-record/run.mjs";
-import { finish as checkFinish, prepare as checkPrepare, resolvePublic } from "../actions/project-check/receipts.mjs";
+import { finish as checkFinish, prepare as checkPrepare } from "../actions/project-check/receipts.mjs";
 import { main as recipeMain } from "../actions/recipe/run.mjs";
 import { main as stepReceiptMain } from "../actions/step-receipt/run.mjs";
 import {
-  buildPublicReceiptStatement,
+  buildReceiptSession,
   checkIdForArgv,
   classifyPathBypass,
   computeInputDigest,
   computeToolchainAndRunnerDigests,
+  createSourceProof,
   evaluateBypass,
   formatReceiptSummary,
   gitTreeState,
@@ -68,6 +69,7 @@ function makeEnv(dir, tempDir, gatewayUrl, extra = {}) {
   return {
     PATH: process.env.PATH,
     PRIVATE_REPO: "true",
+    EVENT: "",
     GITHUB_EVENT_PATH: "",
     GITHUB_STEP_SUMMARY: "",
     GITHUB_OUTPUT: "",
@@ -115,7 +117,7 @@ async function runPrMint(env, tempDir, changedFiles, runId = "55001") {
     RECEIPT_RESULTS: path.join(tempDir, "nddev-ci-receipt-results.txt"),
   }, {
     fetchOidcToken: async () => ({
-      token: fakeJwt({ event_name: "pull_request", repository: "owner/project", repository_id: "12345", job_workflow_sha: wfSha, run_id: runId }),
+      token: fakeJwt({ event_name: "pull_request", ref: prEnv.GITHUB_REF, repository: "owner/project", repository_id: "12345", job_workflow_sha: wfSha, run_id: runId }),
     }),
   });
   return planDoc;
@@ -273,6 +275,19 @@ test("bypass rules catch workflows, justfiles, lockfiles, releases, artifacts, r
   assert.equal(isArtifactProducingPart({ label: "verify: check", group: "check", argv: ["check"] }), false);
 });
 
+test("the default workflow input leaves CACHE_EPOCH effective", async () => {
+  const deps = {
+    gitTreeState: () => ({ treeSha: headSha, dirty: false, lockfilesDigest: "" }),
+    fetchChangedFiles: async () => [],
+    computeToolchainAndRunnerDigests: () => ({}),
+  };
+  const environment = { NDDEV_CI_ACTION_REF: wfSha, CACHE_EPOCH: "rotation-2" };
+  const fallback = await buildReceiptSession(environment, { "cache-epoch": "" }, { deps });
+  const override = await buildReceiptSession(environment, { "cache-epoch": "rotation-3" }, { deps });
+  assert.equal(fallback.cacheEpoch, "rotation-2");
+  assert.equal(override.cacheEpoch, "rotation-3");
+});
+
 test("canary sampling is deterministic on dev push and off on pull requests", () => {
   assert.equal(selectCanary({ repository: "o/r", runId: "1", sha: headSha, percent: 100, eventName: "pull_request", ref: "refs/pull/1/merge" }).canary, false);
   assert.equal(selectCanary({ repository: "o/r", runId: "1", sha: headSha, percent: 0, eventName: "push", ref: "refs/heads/dev" }).canary, false);
@@ -324,6 +339,79 @@ test("sanitizeProjectEnv removes GitHub OIDC request credentials before project 
   assert.deepEqual(clean, { PATH: "/usr/bin" });
 });
 
+test("source proof requires the green PR attempt and the exact OIDC merge tree", async () => {
+  const repository = "owner/project";
+  const workflowPath = ".github/workflows/ci.yml";
+  const treeSha = "3".repeat(40);
+  const mergeSha = "4".repeat(40);
+  const receipt = { event_name: "pull_request", ref: "refs/pull/12/merge", run_id: "55001", run_attempt: 1, sha: mergeSha };
+  const run = {
+    id: 55001, repository: { id: 12345 }, event: "pull_request", path: workflowPath,
+    run_attempt: 1, status: "completed", conclusion: "success", head_sha: headSha,
+    referenced_workflows: [{
+      path: `NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@${wfSha}`, sha: wfSha,
+    }],
+  };
+  const commit = { sha: mergeSha, tree: { sha: treeSha }, parents: [{ sha: baseSha }, { sha: headSha }] };
+
+  const seen = [];
+  function proof(runResponse = run, commitResponse = commit) {
+    return createSourceProof({ GITHUB_WORKFLOW_REF: `${repository}/${workflowPath}@refs/heads/dev` }, {
+      workflowSha: wfSha, treeSha, baseSha, repository, repositoryId: "12345", token: "test-token",
+    }, async (url) => {
+      seen.push(url);
+      return Response.json(url.endsWith("/55001") ? runResponse : commitResponse);
+    });
+  }
+
+  const verify = proof();
+  assert.deepEqual(await Promise.all([verify(receipt, "check"), verify(receipt, "check")]), [true, true]);
+  assert.equal(seen.length, 2);
+  assert.equal(await verify(receipt, "recipe"), false);
+  assert.equal(await verify({ ...receipt, run_attempt: 2 }, "check"), false);
+  assert.equal(await proof({ ...run, conclusion: "failure" })(receipt, "check"), false);
+  assert.equal(await proof({ ...run, status: "in_progress", conclusion: null })(receipt, "check"), false);
+  assert.equal(await proof({ ...run, path: ".github/workflows/other.yml" })(receipt, "check"), false);
+  assert.equal(await proof({ ...run, head_sha: baseSha })(receipt, "check"), false);
+  assert.equal(await proof(run, { ...commit, tree: { sha: headSha } })(receipt, "check"), false);
+  assert.equal(await proof(run, { ...commit, parents: [{ sha: wfSha }, { sha: headSha }] })(receipt, "check"), false);
+  assert.equal(await proof(null)(receipt, "check"), false);
+});
+
+const verifiedSource = { createSourceProof: () => async () => true };
+
+test("a later run reuses only verified same-tree receipts from its own pull request", withJust, async () => {
+  const dir = makeRepo({ justfile: "check:\n    echo check\n", "src/app.rs": "fn main() {}\n" });
+  const gateway = await startMockGateway();
+  const tempDir = mkdtempSync(path.join(tmpdir(), "step-receipts-pr-rerun-"));
+  try {
+    const common = makeEnv(dir, tempDir, gateway.url);
+    const source = await runPrMint(common, tempDir, ["src/app.rs"], "55001");
+    git(dir, ["commit", "--quiet", "--allow-empty", "-m", "same tree"]);
+    const later = {
+      ...common, EVENT: "pull_request", GITHUB_REF: "refs/pull/12/merge",
+      GITHUB_RUN_ID: "55002", HEAD_SHA: git(dir, ["rev-parse", "HEAD"]),
+    };
+    const plan = (overrides = {}, deps = verifiedSource) => checkPrepare({ ...later, ...overrides }, {
+      ...deps, fetchChangedFiles: async () => ["src/app.rs"],
+    });
+    const reused = await plan();
+    assert.equal(reused.treeSha, source.treeSha);
+    assert.equal(reused.steps[0].skip, true);
+    assert.equal(reused.steps[0].reusedRunId, "55001");
+    assert.equal((await plan({ GITHUB_RUN_ID: "55001" })).steps[0].skip, false);
+    assert.equal((await plan({ GITHUB_REF: "refs/pull/13/merge" })).steps[0].skip, false);
+    assert.equal((await plan({}, { createSourceProof: () => async () => false })).steps[0].skip, false);
+    writeFileSync(path.join(dir, "src/app.rs"), "fn main() { println!(\"changed\"); }\n");
+    git(dir, ["commit", "--quiet", "-am", "changed tree"]);
+    assert.equal((await plan({ HEAD_SHA: git(dir, ["rev-parse", "HEAD"]) })).steps[0].skip, false);
+  } finally {
+    await gateway.close();
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("PR receipts are reused by dev plan so only uncached parts run, and cross-arch plan fails closed", withJust, async () => {
   const dir = makeRepo({
     justfile: "check:\n    echo check\ntest:\n    echo test\nbuild:\n    echo build\nverify: check test build\n",
@@ -349,7 +437,7 @@ test("PR receipts are reused by dev plan so only uncached parts run, and cross-a
       ...commonEnv, GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/heads/dev", GITHUB_RUN_ID: "55002",
       GITHUB_STEP_SUMMARY: planSummary, INPUT_MODE: "plan", INPUT_MATRIX: JSON.stringify(fullMatrix),
       INPUT_SPLIT: "true", "INPUT_RECEIPT-INPUTS": receiptInputs,
-    }, { fetchChangedFiles: async () => ["src/app.rs"] });
+    }, { ...verifiedSource, fetchChangedFiles: async () => ["src/app.rs"] });
 
     assert.deepEqual(planResult.matrix.map((p) => p.label), ["verify: build"]);
     assert.equal(planResult.allReused, false);
@@ -357,11 +445,18 @@ test("PR receipts are reused by dev plan so only uncached parts run, and cross-a
     assert.equal(planResult.reused[0].reusedRunId, "55001");
     assert.match(readFileSync(planSummary, "utf8"), /#55001/);
 
+    const noProof = await stepReceiptMain({
+      ...commonEnv, GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/heads/dev", GITHUB_RUN_ID: "55002",
+      INPUT_MODE: "plan", INPUT_MATRIX: JSON.stringify(fullMatrix),
+      INPUT_SPLIT: "true", "INPUT_RECEIPT-INPUTS": receiptInputs,
+    }, { fetchChangedFiles: async () => ["src/app.rs"] });
+    assert.deepEqual(noProof.matrix, fullMatrix);
+
     const allResult = await stepReceiptMain({
       ...commonEnv, GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/heads/dev", GITHUB_RUN_ID: "55003",
       INPUT_MODE: "plan", INPUT_MATRIX: JSON.stringify(fullMatrix.slice(0, 2)),
       INPUT_SPLIT: "true", "INPUT_RECEIPT-INPUTS": receiptInputs,
-    }, { fetchChangedFiles: async () => ["src/app.rs"] });
+    }, { ...verifiedSource, fetchChangedFiles: async () => ["src/app.rs"] });
     assert.deepEqual(allResult.matrix, []);
     assert.equal(allResult.allReused, true);
 
@@ -381,7 +476,7 @@ test("PR receipts are reused by dev plan so only uncached parts run, and cross-a
       GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/heads/dev", GITHUB_RUN_ID: "55004",
       INPUT_MODE: "plan", INPUT_MATRIX: JSON.stringify(fullMatrix.slice(0, 2)),
       INPUT_SPLIT: "true", "INPUT_RECEIPT-INPUTS": receiptInputs,
-    }, { fetchChangedFiles: async () => ["src/app.rs"] });
+    }, { ...verifiedSource, fetchChangedFiles: async () => ["src/app.rs"] });
     assert.equal(armResult.matrix.length, 2);
     assert.equal(armResult.allReused, false);
 
@@ -394,6 +489,7 @@ test("PR receipts are reused by dev plan so only uncached parts run, and cross-a
       INPUT_MODE: "plan", INPUT_MATRIX: JSON.stringify(fullMatrix.slice(0, 2)),
       INPUT_SPLIT: "true", "INPUT_RECEIPT-INPUTS": receiptInputs,
     }, {
+      ...verifiedSource,
       fetchChangedFiles: async () => ["src/app.rs"],
       fetchGatewayRunnerInfo: async ({ profile }) => profile === "linux-x64" ? {
         environment: "self-hosted", os: "Linux", arch: "X64", profile: "linux-x64",
@@ -429,7 +525,7 @@ test("unsplit verify with a body skips PR-verified prior deps and runs only buil
     const devPlan = await checkPrepare({
       ...commonEnv, EVENT: "push", GITHUB_REF: "refs/heads/dev", GITHUB_RUN_ID: "88002", PART: "[\"verify\"]",
       RECEIPT_INPUTS: JSON.stringify({ "reuse-receipts": true, "cache-epoch": "1", "canary-percent": 0 }),
-    }, { fetchChangedFiles: async () => ["src/web.ts"] });
+    }, { ...verifiedSource, fetchChangedFiles: async () => ["src/web.ts"] });
     assert.deepEqual(devPlan.steps.map((s) => [s.argv.join(" "), s.skip]), [
       ["check", true], ["test", true], ["build", false], ["--no-deps verify", false],
     ]);
@@ -437,7 +533,7 @@ test("unsplit verify with a body skips PR-verified prior deps and runs only buil
     const canaryPlan = await checkPrepare({
       ...commonEnv, EVENT: "push", GITHUB_REF: "refs/heads/dev", GITHUB_RUN_ID: "88003", PART: "[\"check\"]",
       RECEIPT_INPUTS: JSON.stringify({ "reuse-receipts": true, "cache-epoch": "1", "canary-percent": 100 }),
-    }, { fetchChangedFiles: async () => ["src/web.ts"] });
+    }, { ...verifiedSource, fetchChangedFiles: async () => ["src/web.ts"] });
     assert.equal(canaryPlan.canary, true);
     assert.equal(canaryPlan.steps[0].skip, false);
     assert.equal(canaryPlan.steps[0].cachedHit, true);
@@ -454,41 +550,6 @@ test("unsplit verify with a body skips PR-verified prior deps and runs only buil
     assert.equal(canaryFinish.stats.reusedRunId, "88001");
   } finally {
     await gateway.close();
-    rmSync(dir, { recursive: true, force: true });
-    rmSync(tempDir, { recursive: true, force: true });
-  }
-});
-
-test("public hosted receipts use GitHub cache files and block PR receipts on dev push", withJust, async () => {
-  const dir = makeRepo({ justfile: "check:\n    echo check\nverify: check\n", "README.md": "hello\n" });
-  const tempDir = mkdtempSync(path.join(tmpdir(), "step-receipts-pub-"));
-  try {
-    const planDoc = await checkPrepare({
-      GITHUB_WORKSPACE: dir, RUNNER_TEMP: tempDir, RUNNER_ENVIRONMENT: "github-hosted",
-      RUNNER_OS: "Linux", RUNNER_ARCH: "X64", ImageOS: "ubuntu24", ImageVersion: "20261124.1",
-      PRIVATE_REPO: "false", GITHUB_REPOSITORY: "owner/public-repo", GITHUB_REPOSITORY_ID: "99",
-      GITHUB_SERVER_URL: "https://github.com", NDDEV_CI_ACTION_REF: wfSha,
-      BASE_SHA: baseSha, HEAD_SHA: headSha, EVENT: "push", GITHUB_REF: "refs/heads/dev",
-      GITHUB_RUN_ID: "30001", PART: "[\"check\"]",
-      RECEIPT_INPUTS: JSON.stringify({ "reuse-receipts": true, "cache-epoch": "1", "canary-percent": 0 }),
-    }, { fetchChangedFiles: async () => ["README.md"] });
-
-    mkdirSync(planDoc.publicCacheDir, { recursive: true });
-    const step = planDoc.steps[0];
-    const prStatement = buildPublicReceiptStatement({
-      ...planDoc, eventName: "pull_request", ref: "refs/pull/5/merge", runId: "29999",
-      runUrl: "https://github.com/owner/public-repo/actions/runs/29999",
-      checkId: step.checkId, argv: step.argv, inputDigest: step.inputDigest,
-    });
-    writeFileSync(path.join(planDoc.publicCacheDir, `${step.inputDigest}.json`), JSON.stringify(prStatement));
-    assert.equal(resolvePublic({ RECEIPT_PLAN: path.join(tempDir, "nddev-ci-receipt-plan.json") }).steps[0].skip, false);
-
-    const devStatement = { ...prStatement, namespace: "trusted", event_name: "push", ref: "refs/heads/dev", run_id: "30000" };
-    writeFileSync(path.join(planDoc.publicCacheDir, `${step.inputDigest}.json`), JSON.stringify(devStatement));
-    const afterDev = resolvePublic({ RECEIPT_PLAN: path.join(tempDir, "nddev-ci-receipt-plan.json") });
-    assert.equal(afterDev.steps[0].skip, true);
-    assert.equal(afterDev.steps[0].reusedRunId, "30000");
-  } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -621,7 +682,7 @@ test("actions/recipe reuses verified gateway receipt and skips re-running the re
     await recipeMain({
       ...baseEnv, GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/heads/dev", GITHUB_RUN_ID: "66002",
       GITHUB_OUTPUT: out2, GITHUB_STEP_SUMMARY: sum2,
-    }, { fetchChangedFiles: async () => ["src/a.txt"] });
+    }, { ...verifiedSource, fetchChangedFiles: async () => ["src/a.txt"] });
     assert.equal(readFileSync(path.join(dir, "ran"), "utf8").trim(), "lint");
     assert.match(readFileSync(out2, "utf8"), /receipt-mode=reused/);
     assert.match(readFileSync(out2, "utf8"), /reused-run-id=66001/);

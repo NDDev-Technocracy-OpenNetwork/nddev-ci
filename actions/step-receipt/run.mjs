@@ -44,6 +44,8 @@ export async function runPlan(environment = process.env, deps = {}) {
   const matrix = parseJsonSafe(input("matrix"), []);
   const split = input("split") === "true";
   const workflowInputs = parseJsonSafe(input("receipt-inputs"), {});
+  const partPaths = parsePartPaths(workflowInputs["part-paths"]);
+  const filterParts = split && Object.keys(partPaths).length > 0;
   const emit = (result) => {
     writeReceiptMetadata(environment.RUNNER_TEMP, result);
     writeActionOutputs(environment.GITHUB_OUTPUT, {
@@ -57,13 +59,12 @@ export async function runPlan(environment = process.env, deps = {}) {
     });
     return result;
   };
-  if (!Array.isArray(matrix) || matrix.length === 0) {
-    return emit({ matrix: [], allReused: false, reused: [], canary: false, bypassReason: "", mode: "executed", reusedRunId: "" });
+  if (!Array.isArray(matrix) || matrix.length === 0 || (!filterParts && !environment.NDDEV_CI_RECEIPT_GATEWAY)) {
+    return emit({ matrix: Array.isArray(matrix) ? matrix : [], allReused: false, reused: [], canary: false, bypassReason: "", mode: "executed", reusedRunId: "" });
   }
 
   const session = await buildReceiptSession(environment, workflowInputs, { wholeJobArtifact: !split, deps });
-  const partPaths = parsePartPaths(workflowInputs["part-paths"]);
-  const filtered = (split && Object.keys(partPaths).length > 0)
+  const filtered = filterParts
     ? selectActiveParts({
       parts: matrix,
       changedFiles: session.changedFiles,

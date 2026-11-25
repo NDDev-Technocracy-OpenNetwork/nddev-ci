@@ -24,7 +24,6 @@ import {
   computeInputDigest,
   fetchOidcToken,
   formatReceiptSummary,
-  isReleaseRef,
   issueStepInSession,
   lookupStepInSession,
   makeSummaryEntry,
@@ -272,7 +271,7 @@ ${formatReceiptSummary([makeSummaryEntry({ ...ctx, treeSha: session.treeSha }, {
       });
       throw new ActionError(`Recipe failed with exit code ${status}.`);
     }
-    if (!session.dirty && !isReleaseRef(session.ref) && ctx.inputDigest) {
+    if (session.eventName === "pull_request" && !session.bypass.bypass && ctx.inputDigest) {
       const oidc = await (deps.fetchOidcToken ?? fetchOidcToken)(environment, environment.NDDEV_CI_RECEIPT_AUDIENCE || undefined, deps.fetchImpl);
       if (oidc?.token) await issueStepInSession(session, ctx, oidc.token, deps);
     }

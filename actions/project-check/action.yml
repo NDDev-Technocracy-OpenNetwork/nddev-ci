@@ -43,21 +43,6 @@ runs:
         GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
       run: node "$GITHUB_ACTION_PATH/receipts.mjs" prepare
 
-    - name: Restore public step receipts
-      id: public-restore
-      if: ${{ !github.event.repository.private && steps.receipt-prepare.outputs.public-cache-key != '' }}
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ${{ steps.receipt-prepare.outputs.public-cache-path }}
-        key: ${{ steps.receipt-prepare.outputs.public-cache-key }}
-
-    - name: Resolve restored public step receipts
-      if: ${{ !github.event.repository.private && steps.public-restore.outputs.cache-hit == 'true' }}
-      shell: bash
-      env:
-        RECEIPT_PLAN: ${{ steps.receipt-prepare.outputs.plan-file }}
-      run: node "$GITHUB_ACTION_PATH/receipts.mjs" resolve
-
     - id: command
       shell: bash
       env:
@@ -83,10 +68,3 @@ runs:
         RECEIPT_RESULTS: ${{ steps.receipt-prepare.outputs.results-file }}
         RUNNER_REASON: ${{ steps.command.outputs.runner-reason }}
       run: node "$GITHUB_ACTION_PATH/receipts.mjs" finish
-
-    - name: Save public step receipts
-      if: ${{ !github.event.repository.private && steps.command.outcome == 'success' && steps.receipt-finish.outputs.save-public-key != '' }}
-      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ${{ steps.receipt-finish.outputs.save-public-path }}
-        key: ${{ steps.receipt-finish.outputs.save-public-key }}

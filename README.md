@@ -135,11 +135,7 @@ local jobs can also set workflow-level `concurrency:` (as in
 [examples/ci.yml](examples/ci.yml)) using a group prefix distinct from `nddev-ci-`.
 
 Subscribe the caller's pull request trigger to opened, synchronize, reopened, labeled and edited
-events, as in the example. Editing a title or description must rerun its metadata checks. The
-short check does not run again for such an event: after it passes, it keeps a mark of the merge
-commit and runner it checked in GitHub's cache. An `edited` event or an unrelated label can reuse
-a pass of the same merge on the same runner platform and provider. A new merge commit or a label
-that selects the job's hosted route runs the check in full.
+events, as in the example. Editing a title or description reruns the metadata checks.
 The authorship stop rejects generated assistant signatures and machine coauthor trailers in
 the introduced commits, including merge commits, and in the title/description. Bot requests
 receive the same check. Human coauthors, cryptographic signatures, tool-version discussion and
@@ -531,11 +527,12 @@ tree (`HEAD^{tree}`) already passed `just check` and `just test` in its pull req
   the pinned `nddev-ci` reusable workflow SHA.
 - **Storage and trust.** Private managed runners authenticate to a local HTTP receipt gateway
   (`NDDEV_CI_RECEIPT_GATEWAY`) with a short-lived GitHub OIDC JWT (callers opt in by adding
-  `id-token: write` beside `contents: read`; OIDC credentials are stripped from project commands),
-  verify Ed25519 DSSE envelopes fail-closed, and keep receipts in the shared network cache under
-  separate `trusted/` and `pr/` namespaces without using GitHub Actions artifacts. Public
-  repositories on GitHub-hosted runners store branch-scoped receipt entries in GitHub Actions Cache
-  without uploading artifacts.
+  `id-token: write` and `actions: read` beside `contents: read`; OIDC credentials are stripped
+  from project commands). A `dev` push or a later run of the same pull request can reuse a check
+  from a completed, successful PR run of the pinned workflow. The signed receipt must match the
+  exact Git tree and base. A cache miss, missing permission or failed GitHub lookup runs the
+  check normally.
+  Public repositories and checks on GitHub-hosted runners always run fresh.
 - **Bypass and canary verification.** Reuse is bypassed unconditionally (executing fresh while
   keeping dependency and compiler caches) on release refs (`main`, tags, `release/*`), when
   required `reports` or whole-job `artifact` outputs are declared, on dirty checkouts, when the

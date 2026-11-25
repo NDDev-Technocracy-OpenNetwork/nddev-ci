@@ -216,7 +216,7 @@ on:
       cache-epoch:
         description: Salt mixed into every step-receipt key; bump to invalidate cached receipts cleanly.
         type: string
-        default: '1'
+        default: ''
       canary-percent:
         description: Percentage (0-100) of eligible dev push runs re-executed fresh to compare against cached receipts.
         type: number
@@ -267,8 +267,7 @@ jobs:
       ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || github.event.repository.private && (((inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '') != '' && (contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || ''))) || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '')))) && fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '')] || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '')] || 'ubuntu-24.04')
       || (github.event_name == 'pull_request' && github.event.sender.type == 'Bot' && github.event.pull_request.user.type == 'Bot' && github.actor == github.triggering_actor && fromJSON('{"nddev-linux-bounded":"nddev-linux-bounded-maintenance","nddev-linux-light":"nddev-linux-light-maintenance","nddev-linux-small":"nddev-linux-small-maintenance","nddev-linux-standart":"nddev-linux-standart-maintenance","nddev-macos":"nddev-macos-maintenance","nddev-windows":"nddev-windows-maintenance"}')[((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64')) && 'nddev-linux-light' || inputs.runner)] || ((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64')) && 'nddev-linux-light' || inputs.runner))) || '' }}
     timeout-minutes: 10
-    permissions:
-      contents: read
+    # Inherit optional actions: read from the caller to verify the source PR's conclusion.
     outputs:
       split: ${{ steps.plan.outputs.split }}
       matrix: ${{ steps.receipts.outputs.matrix || steps.plan.outputs.matrix }}
@@ -313,6 +312,7 @@ jobs:
           whole: ${{ inputs.reports != '' && 'the caller names reports the whole verify leaves' || '' }}
       - name: Check verified step receipts
         id: receipts
+        if: (github.event.repository.private && runner.environment == 'self-hosted') || inputs['part-paths'] != '{}'
         uses: $/actions/step-receipt
         env:
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
@@ -431,28 +431,8 @@ jobs:
           echo "::error::inline-merge-stops requires a Linux runner and a full checkout (empty sparse-checkout)"
           exit 1
 
-      # A text edit or a label leaves the merge that a pull request's short check passed unchanged,
-      # so such an event reuses that pass and runs nothing again. A new commit or a moved base makes
-      # a new merge commit. A label that selects this job's hosted route also runs it in full.
-      - name: A passed short check of the same merge
-        id: reuse
-        if: >-
-          !github.event.repository.private && inputs.reuse-receipts && !inputs.inline-merge-stops &&
-          github.event_name == 'pull_request' && (github.event.action == 'edited' || (github.event.action == 'labeled' && github.event.label.name != 'runner:github' &&
-          github.event.label.name != format('runner:github:{0}', inputs.runner-profile)))
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/nddev-ci-short-pass
-          key: nddev-ci-short-pass-${{ inputs.cache-epoch }}-${{ github.sha }}-${{ runner.environment }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.runner-profile }}
-          lookup-only: true
-
-      - name: The pass is reused
-        if: steps.reuse.outputs.cache-hit == 'true'
-        run: echo "The short check of this exact merge passed in an earlier run of this pull request; this event runs nothing again."
-
       - name: Prepare the job
         id: setup
-        if: steps.reuse.outputs.cache-hit != 'true'
         uses: $/actions/prepare
         with:
           full-history: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && inputs.inline-merge-stops }}
@@ -461,6 +441,7 @@ jobs:
           images: ${{ inputs.images && github.event_name != 'pull_request' && !(github.event_name == 'merge_group' && !inputs['merge-group-full-check']) }}
           diagnostics: ${{ inputs.diagnostics }}
           reports: ${{ inputs.reports }}
+          # jscpd:ignore-start -- the shared prepare action takes these explicit checkout and SDK inputs from each caller
           fetch-depth: ${{ inputs.fetch-depth }}
           filter: ${{ inputs.filter }}
           sparse-checkout: ${{ inputs.sparse-checkout }}
@@ -485,9 +466,10 @@ jobs:
           flutter-version: ${{ inputs.flutter-version }}
           tools: ${{ inputs.tools }}
           tool-assets: ${{ inputs.tool-assets }}
+          # jscpd:ignore-end
 
       - name: Receive the protected registry input
-        if: inputs.registry-commit != '' && steps.reuse.outputs.cache-hit != 'true'
+        if: inputs.registry-commit != ''
         uses: $/actions/registry-input
         with: *registry-snapshot
 
@@ -517,7 +499,6 @@ jobs:
 
       - name: Check
         id: project
-        if: steps.reuse.outputs.cache-hit != 'true'
         uses: $/actions/project-check
         env:
           GH_TOKEN: ${{ github.token }}
@@ -526,19 +507,6 @@ jobs:
           part: ${{ toJSON(matrix.part.argv) }}
           receipt-inputs: ${{ toJSON(inputs) }}
 
-      # The mark that this merge's short check passed in public repositories, read by a later text or label event.
-      - name: Mark the pass of this merge
-        if: ${{ !github.event.repository.private && inputs.reuse-receipts && !inputs.inline-merge-stops && github.event_name == 'pull_request' && steps.project.outcome == 'success' }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/nddev-ci-short-pass"
-          date -u +%FT%TZ > "$RUNNER_TEMP/nddev-ci-short-pass/passed"
-
-      - name: Keep the pass of this merge
-        if: ${{ !github.event.repository.private && inputs.reuse-receipts && !inputs.inline-merge-stops && github.event_name == 'pull_request' && steps.project.outcome == 'success' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/nddev-ci-short-pass
-          key: nddev-ci-short-pass-${{ inputs.cache-epoch }}-${{ github.sha }}-${{ runner.environment }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.runner-profile }}
 
       # In parts, the part whose recipes left the deployment artifact keeps it; another part that
       # left the same name would fail its upload.
@@ -558,13 +526,13 @@ jobs:
           JS
 
       - name: Complete the job
-        if: always() && steps.reuse.outputs.cache-hit != 'true'
+        if: always()
         uses: $/actions/complete
         with:
           status: ${{ job.status }}
-          check-run-id: ${{ job.check_run_id }}
           project-outcome: ${{ (steps.project.outcome == 'failure' || steps.registry-check.outputs.failure-layer == 'project' || steps.inline-stops.outputs.failure-layer == 'project') && 'failure' || steps.project.outcome }}
           runner-reason: ${{ steps.setup.outputs.runner-reason || steps.project.outputs.runner-reason }}
+          check-run-id: ${{ job.check_run_id }}
           task: ${{ matrix.part.task || matrix.part.label }}
           task-type: test
           name: ${{ github.job }}-${{ matrix.part.group }}
