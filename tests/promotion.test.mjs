@@ -312,3 +312,39 @@ test("workflow_dispatch runs do not qualify a branch push check", async () => {
   assert.equal(proof.run_id, passedPush.id);
   assert.equal((await recheck(withPush, proof)).run_id, passedPush.id);
 });
+
+test("promotion validates a commit's prerelease-file before moving main", async (t) => {
+  const commit = sha(1);
+  const github = api({ahead: [commit], runs: {[commit]: [run(commit)]}});
+  let stage = "2.0.0-alpha\n";
+  let tags = [];
+  const url = await listen(t, async (request, response) => {
+    if (request.url === `/repos/${repository}/contents/.github/prerelease?ref=${commit}`) {
+      if (stage === null) return response.writeHead(404).end();
+      const buf = Buffer.from(stage);
+      return response.end(JSON.stringify({type: "file", path: ".github/prerelease", encoding: "base64", size: buf.length, content: buf.toString("base64")}));
+    }
+    if (request.url === `/repos/${repository}/git/matching-refs/tags/v`) return response.end(JSON.stringify(tags));
+    response.end(JSON.stringify(await github.json(request.method, request.url)));
+  });
+  const dir = mkdtempSync(path.join(tmpdir(), "promotion-prerelease-"));
+  t.after(() => rmSync(dir, {recursive: true, force: true}));
+  const runPromote = (name) => promote({
+    "INPUT_GITHUB-TOKEN": "fixture", "INPUT_PRERELEASE-FILE": ".github/prerelease",
+    GITHUB_API_URL: url, GITHUB_REPOSITORY: repository, GITHUB_OUTPUT: path.join(dir, name),
+  });
+  const ok = await runPromote("ok");
+  assert.equal(ok.state, "ready");
+  assert.equal(ok.version, "2.0.0-alpha.1");
+
+  tags = [{ref: "refs/tags/v2.0.0-beta.1", object: {type: "commit", sha: sha(9)}}];
+  await assert.rejects(runPromote("regressed"), /not newer/);
+
+  stage = "2.0.0-gamma\n";
+  await assert.rejects(runPromote("malformed"), /-alpha, -beta or -rc/);
+
+  stage = null;
+  const graduate = await runPromote("graduate");
+  assert.equal(graduate.state, "ready");
+  assert.equal(graduate.version, "2.0.0");
+});

@@ -21,6 +21,9 @@ inputs:
   initial-version:
     description: The version of the first release when none exists.
     default: 0.1.0
+  prerelease-file:
+    description: Optional repository file naming a pre-release stage (X.Y.Z-alpha, -beta or -rc) at the exact commit.
+    default: ''
   wait-minutes:
     description: How long a still running qualifying check is awaited.
     default: '30'
@@ -43,6 +46,8 @@ outputs:
     description: The released version.
   tag:
     description: The release tag.
+  prerelease:
+    description: Whether the published release is a pre-release (true or false).
   url:
     description: The release page.
 runs:

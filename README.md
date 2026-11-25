@@ -580,18 +580,34 @@ declare permissions on their calling job:
 
 `release.yml` reuses this implementation: `main` releases the exact successful `dev`
 commit, reuses its files, adds `SHA256SUMS`, and publishes a verified draft. Tags use
-`v<major>.<minor>.<patch>` and never move. Reruns reconcile the same release.
+`v<major>.<minor>.<patch>` (or `v<major>.<minor>.<patch>-<stage>.<n>` for declared
+pre-releases) and never move. Reruns reconcile the same release. `release.yml` also
+outputs `prerelease` (`true` or `false`) so callers can gate stable-only publication steps.
 Deployment stays with the caller.
+
+To publish SemVer pre-releases (`alpha`, `beta`, `rc`), commit a single-line file in the
+repository containing `<major>.<minor>.<patch>-<stage>` (for example `2.0.0-alpha`) and pass
+its repository-relative path as `prerelease-file` to both `promote.yml` and `release.yml`.
+Both workflows read that file at the exact candidate commit without a checkout. While a stage
+is declared, each promoted commit raises `N` automatically (`v2.0.0-alpha.1`, `v2.0.0-alpha.2`)
+and publishes an immutable GitHub pre-release (`prerelease: true`, `make_latest: "false"`).
+Changing the line advances the stage (`2.0.0-beta`, `2.0.0-rc`), and emptying or deleting the
+file graduates the next commit to the final stable release (`v2.0.0`, `prerelease: false`,
+`make_latest: "true"`). Regressions, malformed stage files and explicit `version` overrides
+while a stage is active are refused before moving `main` or creating a tag.
 
 For software with an embedded product version, pass `release-metadata` to both
 `promote.yml` and `release.yml`. It lists the top-level JSON metadata file names
 from the full-check artifacts, one per line; `artifacts` names the artifacts holding
 them. Each document has `schema_version: 1`, `source_commit` equal to the checked
-commit and a plain `version`, such as `1.2.3`. Additional platform or hash fields
+commit and a plain numeric `version`, such as `1.2.3`. Additional platform or hash fields
 are permitted. Every selected platform must agree. Missing, changed, malformed or
 contradictory metadata stops promotion before moving `main`, and stops publication
 before creating a tag or release. A version used by another commit is refused.
-The checked product version is the release version; an explicit `version` must
+When paired with `prerelease-file`, the numeric product version must match the declared
+stage base (for example metadata `2.0.0` with stage `2.0.0-alpha`) and `N` advances in Git
+tags and GitHub pre-releases while the numeric build version stays fixed until final release.
+Otherwise the checked product version is the release version, and an explicit `version` must
 agree with it. The project's version preparation updates its source before the
 full build; these actions do not edit the product manifest.
 

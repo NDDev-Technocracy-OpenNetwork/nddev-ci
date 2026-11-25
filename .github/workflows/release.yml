@@ -38,6 +38,10 @@ on:
         description: The version of the first release when none exists.
         type: string
         default: 0.1.0
+      prerelease-file:
+        description: Optional repository file naming a pre-release stage (X.Y.Z-alpha, -beta or -rc) at the exact commit.
+        type: string
+        default: ''
       wait-minutes:
         description: How long a still running qualifying check is awaited.
         type: number
@@ -60,6 +64,9 @@ on:
       tag:
         description: The release tag.
         value: ${{ jobs.release.outputs.tag }}
+      prerelease:
+        description: Whether the published release is a pre-release (true or false).
+        value: ${{ jobs.release.outputs.prerelease }}
       url:
         description: The release page.
         value: ${{ jobs.release.outputs.url }}
@@ -80,6 +87,7 @@ jobs:
       state: ${{ steps.release.outputs.state }}
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
       url: ${{ steps.release.outputs.url }}
     steps:
       - name: Start
@@ -100,6 +108,7 @@ jobs:
           artifacts: ${{ inputs.artifacts }}
           version: ${{ inputs.version }}
           initial-version: ${{ inputs.initial-version }}
+          prerelease-file: ${{ inputs.prerelease-file }}
           wait-minutes: ${{ inputs.wait-minutes }}
           api-url: ${{ inputs.api-url }}
           artifact-api-url: ${{ inputs.artifact-api-url }}

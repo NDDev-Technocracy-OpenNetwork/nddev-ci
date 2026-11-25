@@ -30,6 +30,10 @@ on:
         description: Qualifying artifact names holding the product metadata, one per line.
         type: string
         default: ''
+      prerelease-file:
+        description: Optional repository file checked at the candidate commit for an active pre-release stage.
+        type: string
+        default: ''
       check-workflow:
         description: The caller's workflow file whose push check on dev qualifies a commit.
         type: string
@@ -85,6 +89,7 @@ jobs:
           check-workflow: ${{ inputs.check-workflow }}
           source-branch: ${{ inputs.source-branch }}
           target-branch: ${{ inputs.target-branch }}
+          prerelease-file: ${{ inputs.prerelease-file }}
 
       - name: Move the target forward
         if: steps.choose.outputs.state == 'ready'
