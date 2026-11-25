@@ -78,7 +78,7 @@ test("shared manifests follow the repository, image, platform, target and ref ac
   const root = mkdtempSync(path.join(process.env.RUNNER_TEMP ?? os.tmpdir(), "image-cache-"));
   try {
     const event = path.join(root, "event.json");
-    writeFileSync(event, JSON.stringify({repository: {default_branch: "main"}}));
+    writeFileSync(event, JSON.stringify({repository: {id: 42, default_branch: "main"}}));
     const env = {
       NDDEV_BUILDKIT_CACHE_ENDPOINT: "http://127.0.0.1:8750",
       NDDEV_BUILDKIT_CACHE_BUCKET: "ci-cache",
@@ -88,6 +88,8 @@ test("shared manifests follow the repository, image, platform, target and ref ac
     };
     const image = plan().images[0];
     const {from, to} = buildCache(image, env);
+    const {GITHUB_REPOSITORY_ID: _omitted, ...envWithoutRepoId} = env;
+    assert.deepEqual(buildCache(image, envWithoutRepoId), {from, to});
     assert.equal(from.length, 2);
     assert.equal(
       to,
@@ -99,6 +101,12 @@ test("shared manifests follow the repository, image, platform, target and ref ac
     for (const variant of [{name: "another"}, {platform: "linux/arm64"}, {target: "dev"}])
       assert.notEqual(buildCache({...image, ...variant}, env).to, to);
     assert.notEqual(buildCache(image, {...env, GITHUB_REPOSITORY_ID: "43"}).to, to);
+    const missingIdEvent = path.join(root, "missing-id.json");
+    writeFileSync(missingIdEvent, JSON.stringify({repository: {default_branch: "main"}}));
+    assert.throws(
+      () => buildCache(image, {...envWithoutRepoId, GITHUB_EVENT_PATH: missingIdEvent}),
+      /repository ID/,
+    );
     assert.throws(() => buildCache(image, {...env, NDDEV_BUILDKIT_CACHE_ENDPOINT: "http://other:8750,"}), /loopback/);
   } finally { rmSync(root, {recursive: true, force: true}); }
 });
