@@ -121,6 +121,21 @@ test("only exact merge parents and the checked out merge may be compared", () =>
 			/exact PR head/,
 		);
 	}));
+test("a merge group compares the checked group head to the entire group base", () =>
+	fixture(({ root, write, commit, merge }) => {
+		write("Cargo.lock", "version=3\n");
+		const base = commit();
+		write("Cargo.lock", "version=4\n");
+		const first = commit();
+		write("README.md", "A later queued change");
+		const second = commit();
+		const { merge: group } = merge(first, second);
+		const revisions = { base, head: group, merge: group, mergeGroup: true };
+		assert.equal(sources(root, revisions).changed, true);
+		assert.equal(sources(root, revisions).revisions.mergeBase, base);
+		assert.throws(() => sources(root, { ...revisions, head: second }), /exact ancestor base/);
+	}));
+
 test("merge parents do not require unrelated blobs or revision traversal", () =>
 	fixture(({ root, git, write, commit }) => {
 		write("Cargo.lock", "version=4\n");

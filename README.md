@@ -67,8 +67,9 @@ own steps, and records a later failure of its own artifact or reports as the job
 
 `setup: true` runs `just setup` first. A missing optional test recipe is allowed;
 a failed command or invalid justfile fails the job. New pull request pushes cancel
-their superseded checks, recipes and image builds. Merge queue runs (`merge_group`)
-are never cancelled mid-flight and skip deployment artifact publication. On a branch
+their superseded checks, recipes and image builds. Merge queue runs (`merge_group`) report the same required check names as pull requests, including
+when the short-check job runs `just verify`. They skip deployment artifact publication and are
+never cancelled mid-flight. On a branch
 such as `dev`, one run executes at a time and a newer push waits behind it, replacing
 any push already waiting; releases are never cancelled.
 
