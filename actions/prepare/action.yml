@@ -143,6 +143,15 @@ runs:
     - name: Outside telemetry off
       uses: $/actions/telemetry
 
+    - name: Cargo warnings
+      shell: bash
+      # Constant default so Cargo denies warnings without rustc flags that invalidate build caches.
+      run: | # zizmor: ignore[github-env]
+        set -euo pipefail
+        if [ -z "${CARGO_BUILD_WARNINGS:-}" ]; then
+          echo "CARGO_BUILD_WARNINGS=deny" >> "$GITHUB_ENV"
+        fi
+
     - name: Artifact registry
       uses: $/actions/artifact-registry
       with:

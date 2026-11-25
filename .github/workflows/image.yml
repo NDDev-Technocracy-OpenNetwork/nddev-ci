@@ -142,8 +142,10 @@ jobs:
           allow: ${{ steps.builder.outputs.network != '' && 'network.host' || '' }}
           platforms: ${{ steps.name.outputs.platform }}
           push: ${{ github.event_name != 'pull_request' && inputs.push }}
-          # The built-in Docker builder would otherwise load a build-only image into the host store.
-          outputs: ${{ runner.environment == 'self-hosted' && (github.event_name == 'pull_request' || !inputs.push) && 'type=cacheonly' || '' }}
+          # Pushed images use OCI zstd layers; build-only managed runs stay cache-only so the built-in
+          # Docker builder does not load them into the host store.
+          outputs: >-
+            ${{ (github.event_name != 'pull_request' && inputs.push) && 'type=registry,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true' || (runner.environment == 'self-hosted' && 'type=cacheonly' || '') }}
           tags: ${{ steps.name.outputs.name }}:sha-${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
@@ -151,7 +153,7 @@ jobs:
           provenance: mode=max
           sbom: true
           cache-from: ${{ steps.cache.outputs.from || (runner.environment == 'github-hosted' && format('type=gha,scope=image-{0}', inputs.image)) || '' }}
-          cache-to: ${{ steps.cache.outputs.to || (runner.environment == 'github-hosted' && github.event_name != 'pull_request' && format('type=gha,mode=max,scope=image-{0}', inputs.image)) || '' }}
+          cache-to: ${{ steps.cache.outputs.to || (runner.environment == 'github-hosted' && github.event_name != 'pull_request' && format('type=gha,mode=max,compression=zstd,compression-level=3,force-compression=true,scope=image-{0}', inputs.image)) || '' }}
 
       - name: Image reference
         id: reference
