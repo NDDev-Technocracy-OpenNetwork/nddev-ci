@@ -55,16 +55,16 @@ on:
         description: Managed job platform for profile-aware GitHub fallback.
         type: string
         default: ''
-      public-self-hosted-runner:
-        description: Optional self-hosted runner label for a public repository.
-        type: string
-        default: ''
       hosted-runner:
         description: >-
           The GitHub-hosted Linux runner of a public repository: ubuntu-24.04, ubuntu-24.04-arm,
           ubuntu-26.04 or ubuntu-26.04-arm.
         type: string
         default: ubuntu-24.04
+      public-self-hosted-runner:
+        description: Run a public repository's checks and helper jobs on this self-hosted Linux label.
+        type: string
+        default: ''
       timeout-minutes:
         description: How long the check may run.
         type: number

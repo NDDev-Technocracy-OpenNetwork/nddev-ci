@@ -47,7 +47,7 @@ on:
         type: string
         default: nddev-linux-release
       public-self-hosted-runner:
-        description: Optional self-hosted runner label for a public repository.
+        description: Promote a public repository's checked branch on this self-hosted Linux label.
         type: string
         default: ''
     outputs:

@@ -18,10 +18,6 @@ on:
         description: The runner label the scan runs on.
         type: string
         default: nddev-linux-standart
-      public-self-hosted-runner:
-        description: Optional self-hosted runner label for a public repository.
-        type: string
-        default: ''
       hosted-runner:
         description: >-
           The GitHub-hosted Linux runner of a public repository: ubuntu-24.04, ubuntu-24.04-arm,
@@ -46,6 +42,10 @@ on:
           such as deny.toml, so cargo-deny and the scan read one list. Empty uses the default allowlist.
         type: string
         default: ""
+      public-self-hosted-runner:
+        description: Run the public repository's daily security scan on this self-hosted Linux label.
+        type: string
+        default: ''
 
 # Callers declare permissions on their calling job: `contents: read`, plus `packages: read`
 # when a private repository passes caller SBOMs through GHCR.

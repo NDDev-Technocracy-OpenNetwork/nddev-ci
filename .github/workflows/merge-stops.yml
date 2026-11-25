@@ -35,10 +35,6 @@ on:
         description: Managed job platform for profile-aware GitHub fallback.
         type: string
         default: ''
-      public-self-hosted-runner:
-        description: Optional self-hosted runner label for a public repository.
-        type: string
-        default: ''
       hosted-runner:
         description: >-
           The GitHub-hosted Linux runner of a public repository: ubuntu-24.04, ubuntu-24.04-arm,
@@ -47,6 +43,10 @@ on:
         default: ubuntu-24.04
       upstream-branch:
         description: Optional branch in this repository that mirrors a fork's upstream; its commit ancestry is skipped by authorship.
+        type: string
+        default: ''
+      public-self-hosted-runner:
+        description: Run standalone merge stops for a public repository on this self-hosted Linux label.
         type: string
         default: ''
 
