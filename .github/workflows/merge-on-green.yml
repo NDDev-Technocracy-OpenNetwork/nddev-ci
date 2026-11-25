@@ -18,7 +18,6 @@ on:
         type: string
         default: |
           check / short check
-          check / merge-stops / merge stops
       label:
         description: The label that asks for a merge on green.
         type: string

@@ -147,10 +147,11 @@ or requesting another permission.
 
 The PR merge stops scan secrets in the changed commits, dangerous workflows and newly
 introduced fixed critical dependency vulnerabilities, running the independent read-only stops
-concurrently on one Linux runner. Callers on Linux can set `inline-merge-stops: true`
-(default `false`) on `check.yml` to run the same stops in a temporary worktree before the project
-commands in `short check`.
-Set `retain-separate-merge-stops: true` with inline mode while the separate context is still required.
+concurrently on one Linux runner. On full Linux checkouts, `check.yml` defaults to
+`inline-merge-stops: true` and runs those stops in a temporary worktree before the project
+commands in `short check`; sparse checkouts and non-Linux runners fall back to the separate
+`merge-stops` job automatically. Set `inline-merge-stops: false` (or `retain-separate-merge-stops: true`)
+when the separate context is still required.
 Commit messages and the pull request's text are checked as warnings that never stop a merge, and so are the tracked lines that build
 against what a managed runner gives a job ([build-conventions](actions/build-conventions/action.yml)):
 - setting `GRADLE_USER_HOME`, which replaces the runner's persistent Gradle home; Gradle's settings
@@ -706,7 +707,7 @@ and pass each required check as a separate argument.
 
 ```sh
 node tools/qualify-merge.mjs owner/repository 42 "$head_sha" dev \
-  'check / short check' 'check / merge-stops / merge stops'
+  'check / short check'
 ```
 
 The tool makes read-only API calls and prints one JSON receipt. A `ready` receipt binds

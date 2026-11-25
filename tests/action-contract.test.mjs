@@ -132,7 +132,7 @@ function evaluateJob(expression, github, needs = {plan: {result: "skipped", outp
     "whole-full-check": Boolean(options.whole),
     "split-full-check": Boolean(options.split),
     "part-runners": options.partRunners ?? "{}",
-    "inline-merge-stops": Boolean(options.inlineStops),
+    "inline-merge-stops": options.inlineStops ?? true,
     "retain-separate-merge-stops": Boolean(options.retainSeparateStops),
     "merge-group-full-check": Boolean(options.mergeGroupFull),
     "registry-commit": options.registryCommit ?? "",
@@ -169,9 +169,11 @@ test("subscribed pull-request labels run the actual required workflows with stab
     for (const label of ["merge-on-green", "runner:github", "runner:github:linux-arm64", "documentation"]) {
       const github = {event_name: "pull_request", event: {action, label: {name: label}}};
       for (const [workflow, id] of [
-        ["check.yml", "check"], ["check.yml", "merge-stops"],
+        ["check.yml", "check"],
         ["merge-stops.yml", "merge-stops"], ["recipe.yml", "recipe"], ["image.yml", "image"],
       ]) assert.equal(execute(jobContract(workflow, id).condition, github), true, workflow + ":" + action + ":" + label);
+      assert.equal(execute(jobContract("check.yml", "merge-stops").condition, github), false, "check.yml:inline:" + action + ":" + label);
+      assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, github, undefined, {inlineStops: false}), true, "check.yml:separate:" + action + ":" + label);
       assert.equal(checkName(github), "short check");
       assert.equal(execute(jobContract("merge-stops.yml", "merge-stops").name, github), "merge stops");
     }
@@ -214,16 +216,21 @@ test("full check runs in one job by default and splits only on split-full-check 
     }
   }
   assert.equal(checkName({event_name: "pull_request"}, needs), "short check");
+  assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs), false);
   assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs, {inlineStops: true}), false);
   assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs, {inlineStops: false}), true);
   assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs, {inlineStops: true, retainSeparateStops: true}), true);
+  for (const fallback of [{sparseCheckout: ".github"}, {runner: "nddev-macos"}, {runner: "nddev-windows"}, {runnerProfile: "macos-arm64"}, {runnerProfile: "windows-x64"}]) {
+    assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs, fallback), true);
+  }
 
-  // merge_group defaults to short check + merge-stops and can opt into full check without cancelling.
+  // merge_group defaults to short check with inline merge-stops and can opt into full check without cancelling.
   const mg = {event_name: "merge_group", event: {merge_group: {base_sha: "a".repeat(40), head_sha: "b".repeat(40)}}};
   assert.equal(evaluateJob(plan.condition, mg, needs, {split: true}), false);
   assert.equal(evaluateJob(check.condition, mg, needs), true);
   assert.equal(checkName(mg, needs), "short check");
-  assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, mg, needs), true);
+  assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, mg, needs), false);
+  assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, mg, needs, {inlineStops: false}), true);
   assert.equal(evaluateJob(jobContract("merge-stops.yml", "merge-stops").condition, mg, needs), true);
   assert.equal(evaluateJob(jobContract("merge-stops.yml", "merge-stops").name, mg, needs), "merge stops");
   assert.equal(evaluateJob(plan.condition, mg, needs, {split: true, mergeGroupFull: true}), false);
