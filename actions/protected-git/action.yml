@@ -1,0 +1,41 @@
+name: Write a protected Git ref
+description: Use the trusted SSH writer to promote a checked commit or merge a checked pull request.
+inputs:
+  operation:
+    description: The checked operation, promote or merge.
+    required: true
+  key:
+    description: The repository's protected SSH writer key.
+    required: true
+  repository:
+    description: The repository owning the target ref.
+    required: true
+  sha:
+    description: The exact checked commit.
+    required: true
+  target:
+    description: The target branch.
+    required: true
+  environment:
+    description: The environment holding the writer key.
+    required: true
+  merge-number:
+    description: The checked pull request number for a merge.
+    default: ''
+  merge-head:
+    description: The checked pull request head branch for a merge.
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        OPERATION: ${{ inputs.operation }}
+        KEY: ${{ inputs.key }}
+        REPOSITORY: ${{ inputs.repository }}
+        SHA: ${{ inputs.sha }}
+        TARGET: ${{ inputs.target }}
+        KEY_ENVIRONMENT: ${{ inputs.environment }}
+        NUMBER: ${{ inputs.merge-number }}
+        HEAD_BRANCH: ${{ inputs.merge-head }}
+      run: bash "$GITHUB_ACTION_PATH/run.sh"
