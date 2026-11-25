@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { main as promote } from "../actions/promote/run.mjs";
 import { comparisonPageSize, selectPromotion } from "../lib/promotion.mjs";
 import { client, qualify, recheck } from "../lib/qualification.mjs";
@@ -14,17 +15,15 @@ const repository = "fixture/library";
 const workflowPath = ".github/workflows/ci.yml";
 const sha = (n) => n.toString(16).padStart(40, "0");
 
-const writer = readFileSync(new URL("../.github/workflows/promote.yml", import.meta.url), "utf8")
-  .split("      - name: Move the target forward\n")[1]
-  .split("        run: |\n")[1].split("\n      - name: Job record")[0]
-  .replace(/^ {10}/gm, "");
+const writer = fileURLToPath(new URL("../actions/protected-git/run.sh", import.meta.url));
 
-function handoff(t, stalled = "") {
+function handoff(t, stalled = "", mode = "promote") {
   const directory = mkdtempSync(path.join(tmpdir(), "promotion-writer-"));
   t.after(() => rmSync(directory, {recursive: true, force: true}));
   const trace = path.join(directory, "trace");
   writeFileSync(path.join(directory, "git"), `#!/usr/bin/env bash
 set -euo pipefail
+[ -z "\${KEY+x}" ]
 printf '%s\\n' "$*" >> "$TRACE"
 if [ "$1" = init ]; then mkdir -p -- "\${!#}"; fi
 if [ "$1" = "$STALLED" ]; then sleep 2; fi
@@ -36,12 +35,13 @@ set -euo pipefail
 shift 2
 exec /usr/bin/timeout --kill-after=1s 0.5s "$@"
 `, {mode: 0o700});
-  const result = spawnSync("bash", ["-c", writer], {
+  const result = spawnSync("bash", [writer], {
     cwd: directory,
     encoding: "utf8",
     timeout: 6000,
     env: {...process.env, PATH: `${directory}:${process.env.PATH}`, TRACE: trace,
-      STALLED: stalled, SHA: sha(1), TARGET: "main", REPOSITORY: repository,
+      STALLED: stalled, OPERATION: mode, SHA: sha(1), TARGET: "main", REPOSITORY: repository,
+      NUMBER: "23", HEAD_BRANCH: "topic",
       RUNNER_TEMP: directory, KEY: "fixture\n-----END OPENSSH PRIVATE KEY-----"},
   });
   return {...result, commands: readFileSync(trace, "utf8")};
@@ -55,11 +55,19 @@ test("the promotion writer fetches and pushes the exact checked ref without forc
   assert.ok(result.commands.includes(`push -q origin ${sha(1)}:refs/heads/main\n`));
 });
 
+test("the merge writer merges the exact checked head and pushes the resulting commit without force", (t) => {
+  const result = handoff(t, "", "merge");
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.ok(result.commands.includes(`fetch -q --filter=blob:none origin +refs/heads/main:refs/remotes/origin/main ${sha(1)}\n`));
+  assert.ok(result.commands.includes(`merge -q --no-ff --no-edit -m Merge pull request #23 from ${repository}/topic ${sha(1)}\n`));
+  assert.ok(result.commands.includes("push -q origin HEAD:refs/heads/main\n"));
+});
+
 for (const operation of ["fetch", "push"]) {
   test(`a stalled promotion ${operation} fails with a bounded, named error`, (t) => {
     const result = handoff(t, operation);
     assert.equal(result.status, 124, result.stdout + result.stderr);
-    assert.ok(result.stdout.includes(`::error title=Promotion git ${operation} failed::`));
+    assert.ok(result.stdout.includes(`::error title=Protected git ${operation} failed::`));
     if (operation === "fetch") assert.doesNotMatch(result.commands, /^push /m);
     assert.doesNotMatch(result.stdout, /^main is at /m);
   });

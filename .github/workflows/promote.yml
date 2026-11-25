@@ -88,59 +88,14 @@ jobs:
 
       - name: Move the target forward
         if: steps.choose.outputs.state == 'ready'
-        env:
-          KEY: ${{ secrets.PROMOTION_KEY }}
-          SHA: ${{ steps.choose.outputs.sha }}
-          REPOSITORY: ${{ github.repository }}
-          TARGET: ${{ inputs.target-branch }}
-          KEY_ENVIRONMENT: ${{ inputs.environment }}
-        run: |
-          set -euo pipefail
-          if [ -z "$KEY" ]; then
-            echo "::error title=Promotion needs a trusted writer::Commit $SHA passed its checks. A trusted promoter can finish it. Otherwise, fast-forward $TARGET to that exact commit without forcing."
-            {
-              printf '### Promotion needs a trusted writer\n\n'
-              printf 'From a clone of %s with write access, fast-forward %s to the checked commit.\n\n' "$REPOSITORY" "$TARGET"
-              printf '~~~sh\ngit fetch origin %s\ngit push origin %s:refs/heads/%s\n~~~\n\n' "$SHA" "$SHA" "$TARGET"
-              printf 'With environment secrets, configure **Settings → Environments → %s → Environment secrets → PROMOTION_KEY**. For a private repository on GitHub Free, enroll a trusted promoter outside repository workflows.\n' "$KEY_ENVIRONMENT"
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          folder="$RUNNER_TEMP/nddev-ci-promote"
-          mkdir -p "$folder"
-          chmod 0700 "$folder"
-          trap 'rm -rf "$folder"' EXIT
-          case "$KEY" in
-            *"-----END OPENSSH PRIVATE KEY-----"*) ;;
-            *) echo "::error::PROMOTION_KEY holds no OpenSSH private key"; exit 1 ;;
-          esac
-          (umask 077 && printf '%s\n' "$KEY" > "$folder/key")
-          # GitHub's published host keys, the same on github.com and on ssh.github.com:443.
-          cat > "$folder/known_hosts" <<'KEYS'
-          github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
-          github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
-          github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
-          KEYS
-          export GIT_SSH_COMMAND="ssh -i \"$folder/key\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\"$folder/known_hosts\" -o HostKeyAlias=github.com -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -p 443"
-
-          promotion_git() {
-            local operation=$1 status=0
-            printf 'Starting promotion git %s.\n' "$operation"
-            timeout --kill-after=5s 120s git "$@" || status=$?
-            if [ "$status" -ne 0 ]; then
-              echo "::error title=Promotion git $operation failed::Git $operation exited with status $status."
-              return "$status"
-            fi
-          }
-
-          git init -q "$folder/repository"
-          cd "$folder/repository"
-          git remote add origin "git@ssh.github.com:$REPOSITORY.git"
-          # Fetch the target and the chosen path so Git proves the forward update.
-          promotion_git fetch -q --filter=blob:none origin "$SHA" "refs/heads/$TARGET"
-          # No force: GitHub refuses a divergent target update.
-          promotion_git push -q origin "$SHA:refs/heads/$TARGET"
-          echo "$TARGET is at $SHA."
+        uses: $/actions/protected-git
+        with:
+          operation: promote
+          key: ${{ secrets.PROMOTION_KEY }}
+          sha: ${{ steps.choose.outputs.sha }}
+          repository: ${{ github.repository }}
+          target: ${{ inputs.target-branch }}
+          environment: ${{ inputs.environment }}
 
       - name: Job record
         if: always()
