@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -20,6 +20,10 @@ test("tracked build lines that break a convention are named; comments, documents
         "    docker buildx build $NDDEV_CI_IMAGE_BUILD_FLAGS -t app --load .",
         "    docker buildx build --cache-to type=local,dest=/c --cache-from type=local,src=/c $NDDEV_CI_IMAGE_BUILD_FLAGS .",
         "    docker build --help",
+        "    cargo clippy --locked --all-targets -- -D warnings",
+        "    CARGO_BUILD_WARNINGS=deny cargo clippy --locked --all-targets",
+        "    just _cargo clippy --all-targets -- -Dwarnings",
+        "    {{ quote(cargo) }} clippy --workspace -- --deny warnings",
         "",
       ].join("\n"),
     );
@@ -38,11 +42,15 @@ test("tracked build lines that break a convention are named; comments, documents
         ["justfile", 2, "gradle-home"],
         ["justfile", 3, "image-build-flags"],
         ["justfile", 5, "local-layer-cache"],
+        ["justfile", 7, "clippy-deny-warnings"],
+        ["justfile", 9, "clippy-deny-warnings"],
+        ["justfile", 10, "clippy-deny-warnings"],
       ],
     );
     const lines = [];
-    assert.equal(main({ GITHUB_WORKSPACE: root }, (line) => lines.push(line)), 4);
+    assert.equal(main({ GITHUB_WORKSPACE: root }, (line) => lines.push(line)), 7);
     assert.match(lines[2], /^::warning file=justfile,line=3::This image build skips/);
+    assert.match(lines[4], /^::warning file=justfile,line=7::Passing -D warnings/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -77,6 +85,37 @@ test("Dockerfiles running package installs without mirror ARGs emit dockerfile-m
         ["Dockerfile", 8, "dockerfile-mirror-args"],
       ],
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prepare exports CARGO_BUILD_WARNINGS=deny only when unset", () => {
+  const source = readFileSync(new URL("../actions/prepare/action.yml", import.meta.url), "utf8");
+  const step = source.split("    - name: Cargo warnings\n")[1]?.split("\n    - name: ")[0];
+  assert.ok(step, "Cargo warnings step exists in actions/prepare");
+  const script = step
+    .split(/      run: \|[^\n]*\n/)[1]
+    .split("\n")
+    .map((line) => line.replace(/^ {8}/, ""))
+    .join("\n");
+  const root = mkdtempSync(join(tmpdir(), "prepare-cargo-warnings-"));
+  try {
+    const envFile = join(root, "github-env");
+    writeFileSync(envFile, "");
+    const cleanEnv = { ...process.env, GITHUB_ENV: envFile };
+    delete cleanEnv.CARGO_BUILD_WARNINGS;
+    const first = spawnSync("bash", ["-c", script], { env: cleanEnv, encoding: "utf8" });
+    assert.equal(first.status, 0, first.stderr);
+    assert.equal(readFileSync(envFile, "utf8"), "CARGO_BUILD_WARNINGS=deny\n");
+
+    writeFileSync(envFile, "");
+    const preset = spawnSync("bash", ["-c", script], {
+      env: { ...cleanEnv, CARGO_BUILD_WARNINGS: "warn" },
+      encoding: "utf8",
+    });
+    assert.equal(preset.status, 0, preset.stderr);
+    assert.equal(readFileSync(envFile, "utf8"), "");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

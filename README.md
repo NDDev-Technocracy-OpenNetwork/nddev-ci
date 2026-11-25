@@ -135,7 +135,9 @@ against what a managed runner gives a job ([build-conventions](actions/build-con
   network past the package mirror, where a package manager can stall for minutes; set
   `images: true` and build with the flags, as the in-job image builds below say;
 - an exported local layer cache, which costs its export on every run while the library's builder
-  shares layers between jobs on the machine.
+  shares layers between jobs on the machine;
+- `cargo clippy -- -D warnings`, which invalidates Cargo build caches; set
+  `CARGO_BUILD_WARNINGS=deny` instead (also exported by default by [prepare](actions/prepare/action.yml)).
 Dependency comparison reads the exact proposed merge and its own base from Git,
 runs no project installers, and scans both against the same vulnerability data.
 Existing findings remain diagnostics. Native source packages without a registry version stay
