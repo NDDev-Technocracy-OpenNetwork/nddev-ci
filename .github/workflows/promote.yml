@@ -26,6 +26,10 @@ on:
         description: Checked JSON metadata file names with schema_version, source_commit and product version, one per line.
         type: string
         default: ''
+      prerelease-file:
+        description: Optional repository file naming a pre-release stage (X.Y.Z-alpha, -beta or -rc) at the exact commit.
+        type: string
+        default: ''
       artifacts:
         description: Qualifying artifact names holding the product metadata, one per line.
         type: string
@@ -81,6 +85,7 @@ jobs:
         with:
           required-workflows: ${{ inputs.required-workflows }}
           release-metadata: ${{ inputs.release-metadata }}
+          prerelease-file: ${{ inputs.prerelease-file }}
           artifacts: ${{ inputs.artifacts }}
           check-workflow: ${{ inputs.check-workflow }}
           source-branch: ${{ inputs.source-branch }}

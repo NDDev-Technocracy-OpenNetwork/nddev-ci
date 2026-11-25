@@ -19,29 +19,40 @@ export async function main(environment = process.env) {
     requiredWorkflows: input("required-workflows"), fallbackActorId,
     source: input("source-branch") || "dev", target: input("target-branch") || "main",
   });
-  if (result.state === "ready" && (input("release-metadata") || workflows.length > 1)) {
+  const prereleaseFile = input("prerelease-file").trim();
+  if (result.state === "ready" && (input("release-metadata") || prereleaseFile || workflows.length > 1)) {
     const qualifications = await qualifyWorkflows(github, {repository: environment.GITHUB_REPOSITORY,
       sha: result.sha, workflowPath: workflows[0], branch: input("source-branch") || "dev"},
     input("required-workflows"), {waitMinutes: 0, fallbackActorId});
-    if (input("release-metadata")) {
-      const temp = environment.RUNNER_TEMP;
-      if (!temp) throw new Error("The runner did not provide RUNNER_TEMP.");
-      mkdirSync(temp, {recursive: true});
-      const parent = mkdtempSync(path.join(temp, "nddev-ci-promotion-"));
+    if (input("release-metadata") || prereleaseFile) {
+      let files = [];
+      let parent;
       try {
-        const {files} = await transferArtifacts(github, qualifications[0], input("artifacts"), path.join(parent, "checked"), {
-          githubToken: token,
-          actor: environment.GITHUB_ACTOR || "x-access-token",
-          registryUrl: environment.NDDEV_CI_OCI_REGISTRY_URL || undefined,
-          env: environment,
-          fallbackActorId,
+        if (input("release-metadata")) {
+          const temp = environment.RUNNER_TEMP;
+          if (!temp) throw new Error("The runner did not provide RUNNER_TEMP.");
+          mkdirSync(temp, {recursive: true});
+          parent = mkdtempSync(path.join(temp, "nddev-ci-promotion-"));
+          const transferred = await transferArtifacts(github, qualifications[0], input("artifacts"), path.join(parent, "checked"), {
+            githubToken: token,
+            actor: environment.GITHUB_ACTOR || "x-access-token",
+            registryUrl: environment.NDDEV_CI_OCI_REGISTRY_URL || undefined,
+            env: environment,
+            fallbackActorId,
+          });
+          files = transferred.files;
+        }
+        result.version = await releaseVersion(github, {
+          repository: environment.GITHUB_REPOSITORY,
+          sha: result.sha,
+          files,
+          metadata: input("release-metadata"),
+          prereleaseFile,
         });
-        result.version = await releaseVersion(github, {repository: environment.GITHUB_REPOSITORY,
-          sha: result.sha, files, metadata: input("release-metadata")});
       } catch (error) {
         if (!(error instanceof UnversionedError)) throw error;
         Object.assign(result, {state: "unversioned", reason: error.message, sha: null});
-      } finally { rmSync(parent, {recursive: true, force: true}); }
+      } finally { if (parent) rmSync(parent, {recursive: true, force: true}); }
     }
     if (result.state === "ready") await Promise.all(qualifications.map((qualified, index) =>
       recheck(github, qualified, {fallbackActorId: index === 0 ? fallbackActorId : undefined})));

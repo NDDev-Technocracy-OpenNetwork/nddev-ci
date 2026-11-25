@@ -22,6 +22,10 @@ on:
         description: Checked JSON metadata file names with schema_version, source_commit and product version, one per line.
         type: string
         default: ''
+      prerelease-file:
+        description: Optional repository file naming a pre-release stage (X.Y.Z-alpha, -beta or -rc) at the exact commit.
+        type: string
+        default: ''
       check-workflow:
         description: The caller's workflow file whose push check on dev qualifies the commit.
         type: string
@@ -60,6 +64,9 @@ on:
       tag:
         description: The release tag.
         value: ${{ jobs.release.outputs.tag }}
+      prerelease:
+        description: Whether the published release is a pre-release (true or false).
+        value: ${{ jobs.release.outputs.prerelease }}
       url:
         description: The release page.
         value: ${{ jobs.release.outputs.url }}
@@ -80,6 +87,7 @@ jobs:
       state: ${{ steps.release.outputs.state }}
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
       url: ${{ steps.release.outputs.url }}
     steps:
       - name: Start
@@ -96,6 +104,7 @@ jobs:
         with:
           required-workflows: ${{ inputs.required-workflows }}
           release-metadata: ${{ inputs.release-metadata }}
+          prerelease-file: ${{ inputs.prerelease-file }}
           check-workflow: ${{ inputs.check-workflow }}
           artifacts: ${{ inputs.artifacts }}
           version: ${{ inputs.version }}

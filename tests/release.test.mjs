@@ -6,8 +6,13 @@ import {
   artifactNames,
   checkFiles,
   checksums,
+  compareReleaseVersions,
+  isPrerelease,
   nextVersion,
+  parsePrereleaseStage,
+  parseReleaseVersion,
   parseVersion,
+  previousReleaseTag,
   selectQualifiedRun,
 } from "../lib/release.mjs";
 
@@ -52,8 +57,65 @@ test("a chosen version must be newer than every release", () => {
   const tags = ["v1.4.2"];
   assert.equal(nextVersion({ tags, explicit: "1.5.0" }), "1.5.0");
   assert.equal(nextVersion({ tags, explicit: "2.0.0" }), "2.0.0");
-  for (const explicit of ["1.4.2", "1.4.1", "1.3.9", "1.5"])
+  for (const explicit of ["1.4.2", "1.4.1", "1.3.9", "1.5", "2.0.0-alpha.1"])
     assert.throws(() => nextVersion({ tags, explicit }), ReleaseError, explicit);
+});
+
+test("pre-release stages and versions follow SemVer 2.0.0 grammar and precedence", () => {
+  assert.deepEqual(parsePrereleaseStage("2.0.0-alpha"), { major: 2, minor: 0, patch: 0, stage: "alpha", base: "2.0.0" });
+  for (const bad of ["2.0.0", "2.0.0-alpha.1", "2.0.0-gamma", "v2.0.0-alpha", "02.0.0-beta", "", undefined])
+    assert.equal(parsePrereleaseStage(bad), null, String(bad));
+
+  const ordered = [
+    "1.9.1", "2.0.0-alpha.1", "2.0.0-alpha.2", "2.0.0-alpha.10",
+    "2.0.0-beta.1", "2.0.0-rc.1", "2.0.0", "2.0.1",
+  ];
+  for (let i = 0; i < ordered.length; i += 1) {
+    const parsed = parseReleaseVersion(ordered[i]);
+    assert.ok(parsed, ordered[i]);
+    assert.equal(isPrerelease(ordered[i]), ordered[i].includes("-"));
+    if (i > 0) {
+      assert.equal(compareReleaseVersions(parseReleaseVersion(ordered[i - 1]), parsed), -1);
+      assert.equal(compareReleaseVersions(parsed, parseReleaseVersion(ordered[i - 1])), 1);
+    }
+  }
+  for (const bad of ["2.0.0-alpha.0", "2.0.0-alpha.01", "2.0.0-alpha", "2.0.0-gamma.1", "2.0.0-rc1", "2.0.0-alpha.1000000000"])
+    assert.equal(parseReleaseVersion(bad), null, bad);
+});
+
+test("pre-release stages advance monotonically through alpha, beta, rc, final and patch", () => {
+  const tags = ["v1.9.1"];
+  const steps = [
+    ["2.0.0-alpha", "2.0.0-alpha.1", "v1.9.1"],
+    ["2.0.0-alpha", "2.0.0-alpha.2", "v2.0.0-alpha.1"],
+    ["2.0.0-beta", "2.0.0-beta.1", "v2.0.0-alpha.2"],
+    ["2.0.0-beta", "2.0.0-beta.2", "v2.0.0-beta.1"],
+    ["2.0.0-rc", "2.0.0-rc.1", "v2.0.0-beta.2"],
+    ["", "2.0.0", "v2.0.0-rc.1"],
+    ["", "2.0.1", "v2.0.0"],
+  ];
+  for (const [prerelease, expected, previous] of steps) {
+    assert.equal(nextVersion({ tags, prerelease, initial: "0.1.0" }), expected);
+    assert.equal(previousReleaseTag(tags, expected), previous);
+    tags.push(`v${expected}`);
+  }
+  assert.equal(nextVersion({ tags: [], prerelease: "2.0.0-alpha", initial: "0.1.0" }), "2.0.0-alpha.1");
+  assert.equal(previousReleaseTag([], "2.0.0-alpha.1"), null);
+  assert.equal(nextVersion({ tags: ["v2.0.0-alpha.9", "v2.0.0-alpha.10"], prerelease: "2.0.0-alpha" }), "2.0.0-alpha.11");
+  assert.equal(nextVersion({ tags: ["v2.0.0-alpha.1"], prerelease: "2.0.0-rc" }), "2.0.0-rc.1");
+});
+
+test("pre-release regressions, bounds and explicit conflicts are refused", () => {
+  for (const [tags, options] of [
+    [["v2.0.0-beta.1"], { prerelease: "2.0.0-alpha" }],
+    [["v2.0.0-rc.1"], { prerelease: "2.0.0-beta" }],
+    [["v2.0.0"], { prerelease: "2.0.0-rc" }],
+    [["v2.0.1"], { prerelease: "2.0.0-alpha" }],
+    [["v2.0.0-alpha.999999999"], { prerelease: "2.0.0-alpha" }],
+    [[], { prerelease: "2.0.0-gamma" }],
+    [[], { prerelease: "2.0.0-alpha", explicit: "2.0.0" }],
+  ])
+    assert.throws(() => nextVersion({ tags, ...options }), ReleaseError, JSON.stringify(options));
 });
 
 test("the newest check of the exact commit qualifies it", () => {
