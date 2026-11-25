@@ -34,6 +34,7 @@ function declared(source, indent) {
 function calls(path) {
   const lines = read(path).split("\n");
   const found = [];
+  const anchors = new Map();
   lines.forEach((line, index) => {
     const call = line.match(/^(\s*)(?:- )?uses: \$\/(\S+)$/);
     if (!call) return;
@@ -44,8 +45,17 @@ function calls(path) {
       if (next.trim() === "" || next.trimStart().startsWith("#")) continue;
       const depth = next.length - next.trimStart().length;
       if (depth < indent || (depth === indent && next.trimStart().startsWith("- "))) break;
-      if (depth === indent) inWith = next.trim() === "with:";
-      else if (inWith && depth === indent + 2) keys.push(next.trim().split(":")[0]);
+      if (depth === indent) {
+        const withBlock = next.trim().match(/^with:(?: ([&*])([a-z0-9-]+))?$/);
+        inWith = Boolean(withBlock && withBlock[1] !== "*");
+        if (withBlock?.[1] === "&") anchors.set(withBlock[2], keys);
+        if (withBlock?.[1] === "*") {
+          assert.ok(anchors.has(withBlock[2]), `${path} uses an unknown input anchor ${withBlock[2]}`);
+          keys.push(...anchors.get(withBlock[2]));
+        }
+      } else if (inWith && depth === indent + 2) {
+        keys.push(next.trim().split(":")[0]);
+      }
     }
     found.push({ path, line: index + 1, target: call[2], keys });
   });
@@ -123,6 +133,7 @@ function evaluateJob(expression, github, needs = {plan: {result: "skipped", outp
     "split-full-check": Boolean(options.split),
     "part-runners": options.partRunners ?? "{}",
     "inline-merge-stops": Boolean(options.inlineStops),
+    "retain-separate-merge-stops": Boolean(options.retainSeparateStops),
     "merge-group-full-check": Boolean(options.mergeGroupFull),
     "registry-commit": options.registryCommit ?? "",
     "sparse-checkout": options.sparseCheckout ?? "",
@@ -139,6 +150,7 @@ function evaluateJob(expression, github, needs = {plan: {result: "skipped", outp
     .replaceAll("inputs.whole-full-check", "inputs['whole-full-check']")
     .replaceAll("inputs.split-full-check", "inputs['split-full-check']")
     .replaceAll("inputs.inline-merge-stops", "inputs['inline-merge-stops']")
+    .replaceAll("inputs.retain-separate-merge-stops", "inputs['retain-separate-merge-stops']")
     .replaceAll("inputs.merge-group-full-check", "inputs['merge-group-full-check']")
     .replaceAll("inputs.registry-commit", "inputs['registry-commit']")
     .replaceAll("inputs.sparse-checkout", "inputs['sparse-checkout']")
@@ -204,6 +216,7 @@ test("full check runs in one job by default and splits only on split-full-check 
   assert.equal(checkName({event_name: "pull_request"}, needs), "short check");
   assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs, {inlineStops: true}), false);
   assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs, {inlineStops: false}), true);
+  assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs, {inlineStops: true, retainSeparateStops: true}), true);
 
   // merge_group defaults to short check + merge-stops and can opt into full check without cancelling.
   const mg = {event_name: "merge_group", event: {merge_group: {base_sha: "a".repeat(40), head_sha: "b".repeat(40)}}};
