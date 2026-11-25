@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,6 +13,58 @@ import { client, qualify, recheck } from "../lib/qualification.mjs";
 const repository = "fixture/library";
 const workflowPath = ".github/workflows/ci.yml";
 const sha = (n) => n.toString(16).padStart(40, "0");
+
+const writer = readFileSync(new URL("../.github/workflows/promote.yml", import.meta.url), "utf8")
+  .split("      - name: Move the target forward\n")[1]
+  .split("        run: |\n")[1].split("\n      - name: Job record")[0]
+  .replace(/^ {10}/gm, "");
+
+function handoff(t, stalled = "") {
+  const directory = mkdtempSync(path.join(tmpdir(), "promotion-writer-"));
+  t.after(() => rmSync(directory, {recursive: true, force: true}));
+  const trace = path.join(directory, "trace");
+  writeFileSync(path.join(directory, "git"), `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$TRACE"
+if [ "$1" = init ]; then mkdir -p -- "\${!#}"; fi
+if [ "$1" = "$STALLED" ]; then sleep 2; fi
+if [ "$1" = fetch ]; then printf '%s\\n' "$GIT_SSH_COMMAND" >> "$TRACE"; fi
+`, {mode: 0o700});
+  writeFileSync(path.join(directory, "timeout"), `#!/usr/bin/env bash
+set -euo pipefail
+[ "$1" = --kill-after=5s ] && [ "$2" = 120s ]
+shift 2
+exec /usr/bin/timeout --kill-after=1s 0.5s "$@"
+`, {mode: 0o700});
+  const result = spawnSync("bash", ["-c", writer], {
+    cwd: directory,
+    encoding: "utf8",
+    timeout: 6000,
+    env: {...process.env, PATH: `${directory}:${process.env.PATH}`, TRACE: trace,
+      STALLED: stalled, SHA: sha(1), TARGET: "main", REPOSITORY: repository,
+      RUNNER_TEMP: directory, KEY: "fixture\n-----END OPENSSH PRIVATE KEY-----"},
+  });
+  return {...result, commands: readFileSync(trace, "utf8")};
+}
+
+test("the promotion writer fetches and pushes the exact checked ref without force", (t) => {
+  const result = handoff(t);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.commands, /-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3/);
+  assert.ok(result.commands.includes(`fetch -q --filter=blob:none origin ${sha(1)} refs/heads/main\n`));
+  assert.ok(result.commands.includes(`push -q origin ${sha(1)}:refs/heads/main\n`));
+});
+
+for (const operation of ["fetch", "push"]) {
+  test(`a stalled promotion ${operation} fails with a bounded, named error`, (t) => {
+    const result = handoff(t, operation);
+    assert.equal(result.status, 124, result.stdout + result.stderr);
+    assert.ok(result.stdout.includes(`::error title=Promotion git ${operation} failed::`));
+    if (operation === "fetch") assert.doesNotMatch(result.commands, /^push /m);
+    assert.doesNotMatch(result.stdout, /^main is at /m);
+  });
+}
+
 const started = new Date(Date.now() - 10000).toISOString();
 let id = 0;
 const run = (head, fields = {}) => ({id: ++id, run_number: id, run_attempt: 1, head_sha: head, head_branch: "dev",
