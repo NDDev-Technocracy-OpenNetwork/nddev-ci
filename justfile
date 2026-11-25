@@ -125,9 +125,17 @@ check: (_tools "check") scan-source-secrets
     node --check tools/security-schedule.mjs
     node --check tests/security-schedule.test.mjs
     node --check lib/verify-parts.mjs
+    node --check lib/part-paths.mjs
+    node --check lib/nextest-shards.mjs
     node --check lib/step-receipts.mjs
     node --check actions/step-receipt/run.mjs
+    node --check actions/nextest-shards/run.mjs
     node --check actions/project-check/receipts.mjs
+    node --check actions/project-check/run-steps.mjs
+    node --check actions/merge-stops/run.mjs
+    node --check tests/merge-stops.test.mjs
+    node --check tests/part-paths.test.mjs
+    node --check tests/nextest-shards.test.mjs
     node --check tests/step-receipts.test.mjs
     node --check actions/planner-speed/run.mjs
     node --check tests/planner-speed.test.mjs
@@ -153,6 +161,8 @@ check: (_tools "check") scan-source-secrets
     node --check lib/promotion.mjs
     node --check actions/promote/run.mjs
     node --check tests/promotion.test.mjs
+    node --check tools/hosted-fallback.mjs
+    node --check tests/hosted-fallback.test.mjs
     PATH="{{ shellcheck }}:$PATH" "{{ actionlint }}" .github/workflows/*.yml
     "{{ zizmor }}" --strict-collection --min-severity medium .github actions
 

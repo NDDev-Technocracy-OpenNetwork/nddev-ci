@@ -1,5 +1,6 @@
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { parsePartPaths, selectActiveParts } from "../../lib/part-paths.mjs";
 import {
   buildReceiptSession,
   checkIdForArgv,
@@ -43,6 +44,8 @@ export async function runPlan(environment = process.env, deps = {}) {
   const matrix = parseJsonSafe(input("matrix"), []);
   const split = input("split") === "true";
   const workflowInputs = parseJsonSafe(input("receipt-inputs"), {});
+  const partPaths = parsePartPaths(workflowInputs["part-paths"]);
+  const filterParts = split && Object.keys(partPaths).length > 0;
   const emit = (result) => {
     writeReceiptMetadata(environment.RUNNER_TEMP, result);
     writeActionOutputs(environment.GITHUB_OUTPUT, {
@@ -56,24 +59,41 @@ export async function runPlan(environment = process.env, deps = {}) {
     });
     return result;
   };
-  if (!Array.isArray(matrix) || matrix.length === 0 || !environment.NDDEV_CI_RECEIPT_GATEWAY) {
+  if (!Array.isArray(matrix) || matrix.length === 0 || (!filterParts && !environment.NDDEV_CI_RECEIPT_GATEWAY)) {
     return emit({ matrix: Array.isArray(matrix) ? matrix : [], allReused: false, reused: [], canary: false, bypassReason: "", mode: "executed", reusedRunId: "" });
   }
 
   const session = await buildReceiptSession(environment, workflowInputs, { wholeJobArtifact: !split, deps });
+  const filtered = filterParts
+    ? selectActiveParts({
+      parts: matrix,
+      changedFiles: session.changedFiles,
+      partPaths,
+      ref: session.ref,
+      artifact: session.artifact,
+    })
+    : { activeParts: matrix, skippedParts: [], reason: "" };
+  const candidateMatrix = filtered.activeParts;
+  const pathSkippedEntries = filtered.skippedParts.map((part) => makeSummaryEntry({
+    label: part.label,
+    checkId: checkIdForArgv(part.argv),
+    treeSha: session.treeSha,
+    inputDigest: "",
+  }, { outcome: "skipped (path filter)", reused: false }));
+
   if (session.bypass.bypass || !split || !session.privateRepo || !session.gatewayUrl) {
-    if (environment.GITHUB_STEP_SUMMARY && session.bypass.bypass) {
-      appendFileSync(environment.GITHUB_STEP_SUMMARY, `\n${formatReceiptSummary([], { bypassReason: session.bypass.reason })}\n`);
+    if (environment.GITHUB_STEP_SUMMARY && (session.bypass.bypass || pathSkippedEntries.length > 0)) {
+      appendFileSync(environment.GITHUB_STEP_SUMMARY, `\n${formatReceiptSummary(pathSkippedEntries, { bypassReason: session.bypass.reason })}\n`);
     }
     return emit({
-      matrix, allReused: false, reused: [], canary: session.canary,
+      matrix: candidateMatrix, allReused: false, reused: [], canary: session.canary,
       bypassReason: session.bypass.reason, mode: session.bypass.bypass ? "bypassed" : "executed", reusedRunId: "",
     });
   }
 
   const dump = (deps.readJustDump ?? readJustDump)(session.cwd);
   if (!dump) {
-    return emit({ matrix, allReused: false, reused: [], canary: session.canary, bypassReason: "justfile-unreadable", mode: "bypassed", reusedRunId: "" });
+    return emit({ matrix: candidateMatrix, allReused: false, reused: [], canary: session.canary, bypassReason: "justfile-unreadable", mode: "bypassed", reusedRunId: "" });
   }
 
   const partRunners = parseJsonSafe(workflowInputs["part-runners"], {});
@@ -108,9 +128,9 @@ export async function runPlan(environment = process.env, deps = {}) {
   };
   const runnable = [];
   const reused = [];
-  const summaryEntries = [];
+  const summaryEntries = [...pathSkippedEntries];
 
-  for (const part of matrix) {
+  for (const part of candidateMatrix) {
     const target = targetRunnerForPart({
       privateRepo: session.privateRepo,
       runner: workflowInputs.runner || "nddev-linux-standart",

@@ -19,29 +19,50 @@ import {
   writeActionOutputs,
   writeReceiptMetadata,
 } from "../../lib/step-receipts.mjs";
+import { parsePartPaths, selectActiveParts } from "../../lib/part-paths.mjs";
+import { plan as planVerifyParts } from "../../lib/verify-parts.mjs";
 
-function buildSteps(dump, eventName, partRaw, artifact) {
-  if (eventName === "pull_request") {
-    const steps = [{ label: "check", argv: ["check"], canSkip: true, canIssue: true }];
+function isShortEvent(eventName, workflowInputs) {
+  if (eventName === "pull_request") return true;
+  if (eventName === "merge_group") {
+    return workflowInputs["merge-group-full-check"] !== true &&
+      String(workflowInputs["merge-group-full-check"] ?? "false") !== "true";
+  }
+  return false;
+}
+
+function buildSteps(dump, eventName, partRaw, artifact, workflowInputs = {}) {
+  if (isShortEvent(eventName, workflowInputs)) {
+    const steps = [{ label: "check", group: "check", argv: ["check"], parallelSafe: false, canSkip: true, canIssue: true }];
     if (dump && ((dump.recipes && Object.hasOwn(dump.recipes, "test")) || (dump.aliases && Object.hasOwn(dump.aliases, "test")))) {
-      steps.push({ label: "test", argv: ["test"], canSkip: true, canIssue: true });
+      steps.push({ label: "test", group: "test", argv: ["test"], parallelSafe: false, canSkip: true, canIssue: true });
     }
     return steps;
   }
   const part = parseJsonSafe(partRaw, []);
   if (Array.isArray(part) && part.length > 0 && !(part.length === 1 && part[0] === "verify")) {
-    return [{ label: part.join(" "), argv: part.map(String), canSkip: !(artifact && isArtifactProducingPart({ argv: part, group: part[0] })), canIssue: true }];
+    return [{
+      label: part.join(" "), group: String(part[0]), argv: part.map(String), parallelSafe: false,
+      canSkip: !(artifact && isArtifactProducingPart({ argv: part, group: part[0] })), canIssue: true,
+    }];
+  }
+  const grouped = dump ? planVerifyParts(dump) : { split: false, parts: [] };
+  if (grouped.split && grouped.parts.length >= 2) {
+    return grouped.parts.map((entry) => ({
+      label: entry.name, group: entry.group, argv: entry.argv, parallelSafe: entry.group !== "check",
+      canSkip: !(artifact && isArtifactProducingPart(entry)), canIssue: true,
+    }));
   }
   const decomposed = inspectVerifyDecomposition(dump);
   if (decomposed.canDecompose && decomposed.priors.length > 0) {
     const steps = decomposed.priors.map((prior) => ({
-      label: prior.argv.join(" "), argv: prior.argv, needs: prior.needs,
+      label: prior.argv.join(" "), group: prior.key, argv: prior.argv, needs: prior.needs, parallelSafe: false,
       canSkip: !(artifact && isArtifactProducingPart({ argv: prior.argv, group: prior.key })), canIssue: true,
     }));
-    if (decomposed.hasBody) steps.push({ label: "verify (body)", argv: ["--no-deps", "verify"], canSkip: false, canIssue: false });
+    if (decomposed.hasBody) steps.push({ label: "verify (body)", group: "verify", argv: ["--no-deps", "verify"], parallelSafe: false, canSkip: false, canIssue: false });
     return steps;
   }
-  return [{ label: "verify", argv: ["verify"], canSkip: !artifact, canIssue: true }];
+  return [{ label: "verify", group: "verify", argv: ["verify"], parallelSafe: false, canSkip: !artifact, canIssue: true }];
 }
 
 export async function prepare(environment = process.env, deps = {}) {
@@ -49,7 +70,10 @@ export async function prepare(environment = process.env, deps = {}) {
   const tempDir = environment.RUNNER_TEMP || cwd;
   const workflowInputs = parseJsonSafe(environment.RECEIPT_INPUTS, {});
   const setup = environment.SETUP === "true" || workflowInputs.setup === true || workflowInputs.setup === "true";
-  const dump = environment.NDDEV_CI_RECEIPT_GATEWAY
+  const partPaths = parsePartPaths(workflowInputs["part-paths"]);
+  const parallelParts = workflowInputs["parallel-parts"] === true || workflowInputs["parallel-parts"] === "true";
+  const plansParts = parallelParts || Object.keys(partPaths).length > 0;
+  const dump = plansParts || environment.NDDEV_CI_RECEIPT_GATEWAY
     ? (deps.readJustDump ?? readJustDump)(cwd)
     : null;
   if (!dump) {
@@ -59,11 +83,23 @@ export async function prepare(environment = process.env, deps = {}) {
 
   const eventName = environment.EVENT || environment.GITHUB_EVENT_NAME || "";
   const artifact = String(workflowInputs.artifact ?? "").trim();
-  const steps = buildSteps(dump, eventName, environment.PART || "", artifact);
+  const steps = buildSteps(dump, eventName, environment.PART || "", artifact, workflowInputs);
   const session = await buildReceiptSession(environment, { ...workflowInputs, setup }, {
     wholeJobArtifact: steps.length === 1 && artifact !== "",
     deps,
   });
+
+  const filteredOut = new Set();
+  if (!isShortEvent(eventName, workflowInputs) && steps.length >= 2 && Object.keys(partPaths).length > 0) {
+    const selected = selectActiveParts({
+      parts: steps,
+      changedFiles: session.changedFiles,
+      partPaths,
+      ref: session.ref,
+      artifact,
+    });
+    for (const skipped of selected.skippedParts) filteredOut.add(skipped);
+  }
 
   const plannedSteps = [];
   for (const step of steps) {
@@ -76,12 +112,15 @@ export async function prepare(environment = process.env, deps = {}) {
         toolchainDigest: session.toolchainDigest, runnerDigest: session.runnerDigest,
       })
       : "";
+    const filteredByPath = filteredOut.has(step);
     const entry = {
-      label: step.label, argv: step.argv, checkId, canSkip: step.canSkip,
+      label: step.label, group: step.group, argv: step.argv, checkId,
+      parallelSafe: Boolean(step.parallelSafe), canSkip: step.canSkip,
       canIssue: step.canIssue && session.eventName === "pull_request" && !session.bypass.bypass && Boolean(inputDigest),
-      inputDigest, skip: false, reused: false, cachedHit: false, reusedRunId: "", reusedRunUrl: "", reusedEvent: "",
+      inputDigest, skip: filteredByPath, filteredByPath, reused: false, cachedHit: false,
+      reusedRunId: "", reusedRunUrl: "", reusedEvent: "",
     };
-    if (step.canSkip) {
+    if (!filteredByPath && step.canSkip) {
       const lookup = await lookupStepInSession(session, { checkId, inputDigest }, deps);
       if (lookup.hit) {
         entry.cachedHit = true;
@@ -107,6 +146,7 @@ export async function prepare(environment = process.env, deps = {}) {
     ...session,
     bypassReason: session.bypass.reason,
     bypassFlag: session.bypass.bypass,
+    parallelParts,
     all_skipped: plannedSteps.length > 0 && plannedSteps.every((s) => s.skip),
     steps: plannedSteps,
   };
@@ -151,7 +191,9 @@ export async function finish(environment = process.env, deps = {}) {
     const step = planDoc.steps[i];
     const base = { ...step, treeSha: planDoc.treeSha };
     if (step.skip) {
-      summaryEntries.push(makeSummaryEntry(base, { outcome: "reused (pass)", reused: true }));
+      summaryEntries.push(makeSummaryEntry(base, step.filteredByPath
+        ? { outcome: "skipped (path filter)", reused: false }
+        : { outcome: "reused (pass)", reused: true }));
       continue;
     }
     if (failed.has(i)) {

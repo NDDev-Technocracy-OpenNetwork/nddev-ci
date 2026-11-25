@@ -562,6 +562,60 @@ test("project-check bash dispatch skips reused steps, strips OIDC env, and runs 
   }
 });
 
+test("single-job full check groups dependent verify parts and runs parallel-safe parts concurrently when enabled", withJust, async () => {
+  const dir = makeRepo({
+    justfile: [
+      "check:",
+      "    @echo check >> events",
+      "image:",
+      "    @echo image >> events",
+      "test-image: image",
+      "    @echo test-image >> events",
+      "lint-extra:",
+      "    @echo lint-extra >> events",
+      "verify: check image test-image lint-extra",
+      "",
+    ].join("\n"),
+    "src/a.txt": "hello\n",
+  });
+  const tempDir = mkdtempSync(path.join(tmpdir(), "step-receipts-parallel-"));
+  try {
+    const env = makeEnv(dir, tempDir, "", {
+      EVENT: "push", GITHUB_REF: "refs/heads/dev", GITHUB_RUN_ID: "77001", PART: '["verify"]',
+      RECEIPT_INPUTS: JSON.stringify({ "reuse-receipts": true, "parallel-parts": true, "cache-epoch": "1", "canary-percent": 0 }),
+    });
+    const planDoc = await checkPrepare(env, { fetchChangedFiles: async () => ["src/a.txt"] });
+    assert.equal(planDoc.parallelParts, true);
+    assert.deepEqual(planDoc.steps.map((s) => [s.argv, s.parallelSafe]), [
+      [["check"], false],
+      [["image", "test-image"], true],
+      [["lint-extra"], true],
+    ]);
+    const res = spawnSync(process.execPath, [path.resolve("actions/project-check/run-steps.mjs")], {
+      cwd: dir, encoding: "utf8",
+      env: {
+        ...env,
+        RUNNER_ENVIRONMENT: "github-hosted",
+        RECEIPT_PLAN: path.join(tempDir, "nddev-ci-receipt-plan.json"),
+        RECEIPT_RESULTS: path.join(tempDir, "nddev-ci-receipt-results.txt"),
+      },
+    });
+    assert.equal(res.status, 0, res.stderr);
+    const events = readFileSync(path.join(dir, "events"), "utf8").trim().split("\n");
+    assert.equal(events[0], "check");
+    assert.equal(events.filter((e) => e === "image").length, 1);
+    assert.ok(events.indexOf("image") < events.indexOf("test-image"));
+    assert.ok(events.includes("lint-extra"));
+    assert.match(res.stdout, /::group::verify: image \+ test-image/);
+    assert.match(res.stdout, /::group::verify: lint-extra/);
+    const recorded = readFileSync(path.join(tempDir, "nddev-ci-receipt-results.txt"), "utf8").trim().split("\n").sort();
+    assert.deepEqual(recorded, ["0", "1", "2"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("actions/recipe reuses verified gateway receipt and skips re-running the recipe", withJust, async () => {
   const dir = makeRepo({
     justfile: "lint:\n    @echo lint >> ran\n    @test -z \"${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}\"\n",

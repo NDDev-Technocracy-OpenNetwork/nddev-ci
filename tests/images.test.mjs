@@ -89,7 +89,10 @@ test("shared manifests follow the repository, image, platform, target and ref ac
     const image = plan().images[0];
     const {from, to} = buildCache(image, env);
     assert.equal(from.length, 2);
-    assert.equal(to, from[0] + ",mode=max,ignore-error=true");
+    assert.equal(
+      to,
+      from[0] + ",mode=max,compression=zstd,compression-level=3,force-compression=true,touch_refresh=72h,ignore-error=true",
+    );
     assert.match(from[0], /^type=s3,region=auto,use_path_style=true,prefix=buildkit\//);
     assert.equal(buildCache(image, {...env, RUNNER_NAME: "another-slot"}).to, to);
     assert.deepEqual(buildCache(image, {...env, GITHUB_REF: "refs/heads/main"}).from, [from[1]]);
@@ -98,4 +101,18 @@ test("shared manifests follow the repository, image, platform, target and ref ac
     assert.notEqual(buildCache(image, {...env, GITHUB_REPOSITORY_ID: "43"}).to, to);
     assert.throws(() => buildCache(image, {...env, NDDEV_BUILDKIT_CACHE_ENDPOINT: "http://other:8750,"}), /loopback/);
   } finally { rmSync(root, {recursive: true, force: true}); }
+});
+
+test("image workflow pushes zstd OCI layers and keeps managed build-only runs cache-only", () => {
+  const source = readFileSync(new URL("../.github/workflows/image.yml", import.meta.url), "utf8");
+  const outputsLine = source.match(/outputs: >-\n\s+\$\{\{ (.+) \}\}/)?.[1];
+  assert.ok(outputsLine, "image.yml outputs expression exists");
+  const evaluate = (github, inputs, runner) => runInNewContext(outputsLine, {github, inputs, runner});
+  const zstdRegistry = "type=registry,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true";
+  assert.equal(evaluate({event_name: "push"}, {push: true}, {environment: "self-hosted"}), zstdRegistry);
+  assert.equal(evaluate({event_name: "push"}, {push: true}, {environment: "github-hosted"}), zstdRegistry);
+  assert.equal(evaluate({event_name: "pull_request"}, {push: true}, {environment: "self-hosted"}), "type=cacheonly");
+  assert.equal(evaluate({event_name: "push"}, {push: false}, {environment: "self-hosted"}), "type=cacheonly");
+  assert.equal(evaluate({event_name: "pull_request"}, {push: true}, {environment: "github-hosted"}), "");
+  assert.match(source, /type=gha,mode=max,compression=zstd,compression-level=3,force-compression=true,scope=image-\{0\}/);
 });

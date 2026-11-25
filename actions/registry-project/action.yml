@@ -10,6 +10,9 @@ inputs:
   github-token:
     description: Existing job token for fetching the exact comparison commit.
     default: ${{ github.token }}
+outputs:
+  failure-layer:
+    description: "'project' when a new unregistered direct choice blocked the pull request; empty otherwise."
 runs:
   using: node24
   main: run.mjs

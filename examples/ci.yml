@@ -1,4 +1,5 @@
 name: ci
+run-name: ${{ github.event.repository.private && github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] != '' && github.actor_id == vars.NDDEV_BRANCH_FALLBACK_ACTOR_ID && github.actor == github.triggering_actor && 'Contour hosted fallback' || '' }}
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, edited]
@@ -16,7 +17,7 @@ on:
         type: string
 permissions: {}
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.repository.private && github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] != '' && github.actor_id == vars.NDDEV_BRANCH_FALLBACK_ACTOR_ID && github.actor == github.triggering_actor && format('hosted-{0}', github.sha) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   check:

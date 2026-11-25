@@ -168,8 +168,33 @@ test("invalid, missing or self-referential upstream branches are refused", (t) =
 test("the shared merge stop includes authorship in the project failure layer", () => {
   const workflow = readFileSync(new URL("../.github/workflows/merge-stops.yml", import.meta.url), "utf8");
   const checkWorkflow = readFileSync(new URL("../.github/workflows/check.yml", import.meta.url), "utf8");
-  assert.match(workflow, /id: authorship\n\s+uses: \$\/actions\/authorship/);
+  const runner = readFileSync(new URL("../actions/merge-stops/run.mjs", import.meta.url), "utf8");
+  assert.match(workflow, /id: stops\n\s+uses: \$\/actions\/merge-stops/);
   assert.match(workflow, /upstream-branch: \$\{\{ inputs\.upstream-branch \}\}/);
   assert.match(checkWorkflow, /upstream-branch: \$\{\{ inputs\.upstream-branch \}\}/);
-  assert.match(workflow, /steps\.authorship\.outcome == 'failure'/);
+  assert.match(workflow, /steps\.stops\.outputs\.failure-layer/);
+  assert.match(runner, /name: "Change authorship",\s+projectStop: true,\s+run: \(\) => runNodeAction\("authorship\/run\.mjs"/);
+});
+
+test("authorship action accepts merge_group event payloads without pull_request", (t) => {
+  const f = fixture(t);
+  writeFileSync(join(f.root, "clean.txt"), "ok\n");
+  f.git("add", "clean.txt");
+  f.git("commit", "--quiet", "-m", "feat: clean merge queue commit");
+  const head = f.git("rev-parse", "HEAD");
+  const event = join(f.root, "merge-group-event.json");
+  writeFileSync(event, JSON.stringify({
+    merge_group: {
+      base_ref: "refs/heads/dev",
+      head_ref: "refs/heads/gh-readonly-queue/dev/pr-1-abc",
+      base_sha: f.base,
+      head_sha: head,
+    },
+  }));
+  main({
+    GITHUB_EVENT_PATH: event,
+    GITHUB_WORKSPACE: f.root,
+    INPUT_BASE: f.base,
+    INPUT_HEAD: head,
+  });
 });
