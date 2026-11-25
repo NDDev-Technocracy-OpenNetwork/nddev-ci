@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFil
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { checkedMergeBase } from "../../lib/dependency-source.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const actionsDir = path.resolve(here, "..");
@@ -95,18 +96,19 @@ async function runCommitMessages({ cwd, env, base, head, headRef, scratchDir }) 
   return { status: 0, output: lines.join("\n") + (lines.length ? "\n" : "") };
 }
 
-async function runClones({ cwd, env, base, binDir, scratchDir }) {
+async function runClones({ cwd, env, base, head, merge, binDir, scratchDir }) {
   const gitEnv = { ...env, GIT_NO_LAZY_FETCH: "1", GIT_NO_REPLACE_OBJECTS: "1" };
   const mergeGroup = env.GITHUB_EVENT_NAME === "merge_group";
-  const args = mergeGroup ? ["merge-base", "--is-ancestor", base, "HEAD"] : ["rev-parse", "HEAD^1"];
-  const ancestor = spawnSync("git", args, { cwd, env: gitEnv, encoding: "utf8" });
-  if (ancestor.status !== 0 || (!mergeGroup && ancestor.stdout.trim() !== base)) {
-    return { status: 1, output: "::error::The checked merge does not use the declared base.\n" };
+  let mergeBase;
+  try {
+    mergeBase = checkedMergeBase(cwd, { base, head, merge, mergeGroup });
+  } catch (error) {
+    return { status: 1, output: `::error::${String(error.message).replace(/[\r\n%]/g, " ")}\n` };
   }
   const cloneOut = mkdtempSync(path.join(scratchDir, "clones-"));
   const worktreeDir = path.join(cloneOut, "head");
   const policyFile = path.join(cloneOut, "policy.json");
-  const blob = spawnSync("git", ["cat-file", "blob", `${base}:.jscpd.json`], { cwd, env: gitEnv, encoding: "utf8" });
+  const blob = spawnSync("git", ["cat-file", "blob", `${mergeBase}:.jscpd.json`], { cwd, env: gitEnv, encoding: "utf8" });
   if (blob.status !== 0) {
     return { status: 1, output: "::error::Commit the project's .jscpd.json on the base branch before enabling the clone stop.\n" };
   }
@@ -120,7 +122,7 @@ async function runClones({ cwd, env, base, binDir, scratchDir }) {
   try {
     res = await spawnCapture(
       jscpd,
-      [".", "--config", policyFile, "--baseline-from-ref", base, "--no-gitignore", "--fail-on-new-clones=0", "--reporters", "json", "--silent", "--output", cloneOut],
+      [".", "--config", policyFile, "--baseline-from-ref", mergeBase, "--no-gitignore", "--fail-on-new-clones=0", "--reporters", "json", "--silent", "--output", cloneOut],
       { cwd: worktreeDir, env: gitEnv },
     );
   } finally {
@@ -295,7 +297,7 @@ export async function runMergeStops(environment = process.env, { customChecks = 
       ...(newClones ? [{
         name: "No new code clones",
         projectStop: true,
-        run: () => runClones({ cwd, env: envWithBin, base, binDir, scratchDir }),
+        run: () => runClones({ cwd, env: envWithBin, base, head, merge, binDir, scratchDir }),
       }] : []),
       {
         name: "No dangerous workflow",
