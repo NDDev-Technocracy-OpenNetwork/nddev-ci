@@ -117,7 +117,7 @@ async function runPrMint(env, tempDir, changedFiles, runId = "55001") {
     RECEIPT_RESULTS: path.join(tempDir, "nddev-ci-receipt-results.txt"),
   }, {
     fetchOidcToken: async () => ({
-      token: fakeJwt({ event_name: "pull_request", repository: "owner/project", repository_id: "12345", job_workflow_sha: wfSha, run_id: runId }),
+      token: fakeJwt({ event_name: "pull_request", ref: prEnv.GITHUB_REF, repository: "owner/project", repository_id: "12345", job_workflow_sha: wfSha, run_id: runId }),
     }),
   });
   return planDoc;
@@ -379,6 +379,38 @@ test("source proof requires the green PR attempt and the exact OIDC merge tree",
 });
 
 const verifiedSource = { createSourceProof: () => async () => true };
+
+test("a later run reuses only verified same-tree receipts from its own pull request", withJust, async () => {
+  const dir = makeRepo({ justfile: "check:\n    echo check\n", "src/app.rs": "fn main() {}\n" });
+  const gateway = await startMockGateway();
+  const tempDir = mkdtempSync(path.join(tmpdir(), "step-receipts-pr-rerun-"));
+  try {
+    const common = makeEnv(dir, tempDir, gateway.url);
+    const source = await runPrMint(common, tempDir, ["src/app.rs"], "55001");
+    git(dir, ["commit", "--quiet", "--allow-empty", "-m", "same tree"]);
+    const later = {
+      ...common, EVENT: "pull_request", GITHUB_REF: "refs/pull/12/merge",
+      GITHUB_RUN_ID: "55002", HEAD_SHA: git(dir, ["rev-parse", "HEAD"]),
+    };
+    const plan = (overrides = {}, deps = verifiedSource) => checkPrepare({ ...later, ...overrides }, {
+      ...deps, fetchChangedFiles: async () => ["src/app.rs"],
+    });
+    const reused = await plan();
+    assert.equal(reused.treeSha, source.treeSha);
+    assert.equal(reused.steps[0].skip, true);
+    assert.equal(reused.steps[0].reusedRunId, "55001");
+    assert.equal((await plan({ GITHUB_RUN_ID: "55001" })).steps[0].skip, false);
+    assert.equal((await plan({ GITHUB_REF: "refs/pull/13/merge" })).steps[0].skip, false);
+    assert.equal((await plan({}, { createSourceProof: () => async () => false })).steps[0].skip, false);
+    writeFileSync(path.join(dir, "src/app.rs"), "fn main() { println!(\"changed\"); }\n");
+    git(dir, ["commit", "--quiet", "-am", "changed tree"]);
+    assert.equal((await plan({ HEAD_SHA: git(dir, ["rev-parse", "HEAD"]) })).steps[0].skip, false);
+  } finally {
+    await gateway.close();
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
 
 test("PR receipts are reused by dev plan so only uncached parts run, and cross-arch plan fails closed", withJust, async () => {
   const dir = makeRepo({

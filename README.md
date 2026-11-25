@@ -526,9 +526,10 @@ tree (`HEAD^{tree}`) already passed `just check` and `just test` in its pull req
 - **Storage and trust.** Private managed runners authenticate to a local HTTP receipt gateway
   (`NDDEV_CI_RECEIPT_GATEWAY`) with a short-lived GitHub OIDC JWT (callers opt in by adding
   `id-token: write` and `actions: read` beside `contents: read`; OIDC credentials are stripped
-  from project commands). On a `dev` push, reuse requires an Ed25519-signed receipt from the shared
-  network cache and a successful source PR run of the pinned workflow and the exact Git tree.
-  A cache miss, missing permission or failed GitHub lookup runs the check normally.
+  from project commands). A `dev` push or a later run of the same pull request can reuse a check
+  from a completed, successful PR run of the pinned workflow. The signed receipt must match the
+  exact Git tree and base. A cache miss, missing permission or failed GitHub lookup runs the
+  check normally.
   Public repositories and checks on GitHub-hosted runners always run fresh.
 - **Bypass and canary verification.** Reuse is bypassed unconditionally (executing fresh while
   keeping dependency and compiler caches) on release refs (`main`, tags, `release/*`), when
