@@ -32,7 +32,8 @@ inputs:
   submodules:
     description: >-
       'true' checks out the submodules at their recorded commits, 'recursive' theirs too; they must
-      be readable with the job's token, as public repositories are.
+      be readable with the job's token, as public repositories are. 'exact' materializes direct
+      gitlinks after source credentials are ready, fetching their recorded revisions on clean slots.
     default: 'false'
   repository-token:
     description: >-
@@ -137,7 +138,7 @@ runs:
         filter: ${{ inputs.filter }}
         sparse-checkout: ${{ inputs.sparse-checkout }}
         sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
-        submodules: ${{ inputs.submodules }}
+        submodules: ${{ inputs.submodules != 'exact' && inputs.submodules || 'false' }}
 
     - name: Outside telemetry off
       uses: $/actions/telemetry
@@ -329,6 +330,11 @@ runs:
         manifest: ${{ inputs.tool-assets }}
         directory: ${{ runner.temp }}/nddev-ci/native-tools
         add-to-path: true
+
+    - name: Materialize exact submodules
+      if: inputs.submodules == 'exact'
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/exact-submodules.mjs"
 
     - name: Hosted dependency caches
       if: inputs.managed == 'false'
