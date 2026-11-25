@@ -90,7 +90,7 @@ test("Dockerfiles running package installs without mirror ARGs emit dockerfile-m
   }
 });
 
-test("prepare exports CARGO_BUILD_WARNINGS=deny only when unset", () => {
+test("prepare exports CARGO_BUILD_WARNINGS=deny only for Rust jobs when unset", () => {
   const source = readFileSync(new URL("../actions/prepare/action.yml", import.meta.url), "utf8");
   const step = source.split("    - name: Cargo warnings\n")[1]?.split("\n    - name: ")[0];
   assert.ok(step, "Cargo warnings step exists in actions/prepare");
@@ -105,13 +105,40 @@ test("prepare exports CARGO_BUILD_WARNINGS=deny only when unset", () => {
     writeFileSync(envFile, "");
     const cleanEnv = { ...process.env, GITHUB_ENV: envFile };
     delete cleanEnv.CARGO_BUILD_WARNINGS;
-    const first = spawnSync("bash", ["-c", script], { env: cleanEnv, encoding: "utf8" });
-    assert.equal(first.status, 0, first.stderr);
+    delete cleanEnv.RUST_VERSION;
+    delete cleanEnv.WORKING_DIRECTORY;
+
+    const nonRust = spawnSync("bash", ["-c", script], {
+      cwd: root,
+      env: cleanEnv,
+      encoding: "utf8",
+    });
+    assert.equal(nonRust.status, 0, nonRust.stderr);
+    assert.equal(readFileSync(envFile, "utf8"), "");
+
+    writeFileSync(envFile, "");
+    const withRustVersion = spawnSync("bash", ["-c", script], {
+      cwd: root,
+      env: { ...cleanEnv, RUST_VERSION: "1.100.0" },
+      encoding: "utf8",
+    });
+    assert.equal(withRustVersion.status, 0, withRustVersion.stderr);
+    assert.equal(readFileSync(envFile, "utf8"), "CARGO_BUILD_WARNINGS=deny\n");
+
+    writeFileSync(envFile, "");
+    writeFileSync(join(root, "Cargo.toml"), "[package]\nname = \"demo\"\n");
+    const withCargoToml = spawnSync("bash", ["-c", script], {
+      cwd: root,
+      env: cleanEnv,
+      encoding: "utf8",
+    });
+    assert.equal(withCargoToml.status, 0, withCargoToml.stderr);
     assert.equal(readFileSync(envFile, "utf8"), "CARGO_BUILD_WARNINGS=deny\n");
 
     writeFileSync(envFile, "");
     const preset = spawnSync("bash", ["-c", script], {
-      env: { ...cleanEnv, CARGO_BUILD_WARNINGS: "warn" },
+      cwd: root,
+      env: { ...cleanEnv, CARGO_BUILD_WARNINGS: "warn", RUST_VERSION: "1.100.0" },
       encoding: "utf8",
     });
     assert.equal(preset.status, 0, preset.stderr);

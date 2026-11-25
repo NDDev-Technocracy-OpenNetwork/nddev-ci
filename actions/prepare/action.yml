@@ -147,11 +147,16 @@ runs:
       uses: $/actions/telemetry
 
     - name: Cargo warnings
+      env:
+        RUST_VERSION: ${{ inputs.rust-version }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
       shell: bash
-      # Constant default so Cargo denies warnings without rustc flags that invalidate build caches.
+      # Constant default so Cargo denies warnings on Rust jobs without rustc flags that invalidate
+      # build caches, while leaving non-Rust jobs (such as Python sdist builds) unaffected.
       run: | # zizmor: ignore[github-env]
         set -euo pipefail
-        if [ -z "${CARGO_BUILD_WARNINGS:-}" ]; then
+        work_dir="${WORKING_DIRECTORY:-.}"
+        if [ -z "${CARGO_BUILD_WARNINGS:-}" ] && { [ -n "${RUST_VERSION:-}" ] || [ -f Cargo.toml ] || [ -f rust-toolchain.toml ] || [ -f "$work_dir/Cargo.toml" ] || [ -f "$work_dir/rust-toolchain.toml" ]; }; then
           echo "CARGO_BUILD_WARNINGS=deny" >> "$GITHUB_ENV"
         fi
 
