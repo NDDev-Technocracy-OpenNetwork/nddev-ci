@@ -22,10 +22,6 @@ on:
         description: Checked JSON metadata file names with schema_version, source_commit and product version, one per line.
         type: string
         default: ''
-      prerelease-file:
-        description: Optional repository file naming a pre-release stage (X.Y.Z-alpha, -beta or -rc) at the exact commit.
-        type: string
-        default: ''
       check-workflow:
         description: The caller's workflow file whose push check on dev qualifies the commit.
         type: string
@@ -42,6 +38,10 @@ on:
         description: The version of the first release when none exists.
         type: string
         default: 0.1.0
+      prerelease-file:
+        description: Optional repository file naming a pre-release stage (X.Y.Z-alpha, -beta or -rc) at the exact commit.
+        type: string
+        default: ''
       wait-minutes:
         description: How long a still running qualifying check is awaited.
         type: number
@@ -104,11 +104,11 @@ jobs:
         with:
           required-workflows: ${{ inputs.required-workflows }}
           release-metadata: ${{ inputs.release-metadata }}
-          prerelease-file: ${{ inputs.prerelease-file }}
           check-workflow: ${{ inputs.check-workflow }}
           artifacts: ${{ inputs.artifacts }}
           version: ${{ inputs.version }}
           initial-version: ${{ inputs.initial-version }}
+          prerelease-file: ${{ inputs.prerelease-file }}
           wait-minutes: ${{ inputs.wait-minutes }}
           api-url: ${{ inputs.api-url }}
           artifact-api-url: ${{ inputs.artifact-api-url }}

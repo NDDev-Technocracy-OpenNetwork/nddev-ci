@@ -1,11 +1,11 @@
+import test from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import path from "node:path";
-import test from "node:test";
 import { main as runRelease } from "../actions/release/run.mjs";
 import { ReleaseError, UnversionedError } from "../lib/release.mjs";
 import { productVersion, readPrereleaseStage, releaseVersion, resolveRelease } from "../lib/release-version.mjs";

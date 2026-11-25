@@ -9,9 +9,6 @@ inputs:
   release-metadata:
     description: Checked JSON metadata file names with schema_version, source_commit and product version, one per line.
     default: ''
-  prerelease-file:
-    description: Optional repository file naming a pre-release stage (X.Y.Z-alpha, -beta or -rc) at the exact commit.
-    default: ''
   check-workflow:
     description: The workflow file whose push check on the integration branch qualifies the commit.
     default: ci.yml
@@ -24,6 +21,9 @@ inputs:
   initial-version:
     description: The version of the first release when none exists.
     default: 0.1.0
+  prerelease-file:
+    description: Optional repository file naming a pre-release stage (X.Y.Z-alpha, -beta or -rc) at the exact commit.
+    default: ''
   wait-minutes:
     description: How long a still running qualifying check is awaited.
     default: '30'
