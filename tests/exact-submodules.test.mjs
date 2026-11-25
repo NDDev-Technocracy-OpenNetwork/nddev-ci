@@ -62,12 +62,18 @@ function fixture(t, exclude) {
 	return { checkout, installed, pin, origin, expected, omitted };
 }
 
-test("prepare takes an exact stale pin and preserves a populated submodule on repeated setup", (t) => {
-	const { checkout, installed, pin, origin, expected } = fixture(t);
+function prepared(t, exclude) {
+	const tested = fixture(t, exclude);
+	const { checkout, installed, pin, origin, expected } = tested;
 	assert.match(run(process.execPath, [action], checkout), new RegExp("^Submodule setup: " + expected + " "));
 	assert.equal(git(installed, "rev-parse", "HEAD"), pin);
 	assert.equal(git(installed, "config", "--local", "--get", "remote.origin.url"), origin);
 	assert.equal(git(checkout, "status", "--porcelain"), "");
+	return tested;
+}
+
+test("prepare takes an exact stale pin and preserves a populated submodule on repeated setup", (t) => {
+	const { checkout, installed, pin, expected } = prepared(t);
 	if (expected === "exact") assert.equal(git(installed, "for-each-ref", "refs/remotes"), "");
 
 	writeFileSync(join(installed, "untracked"), "local work\n");
@@ -77,11 +83,7 @@ test("prepare takes an exact stale pin and preserves a populated submodule on re
 });
 
 test("a declared CI directory stays in the pinned tree without fetching its blob", (t) => {
-	const { checkout, installed, pin, origin, expected, omitted } = fixture(t, "publication/export");
-	assert.match(run(process.execPath, [action], checkout), new RegExp("^Submodule setup: " + expected + " "));
-	assert.equal(git(installed, "rev-parse", "HEAD"), pin);
-	assert.equal(git(installed, "config", "--local", "--get", "remote.origin.url"), origin);
-	assert.equal(git(checkout, "status", "--porcelain"), "");
+	const { checkout, installed, pin, expected, omitted } = prepared(t, "publication/export");
 	assert.ok(existsSync(join(installed, "data")));
 	assert.equal(git(installed, "rev-parse", "HEAD:publication/export/banner.png"), omitted);
 	const asset = join(installed, "publication/export/banner.png");
