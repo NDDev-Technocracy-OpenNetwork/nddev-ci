@@ -24,29 +24,40 @@ import {
   writeActionOutputs,
   writeReceiptMetadata,
 } from "../../lib/step-receipts.mjs";
+import { plan as planVerifyParts } from "../../lib/verify-parts.mjs";
 
 function buildSteps(dump, eventName, partRaw, artifact) {
   if (eventName === "pull_request") {
-    const steps = [{ label: "check", argv: ["check"], canSkip: true, canIssue: true }];
+    const steps = [{ label: "check", argv: ["check"], parallelSafe: false, canSkip: true, canIssue: true }];
     if (dump && ((dump.recipes && Object.hasOwn(dump.recipes, "test")) || (dump.aliases && Object.hasOwn(dump.aliases, "test")))) {
-      steps.push({ label: "test", argv: ["test"], canSkip: true, canIssue: true });
+      steps.push({ label: "test", argv: ["test"], parallelSafe: false, canSkip: true, canIssue: true });
     }
     return steps;
   }
   const part = parseJsonSafe(partRaw, []);
   if (Array.isArray(part) && part.length > 0 && !(part.length === 1 && part[0] === "verify")) {
-    return [{ label: part.join(" "), argv: part.map(String), canSkip: !(artifact && isArtifactProducingPart({ argv: part, group: part[0] })), canIssue: true }];
+    return [{
+      label: part.join(" "), argv: part.map(String), parallelSafe: false,
+      canSkip: !(artifact && isArtifactProducingPart({ argv: part, group: part[0] })), canIssue: true,
+    }];
+  }
+  const grouped = dump ? planVerifyParts(dump) : { split: false, parts: [] };
+  if (grouped.split && grouped.parts.length >= 2) {
+    return grouped.parts.map((entry) => ({
+      label: entry.name, argv: entry.argv, parallelSafe: entry.group !== "check",
+      canSkip: !(artifact && isArtifactProducingPart(entry)), canIssue: true,
+    }));
   }
   const decomposed = inspectVerifyDecomposition(dump);
   if (decomposed.canDecompose && decomposed.priors.length > 0) {
     const steps = decomposed.priors.map((prior) => ({
-      label: prior.argv.join(" "), argv: prior.argv, needs: prior.needs,
+      label: prior.argv.join(" "), argv: prior.argv, needs: prior.needs, parallelSafe: false,
       canSkip: !(artifact && isArtifactProducingPart({ argv: prior.argv, group: prior.key })), canIssue: true,
     }));
-    if (decomposed.hasBody) steps.push({ label: "verify (body)", argv: ["--no-deps", "verify"], canSkip: false, canIssue: false });
+    if (decomposed.hasBody) steps.push({ label: "verify (body)", argv: ["--no-deps", "verify"], parallelSafe: false, canSkip: false, canIssue: false });
     return steps;
   }
-  return [{ label: "verify", argv: ["verify"], canSkip: !artifact, canIssue: true }];
+  return [{ label: "verify", argv: ["verify"], parallelSafe: false, canSkip: !artifact, canIssue: true }];
 }
 
 export async function prepare(environment = process.env, deps = {}) {
@@ -80,7 +91,7 @@ export async function prepare(environment = process.env, deps = {}) {
       })
       : "";
     const entry = {
-      label: step.label, argv: step.argv, checkId, canSkip: step.canSkip,
+      label: step.label, argv: step.argv, checkId, parallelSafe: Boolean(step.parallelSafe), canSkip: step.canSkip,
       canIssue: step.canIssue && !isReleaseRef(session.ref) && !session.dirty && Boolean(inputDigest),
       inputDigest, skip: false, reused: false, cachedHit: false, reusedRunId: "", reusedRunUrl: "", reusedEvent: "",
     };
@@ -112,10 +123,12 @@ export async function prepare(environment = process.env, deps = {}) {
   const planFile = path.join(tempDir, "nddev-ci-receipt-plan.json");
   const resultsFile = path.join(tempDir, "nddev-ci-receipt-results.txt");
   writeFileSync(resultsFile, "");
+  const parallelParts = workflowInputs["parallel-parts"] === true || workflowInputs["parallel-parts"] === "true";
   const planDoc = {
     ...session,
     bypassReason: session.bypass.reason,
     bypassFlag: session.bypass.bypass,
+    parallelParts,
     publicCacheDir,
     publicKey,
     all_skipped: plannedSteps.length > 0 && plannedSteps.every((s) => s.skip),

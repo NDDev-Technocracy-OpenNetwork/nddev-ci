@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { registry } from "../artifact-registry/run.mjs";
@@ -149,7 +149,9 @@ export async function main(environment = process.env) {
       {encoding: "utf8", timeout: 120000, maxBuffer: maximumReport, cwd: directory, env: scanEnvironment},
     );
     if (result.error) throw new Error("The registry project scan could not finish.");
-    return reportResult(result.stdout, result.status, selected, block);
+    const exit = reportResult(result.stdout, result.status, selected, block);
+    if (exit !== 0 && environment.GITHUB_OUTPUT) appendFileSync(environment.GITHUB_OUTPUT, "failure-layer=project\n");
+    return exit;
   } finally {
     rmSync(directory, {recursive: true, force: true});
   }

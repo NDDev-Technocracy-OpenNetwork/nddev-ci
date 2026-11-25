@@ -71,10 +71,16 @@ waiting; releases are never cancelled.
 
 ### The full check in parts
 
-A full check runs the parts of `verify` as jobs of their own, side by side, and joins them into one
-result named `full check`. The parts are the recipes `verify` depends on, read from
-`just --dump --dump-format json` by a light first job: a project declares nothing beyond its
-justfile, and `just verify` stays the one command an agent runs.
+By default a full check runs `verify` inside one `full check` job without scheduling separate
+planner or join jobs. Inside that job, `verify` is decomposed into its dependency-grouped parts
+from `just --dump --dump-format json` so per-part step receipts reuse already verified parts (such
+as `check` and `test` from a pull request) and `just setup` runs once. Set `parallel-parts: true`
+to run independent post-`check` parts concurrently inside that single job when their workspace
+outputs do not collide.
+
+When a project needs independent parts on different runners (`part-runners`) or opts into
+multi-job fan-out (`split-full-check: true`), the full check runs a light `plan` job, each part as
+its own job, and joins them into one result named `full check`:
 
 - A part that another part needs, directly or through its own dependencies, runs in that part's
   job, as `just image test-image`, so nothing runs twice and the declared order holds. A part that
@@ -83,8 +89,7 @@ justfile, and `just verify` stays the one command an agent runs.
 - `verify` runs as one `full check` job when it has commands of its own, parameters, a recipe after
   `&&`, a computed, variadic or option-like argument, fewer than two independent parts, or when
   the caller names `reports`, which the job running `verify` must leave. Callers
-  that always run the whole recipe can set `whole-full-check: true` to run
-  `verify` without scheduling the planner.
+  that always run the whole recipe can set `whole-full-check: true`.
 - Every part uses the same inputs, setup, SDKs and caches. Private projects can set `part-runners`
   to a JSON object such as `'{"check":"nddev-linux-light"}'` so architecture-independent lint and
   format parts use a lighter class while native build and test parts stay on `runner`. The part ID
@@ -92,8 +97,9 @@ justfile, and `just verify` stays the one command an agent runs.
   for a pull request's short check). Unmapped parts use `runner`. The plan, join and GitHub-hosted
   selection keep their own routes. One run of each part runs on a branch at a time; a newer push's waiting part replaces an
   older waiting one.
-- The deployment `artifact` is kept by the part whose recipes left it; the joined result fails
-  unless exactly one part did. Diagnostics are kept per part. Promotion reads the run as before.
+- In split mode, the deployment `artifact` is kept by the part whose recipes left it; the joined
+  result fails unless exactly one part did. Diagnostics are kept per part. Promotion reads the run
+  as before.
 
 Use `check.yml` for this standard path. A project with existing command jobs calls
 `merge-stops.yml` beside them. Use `recipe.yml` for a native matrix, with a declared
@@ -125,7 +131,10 @@ pull request text are still checked. It reads Git objects and event data without
 or requesting another permission.
 
 The PR merge stops scan secrets in the changed commits, dangerous workflows and newly
-introduced fixed critical dependency vulnerabilities. Commit messages and the pull request's
+introduced fixed critical dependency vulnerabilities, running the independent read-only stops
+concurrently on one Linux runner. Callers on Linux runners whose required checks have moved off
+the separate `merge-stops` job can set `inline-merge-stops: true` (default `false`) on `check.yml`
+to run the same stops inside `short check` instead of scheduling a second job. Commit messages and the pull request's
 text are checked as warnings that never stop a merge, and so are the tracked lines that build
 against what a managed runner gives a job ([build-conventions](actions/build-conventions/action.yml)):
 - setting `GRADLE_USER_HOME`, which replaces the runner's persistent Gradle home; Gradle's settings
@@ -256,15 +265,18 @@ The job verifies the digest and commit and exports the private regular file as
 `NDDEV_CI_REGISTRY_SNAPSHOT`. The project uses that file to verify the selected
 versions before installation. The input action removes the file after the job.
 
-For a pull request or a push to `dev`, `check.yml` runs a separate, managed Linux x64
-technology registry job when a protected registry commit is selected. This input is for
-private repositories and pull requests from branches in the same repository. The snapshot supplies the
+For a pull request or a push to `dev`, `check.yml` runs the protected technology registry check
+when a protected registry commit is selected. On a private single-job Linux x64 managed check with
+a full checkout, `check` runs that check inline after receiving the protected snapshot, avoiding a
+separate job hop. On other platforms, hosted fallbacks, sparse checkouts or multi-job split runs,
+`check.yml` runs a separate managed Linux x64 `technology registry` job. This input is for private
+repositories and pull requests from branches in the same repository. The snapshot supplies the
 CLI settings and the numeric repository, release and asset IDs with the archive's SHA-256.
 The job downloads from the runner's gateway, verifies the compressed bytes, then reads the
 checked source and its exact comparison commit. New unregistered choices and declarations outside
 the accepted lines fail a pull request. Existing findings and findings on a `dev` push are
-reported. An invalid snapshot, failed download or failed scan fails the check. The registry job
-uses the managed runner even when the other jobs move to a GitHub-hosted runner.
+reported. An invalid snapshot, failed download or failed scan fails the check. The separate
+registry job uses the managed runner even when the other jobs move to a GitHub-hosted runner.
 
 ### Gradle on a managed runner
 

@@ -97,7 +97,13 @@ function jobContract(workflow, id) {
   const source = read(`.github/workflows/${workflow}`);
   const block = source.split(`\n  ${id}:\n`)[1]?.split(/\n  [a-z][a-z0-9-]*:\n/)[0];
   assert.ok(block, `${workflow}:${id} exists`);
-  const value = (name) => block.match(new RegExp(`^    ${name}: (.+)$`, "m"))?.[1];
+  const value = (name) => {
+    const match = block.match(new RegExp(`^    ${name}: (>-(?:\\n      .+)+|.+)$`, "m"));
+    if (!match) return undefined;
+    return match[1].startsWith(">-")
+      ? match[1].slice(2).split("\n").map((line) => line.trim()).filter(Boolean).join(" ")
+      : match[1];
+  };
   const concurrency = block.match(/\n    concurrency:\n(?:      #.*\n)*      group: (.+)\n      cancel-in-progress: (.+)/);
   return {name: value("name"), condition: value("if"), concurrency, matrix: block.match(/\n        part: ([^\n]+(?:\n {10}[^\n]+)*)/)?.[1]};
 }
@@ -109,15 +115,37 @@ function workflowConcurrency(path) {
 }
 
 // A job's name, condition or matrix as GitHub evaluates it, for an event and the plan's outputs.
-function evaluateJob(expression, github, needs = {plan: {result: "skipped", outputs: {}}}, whole = false) {
+function evaluateJob(expression, github, needs = {plan: {result: "skipped", outputs: {}}}, opts = {}) {
   if (expression === undefined) return true;
-  const context = {github, needs, inputs: {whole}, cancelled: () => false, fromJSON: JSON.parse};
-  const source = expression.startsWith("$") ? expression.slice(3, -2) : expression;
-  return runInNewContext(source.replaceAll("inputs.whole-full-check", "inputs.whole"), context);
+  const options = typeof opts === "boolean" ? {whole: opts} : opts;
+  const inputs = {
+    "whole-full-check": Boolean(options.whole),
+    "split-full-check": Boolean(options.split),
+    "part-runners": options.partRunners ?? "{}",
+    "inline-merge-stops": Boolean(options.inlineStops),
+    "registry-commit": options.registryCommit ?? "",
+    "sparse-checkout": options.sparseCheckout ?? "",
+    "runner-profile": options.runnerProfile ?? "",
+    runner: options.runner ?? "nddev-linux-standart",
+  };
+  const context = {
+    github, needs, inputs, cancelled: () => false, fromJSON: JSON.parse,
+    contains: (values, value) => Array.isArray(values) && values.includes(value),
+    format: (template, arg) => template.replace("{0}", arg),
+  };
+  const source = (expression.startsWith("$") ? expression.slice(3, -2) : expression)
+    .replaceAll("github.event.pull_request.labels.*.name", "(github.event?.pull_request?.labels || []).map((l) => l.name ?? l)")
+    .replaceAll("inputs.whole-full-check", "inputs['whole-full-check']")
+    .replaceAll("inputs.split-full-check", "inputs['split-full-check']")
+    .replaceAll("inputs.inline-merge-stops", "inputs['inline-merge-stops']")
+    .replaceAll("inputs.registry-commit", "inputs['registry-commit']")
+    .replaceAll("inputs.sparse-checkout", "inputs['sparse-checkout']")
+    .replaceAll("inputs.runner-profile", "inputs['runner-profile']");
+  return runInNewContext(source, context);
 }
-function checkName(github, needs, whole) {
+function checkName(github, needs, opts) {
   const contract = jobContract("check.yml", "check");
-  const [part] = evaluateJob(contract.matrix, github, needs, whole);
+  const [part] = evaluateJob(contract.matrix, github, needs, opts);
   return runInNewContext(contract.name.slice(3, -2), {matrix: {part}});
 }
 
@@ -136,34 +164,78 @@ test("subscribed pull-request labels run the actual required workflows with stab
   }
   const push = {event_name: "push", event: {}};
   const whole = {plan: {result: "success", outputs: {matrix: '[{"label":"full check","group":"verify","argv":["verify"]}]'}}};
-  assert.equal(evaluateJob(jobContract("check.yml", "check").condition, push, whole), true);
-  assert.equal(evaluateJob(jobContract("check.yml", "check").condition, push, {plan: {result: "success", outputs: {matrix: "[]"}}}), false);
-  assert.equal(checkName(push, whole), "full check");
-  assert.equal(evaluateJob(jobContract("check.yml", "check").condition, push, {plan: {result: "failure", outputs: {}}}), false);
+  assert.equal(evaluateJob(jobContract("check.yml", "check").condition, push, whole, {split: true}), true);
+  assert.equal(evaluateJob(jobContract("check.yml", "check").condition, push, {plan: {result: "success", outputs: {matrix: "[]"}}}, {split: true}), false);
+  assert.equal(checkName(push, whole, {split: true}), "full check");
+  assert.equal(evaluateJob(jobContract("check.yml", "check").condition, push, {plan: {result: "failure", outputs: {}}}, {split: true}), false);
   for (const workflow of ["check.yml", "merge-stops.yml"])
     assert.equal(execute(jobContract(workflow, "merge-stops").condition, push), false);
   assert.equal(execute(jobContract("merge-stops.yml", "merge-stops").name, push), "ignored merge stops");
 });
 
-test("a declared whole full check runs verify without planning or joining jobs", () => {
+test("full check runs in one job by default and splits only on split-full-check or part-runners", () => {
   const plan = jobContract("check.yml", "plan");
   const check = jobContract("check.yml", "check");
   const join = jobContract("check.yml", "full-check");
   const needs = {plan: {result: "skipped", outputs: {}}, check: {result: "success"}};
-  const push = {event_name: "push"};
-  assert.equal(evaluateJob(plan.condition, push, needs), true);
-  assert.equal(evaluateJob(check.condition, push, needs), false);
   for (const event_name of ["push", "workflow_dispatch"]) {
     const github = {event_name};
-    assert.equal(evaluateJob(plan.condition, github, needs, true), false);
-    assert.equal(evaluateJob(check.condition, github, needs, true), true);
-    assert.equal(checkName(github, needs, true), "full check");
-    assert.deepEqual(evaluateJob(check.matrix, github, needs, true), [
+    // Default single-host full check skips plan and join jobs while keeping the full check name.
+    assert.equal(evaluateJob(plan.condition, github, needs), false);
+    assert.equal(evaluateJob(check.condition, github, needs), true);
+    assert.equal(checkName(github, needs), "full check");
+    assert.deepEqual(evaluateJob(check.matrix, github, needs), [
       {label: "full check", group: "verify", argv: ["verify"]},
     ]);
-    assert.equal(evaluateJob(join.condition, github, needs, true), false);
+    assert.equal(evaluateJob(join.condition, github, needs), false);
+
+    // Explicit whole-full-check stays single-job even with split-full-check or part-runners.
+    assert.equal(evaluateJob(plan.condition, github, needs, {whole: true, split: true}), false);
+    assert.equal(evaluateJob(check.condition, github, needs, {whole: true, split: true}), true);
+
+    // Opt-in split-full-check or non-empty part-runners activates plan -> matrix -> join.
+    for (const opts of [{split: true}, {partRunners: '{"check":"nddev-linux-light"}'}]) {
+      assert.equal(evaluateJob(plan.condition, github, needs, opts), true);
+      assert.equal(evaluateJob(check.condition, github, needs, opts), false);
+    }
   }
-  assert.equal(checkName({event_name: "pull_request"}, needs, true), "short check");
+  assert.equal(checkName({event_name: "pull_request"}, needs), "short check");
+  assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs, {inlineStops: true}), false);
+  assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs, {inlineStops: false}), true);
+});
+
+test("registry-project folds into check on private single-job Linux x64 managed runs and stays separate otherwise", () => {
+  const reg = jobContract("check.yml", "registry-project");
+  const pr = {
+    event_name: "pull_request", repository: "o/r", ref: "refs/pull/1/merge",
+    event: {repository: {private: true}, pull_request: {head: {repo: {full_name: "o/r"}}, labels: []}},
+  };
+  const devPush = {
+    event_name: "push", repository: "o/r", ref: "refs/heads/dev",
+    event: {repository: {private: true}},
+  };
+  const base = {registryCommit: "a".repeat(40), runner: "nddev-linux-standart", runnerProfile: "linux-x64"};
+  // Folded into check (separate registry-project job skipped):
+  assert.equal(evaluateJob(reg.condition, pr, {}, base), false);
+  assert.equal(evaluateJob(reg.condition, devPush, {}, base), false);
+  assert.equal(evaluateJob(reg.condition, pr, {}, {...base, runnerProfile: "", runner: "nddev-linux-small"}), false);
+  // Stays a separate managed Linux x64 job when check is not guaranteed managed Linux x64 full checkout:
+  assert.equal(evaluateJob(reg.condition, pr, {}, {...base, runner: "nddev-macos", runnerProfile: "macos-arm64"}), true);
+  assert.equal(evaluateJob(reg.condition, pr, {}, {...base, runner: "nddev-linux-arm64", runnerProfile: "linux-arm64"}), true);
+  assert.equal(evaluateJob(reg.condition, pr, {}, {...base, runner: "nddev-linux-light", runnerProfile: ""}), true);
+  assert.equal(evaluateJob(reg.condition, pr, {}, {...base, sparseCheckout: "docs/"}), true);
+  assert.equal(evaluateJob(reg.condition, devPush, {}, {...base, split: true}), true);
+  assert.equal(evaluateJob(reg.condition, pr, {}, {...base, partRunners: '{"short":"nddev-linux-light"}'}), true);
+  const hostedPr = {
+    ...pr,
+    event: {...pr.event, pull_request: {...pr.event.pull_request, labels: [{name: "runner:github"}]}},
+  };
+  assert.equal(evaluateJob(reg.condition, hostedPr, {}, base), true);
+  const scopedHostedPr = {
+    ...pr,
+    event: {...pr.event, pull_request: {...pr.event.pull_request, labels: [{name: "runner:github:linux-x64"}]}},
+  };
+  assert.equal(evaluateJob(reg.condition, scopedHostedPr, {}, base), true);
 });
 
 test("workflow concurrency cancels superseded pull requests, queues branch pushes and honors retain-runs", () => {
