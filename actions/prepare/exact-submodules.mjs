@@ -57,20 +57,32 @@ function gitlinks(tree) {
 	});
 }
 
-function submoduleNames(configuration) {
-	return new Map(configuration.split("\0").filter(Boolean).map((item) => {
-		const newline = item.indexOf("\n");
-		return [item.slice(newline + 1), item.slice("submodule.".length, newline - ".path".length)];
-	}));
+function submoduleDeclarations(configuration) {
+	const sections = new Map();
+	for (const row of configuration.split("\0").filter(Boolean)) {
+		const newline = row.indexOf("\n");
+		const [_, name, field] = /^submodule\.(.+)\.(path|ciexclude)$/.exec(row.slice(0, newline));
+		const section = sections.get(name) ?? { name };
+		section[field] = row.slice(newline + 1);
+		sections.set(name, section);
+	}
+	return new Map([...sections.values()].map((section) => [section.path, section]));
 }
 
 async function clonePin(root, module) {
 	const directory = join(root, module.path);
 	const url = (await git(root, ["config", "--local", "--get", "submodule." + module.name + ".url"],
 		"Could not read the registered origin for " + module.path)).trim();
+	const env = { ...process.env, GIT_PROTOCOL_FROM_USER: "0" };
+	const sparse = module.ciexclude ? ["--filter=blob:none", "--no-checkout"] : [];
 	await git(root, ["-c", "advice.detachedHead=false", "clone", "--quiet", "--depth=1",
-		"--revision=" + module.sha, "--origin", "origin", "--", url, directory],
-		"Could not clone the recorded revision of " + module.path, { ...process.env, GIT_PROTOCOL_FROM_USER: "0" });
+		...sparse, "--revision=" + module.sha, "--origin", "origin", "--", url, directory],
+		"Could not clone the recorded revision of " + module.path, env);
+	if (module.ciexclude) {
+		await git(directory, ["sparse-checkout", "set", "--no-cone", "/*", "!/" + module.ciexclude + "/"],
+			"Could not select the CI files of " + module.path, env);
+		await git(directory, ["read-tree", "-m", "-u", "HEAD"], "Could not check out the CI files of " + module.path, env);
+	}
 
 	const [revision, origin] = await Promise.all([
 		git(directory, ["rev-parse", "HEAD"], "Could not read the checked-out revision of " + module.path),
@@ -101,10 +113,16 @@ export async function materializeSubmodules(workspace) {
 	const unchanged = spawnSync("git", ["diff", "--quiet", "HEAD", "--", ".gitmodules", ...paths], { cwd: root });
 	if (unchanged.status !== 0) return standard();
 
-	const names = submoduleNames(await git(root, ["config", "--null", "--blob", "HEAD:.gitmodules",
-		"--get-regexp", "^submodule\\..*\\.path$"], "Could not read the recorded submodule declarations."));
-	const modules = links.map((link) => ({ ...link, name: names.get(link.path) }));
+	const declared = submoduleDeclarations(await git(root, ["config", "--null", "--blob", "HEAD:.gitmodules",
+		"--get-regexp", "^submodule\\..*\\.(path|ciexclude)$"], "Could not read the recorded submodule declarations."));
+	const modules = links.map((link) => ({ ...link, ...declared.get(link.path) }));
 	if (modules.some((module) => !module.name)) throw new Error("A gitlink has no submodule declaration.");
+	const literalDirectory = /^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*(\/[a-zA-Z0-9_-][a-zA-Z0-9_.-]*)*$/;
+	for (const module of modules) {
+		if (module.ciexclude && !literalDirectory.test(module.ciexclude)) {
+			throw new Error("CI exclusion must be a literal relative directory for " + module.path);
+		}
+	}
 
 	// Let Git initialize and resolve declared URLs, including relative ones, as usual.
 	await git(root, ["submodule", "init", "--", ...paths], "Could not register the submodules.");
