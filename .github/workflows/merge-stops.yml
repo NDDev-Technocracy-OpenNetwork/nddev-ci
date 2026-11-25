@@ -50,9 +50,9 @@ permissions: {}
 
 jobs:
   merge-stops:
-    name: ${{ github.event_name == 'pull_request' && 'merge stops' || 'ignored merge stops' }}
-    # Integration pushes do not reuse the mandatory pull-request context.
-    if: github.event_name == 'pull_request'
+    name: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'merge stops' || 'ignored merge stops' }}
+    # Integration pushes do not reuse the mandatory pull-request or merge-group context.
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     # Public repositories always run on GitHub's runners; an unknown hosted label fails below.
     # The light Linux job follows its own runner profile.
     # runner-profile:stops

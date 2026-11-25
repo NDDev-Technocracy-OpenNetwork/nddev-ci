@@ -34,8 +34,8 @@ runs:
     - name: File contents of the change
       uses: $/actions/change-objects
       with:
-        base: ${{ inputs.base || github.event.pull_request.base.sha }}
-        head: ${{ inputs.head || github.event.pull_request.head.sha }}
+        base: ${{ inputs.base || github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        head: ${{ inputs.head || github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         merge: ${{ inputs.merge || github.sha }}
 
     - name: Tools
@@ -199,10 +199,10 @@ runs:
       id: run
       shell: bash
       env:
-        MERGE_STOPS_BASE: ${{ inputs.base || github.event.pull_request.base.sha }}
-        MERGE_STOPS_HEAD: ${{ inputs.head || github.event.pull_request.head.sha }}
+        MERGE_STOPS_BASE: ${{ inputs.base || github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        MERGE_STOPS_HEAD: ${{ inputs.head || github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         MERGE_STOPS_MERGE: ${{ inputs.merge || github.sha }}
-        MERGE_STOPS_HEAD_REF: ${{ inputs.head-ref || github.head_ref }}
+        MERGE_STOPS_HEAD_REF: ${{ inputs.head-ref || github.head_ref || github.event.merge_group.head_ref }}
         MERGE_STOPS_NEW_CLONES: ${{ inputs.new-clones }}
         MERGE_STOPS_UPSTREAM_BRANCH: ${{ inputs.upstream-branch }}
         MERGE_STOPS_GITHUB_TOKEN: ${{ inputs.github-token }}

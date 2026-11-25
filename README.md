@@ -15,6 +15,7 @@ Let Renovate or Dependabot update the pin. Each workflow and action declaration 
 | [check.yml](.github/workflows/check.yml) | Project checks and merge stops |
 | [merge-stops.yml](.github/workflows/merge-stops.yml) | The same stops beside a project's existing jobs |
 | [recipe.yml](.github/workflows/recipe.yml) | One project recipe in a native platform matrix |
+| [nextest-shards.yml](.github/workflows/nextest-shards.yml) | Opt-in cargo-nextest archive build and parallel shard test execution |
 | [image.yml](.github/workflows/image.yml) | Build a native container image and push it by source commit |
 | [source-version.yml](.github/workflows/source-version.yml) | Require a trusted readiness status before full-build fan-out |
 | [promote.yml](.github/workflows/promote.yml) | Move `main` forward to the newest `dev` commit whose full check passed, then start the release |
@@ -61,13 +62,15 @@ own steps, and records a later failure of its own artifact or reports as the job
 | Event | Commands |
 | --- | --- |
 | Pull request | `just check`, then `just test` if declared, including aliases |
+| Merge group (`merge_group`) | `just check` and `just test` by default, or `just verify` with `merge-group-full-check: true` |
 | Push to `dev`, or manual run | `just verify` |
 
 `setup: true` runs `just setup` first. A missing optional test recipe is allowed;
 a failed command or invalid justfile fails the job. New pull request pushes cancel
-their superseded checks, recipes and image builds. On a branch such as `dev`, one run
-executes at a time and a newer push waits behind it, replacing any push already
-waiting; releases are never cancelled.
+their superseded checks, recipes and image builds. Merge queue runs (`merge_group`)
+are never cancelled mid-flight and skip deployment artifact publication. On a branch
+such as `dev`, one run executes at a time and a newer push waits behind it, replacing
+any push already waiting; releases are never cancelled.
 
 ### The full check in parts
 
@@ -77,6 +80,21 @@ from `just --dump --dump-format json` so per-part step receipts reuse already ve
 as `check` and `test` from a pull request) and `just setup` runs once. Set `parallel-parts: true`
 to run independent post-`check` parts concurrently inside that single job when their workspace
 outputs do not collide.
+
+Projects with independent subtrees can optionally set `part-paths` to a JSON map from part group
+IDs to repository-relative path prefixes (for example `'{"api":["services/api"],"web":["apps/web"]}'`).
+Path filtering is strictly fail-safe: release refs, unavailable or empty diffs, edits to workflows,
+justfiles, lockfiles or root configuration files, and any file outside the declared prefixes run
+every part. Unmapped parts and artifact-producing parts (when `artifact` is configured) always run.
+
+### Sharded cargo-nextest runs
+
+Repositories whose Rust test execution exceeds roughly 90 to 120 seconds on a single runner can
+opt into [nextest-shards.yml](.github/workflows/nextest-shards.yml). It builds the locked nextest
+archive once (`cargo nextest archive --locked`), transfers the archive as an immutable GHCR OCI
+artifact for private repositories (or a short-lived workflow artifact for public repositories),
+and executes deterministic `slice:m/n` or `hash:m/n` shards in parallel (the deprecated `count`
+partitioner is rejected).
 
 When a project needs independent parts on different runners (`part-runners`) or opts into
 multi-job fan-out (`split-full-check: true`), the full check runs a light `plan` job, each part as

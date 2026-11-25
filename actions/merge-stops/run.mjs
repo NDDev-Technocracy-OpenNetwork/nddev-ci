@@ -58,11 +58,10 @@ async function runCommitMessages({ cwd, env, base, head, headRef, scratchDir }) 
       ].join("\n"),
     );
   }
-  const revList = await spawnCapture(
-    "git",
-    ["rev-list", "--no-merges", head, `^${base}`, "--not", `--exclude=origin/${headRef}`, "--remotes=origin"],
-    { cwd, env },
-  );
+  const revArgs = headRef && !headRef.startsWith("refs/heads/gh-readonly-queue/")
+    ? ["rev-list", "--no-merges", head, `^${base}`, "--not", `--exclude=origin/${headRef}`, "--remotes=origin"]
+    : ["rev-list", "--no-merges", head, `^${base}`];
+  const revList = await spawnCapture("git", revArgs, { cwd, env });
   if (revList.status !== 0) return { status: 0, output: revList.output };
   const commits = revList.output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   let failed = false;
@@ -260,11 +259,11 @@ export async function runMergeStops(environment = process.env, { customChecks = 
         projectStop: false,
         run: () => runCommitMessages({ cwd, env: envWithBin, base, head, headRef, scratchDir }),
       },
-      {
+      ...(environment.GITHUB_EVENT_NAME !== "merge_group" ? [{
         name: "Pull request text",
         projectStop: false,
         run: () => spawnCapture("python3", ["-I", path.join(here, "pr-text.py")], { cwd, env: envWithBin }),
-      },
+      }] : []),
       {
         name: "No secret in the change",
         projectStop: true,

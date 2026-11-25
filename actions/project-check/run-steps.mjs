@@ -68,8 +68,12 @@ function printGroupedLog(result) {
   }
 }
 
-function logReused(step) {
+function logSkipped(step) {
   const argv = Array.isArray(step.argv) ? step.argv.join(" ") : String(step.label ?? "");
+  if (step.filteredByPath) {
+    console.log(`Skipped \`just ${argv}\` (no changed files matched part-paths).`);
+    return;
+  }
   console.log(`Reused step receipt for \`just ${argv}\` from run #${step.reusedRunId ?? "?"} (${step.reusedRunUrl ?? ""})`);
 }
 
@@ -79,7 +83,8 @@ async function runFallback(environment, cleanEnv, cwd) {
     const code = await runProjectCommand("just", ["setup"], { cwd, environment: cleanEnv, output });
     if (code !== 0) return code;
   }
-  if (environment.EVENT === "pull_request") {
+  const hasExplicitPart = Boolean(environment.PART && environment.PART !== "[]");
+  if (environment.EVENT === "pull_request" || (environment.EVENT === "merge_group" && !hasExplicitPart)) {
     const checkCode = await runProjectCommand("just", ["check"], { cwd, environment: cleanEnv, output });
     if (checkCode !== 0) return checkCode;
     const dumped = spawnSync("just", ["--dump", "--dump-format", "json"], {
@@ -119,7 +124,7 @@ export async function runSteps(environment = process.env, cwd = process.cwd()) {
   }
 
   if (planDoc.all_skipped) {
-    for (const step of planDoc.steps) logReused(step);
+    for (const step of planDoc.steps) logSkipped(step);
     return 0;
   }
 
@@ -133,7 +138,7 @@ export async function runSteps(environment = process.env, cwd = process.cwd()) {
   for (let i = 0; i < steps.length; i += 1) {
     const step = steps[i];
     if (step.skip) {
-      logReused(step);
+      logSkipped(step);
       continue;
     }
 
@@ -142,7 +147,7 @@ export async function runSteps(environment = process.env, cwd = process.cwd()) {
       let j = i;
       while (j < steps.length) {
         if (steps[j].skip) {
-          logReused(steps[j]);
+          logSkipped(steps[j]);
           j += 1;
           continue;
         }
