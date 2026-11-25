@@ -34,3 +34,17 @@ test("refuses missing own task history before dispatch", async () => {
   const tasks = [{ lane: "foreground", family: "unknown", enqueuedAt: 0 }];
   await assert.rejects(dispatchOrdered(tasks, {}, { capacity: 2 }), /elapsed-duration samples/);
 });
+
+test("starts the completion observer only after the dispatch is accepted", async () => {
+  const events = [];
+  await dispatchOrdered([{ lane: "release", family: "quick", enqueuedAt: 0 }], { quick: [1] }, {
+    capacity: 1,
+    dispatch: () => 1,
+    started: async () => {
+      await Promise.resolve();
+      events.push("accepted");
+    },
+    completed: () => { events.push("observing completion"); },
+  });
+  assert.deepEqual(events, ["accepted", "observing completion"]);
+});
