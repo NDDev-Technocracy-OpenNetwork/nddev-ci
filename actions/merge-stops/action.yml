@@ -15,6 +15,9 @@ inputs:
   head-ref:
     description: Pull request head branch name (defaults to github.head_ref).
     default: ''
+  isolated-worktree:
+    description: Read the exact merge in a temporary worktree, away from the project workspace.
+    default: 'false'
   new-clones:
     description: Reject new code clones using the pull request base's .jscpd.json.
     default: 'false'
@@ -203,6 +206,7 @@ runs:
         MERGE_STOPS_HEAD: ${{ inputs.head || github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         MERGE_STOPS_MERGE: ${{ inputs.merge || github.sha }}
         MERGE_STOPS_HEAD_REF: ${{ inputs.head-ref || github.head_ref || github.event.merge_group.head_ref }}
+        MERGE_STOPS_ISOLATED_WORKTREE: ${{ inputs.isolated-worktree }}
         MERGE_STOPS_NEW_CLONES: ${{ inputs.new-clones }}
         MERGE_STOPS_UPSTREAM_BRANCH: ${{ inputs.upstream-branch }}
         MERGE_STOPS_GITHUB_TOKEN: ${{ inputs.github-token }}

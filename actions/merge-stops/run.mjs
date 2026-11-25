@@ -97,9 +97,11 @@ async function runCommitMessages({ cwd, env, base, head, headRef, scratchDir }) 
 
 async function runClones({ cwd, env, base, binDir, scratchDir }) {
   const gitEnv = { ...env, GIT_NO_LAZY_FETCH: "1", GIT_NO_REPLACE_OBJECTS: "1" };
-  const parent = spawnSync("git", ["rev-parse", "HEAD^1"], { cwd, env: gitEnv, encoding: "utf8" });
-  if (parent.status !== 0 || parent.stdout.trim() !== base) {
-    return { status: 1, output: "::error::The checked merge does not use the pull request base.\n" };
+  const mergeGroup = env.GITHUB_EVENT_NAME === "merge_group";
+  const args = mergeGroup ? ["merge-base", "--is-ancestor", base, "HEAD"] : ["rev-parse", "HEAD^1"];
+  const ancestor = spawnSync("git", args, { cwd, env: gitEnv, encoding: "utf8" });
+  if (ancestor.status !== 0 || (!mergeGroup && ancestor.stdout.trim() !== base)) {
+    return { status: 1, output: "::error::The checked merge does not use the declared base.\n" };
   }
   const cloneOut = mkdtempSync(path.join(scratchDir, "clones-"));
   const worktreeDir = path.join(cloneOut, "head");
@@ -219,7 +221,7 @@ function flushResult(name, result, summaryFile, targetSummary) {
 }
 
 export async function runMergeStops(environment = process.env, { customChecks = null } = {}) {
-  const cwd = environment.GITHUB_WORKSPACE || process.cwd();
+  const workspace = environment.GITHUB_WORKSPACE || process.cwd();
   const tempRoot = environment.RUNNER_TEMP || tmpdir();
   const binDir = environment.MERGE_STOPS_BIN || path.join(tempRoot, "nddev-ci", "bin");
   const base = environment.MERGE_STOPS_BASE || environment.INPUT_BASE || "";
@@ -232,13 +234,23 @@ export async function runMergeStops(environment = process.env, { customChecks = 
   const targetSummary = environment.GITHUB_STEP_SUMMARY || "";
   const outputFile = environment.GITHUB_OUTPUT || "";
 
-  const envWithBin = {
-    ...environment,
-    PATH: binDir ? `${binDir}${path.delimiter}${environment.PATH || ""}` : environment.PATH || "",
-  };
   const scratchDir = mkdtempSync(path.join(tempRoot, "nddev-merge-stops-"));
+  const isolate = environment.MERGE_STOPS_ISOLATED_WORKTREE === "true";
+  const cwd = isolate ? path.join(scratchDir, "source") : workspace;
+  let added = false;
 
   try {
+    if (isolate) {
+      if (!/^[a-f0-9]{40}$/.test(merge)) throw new Error("An exact merge commit is required for inline merge stops.");
+      const checkout = await spawnCapture("git", ["worktree", "add", "--detach", "--quiet", cwd, merge], { cwd: workspace, env: environment });
+      if (checkout.status !== 0) throw new Error(`Could not prepare the inline merge stops worktree. ${checkout.output.trim()}`);
+      added = true;
+    }
+    const envWithBin = {
+      ...environment,
+      GITHUB_WORKSPACE: cwd,
+      PATH: `${binDir}${path.delimiter}${environment.PATH || ""}`,
+    };
     const depSummary = path.join(scratchDir, "dep-summary.md");
     const checks = customChecks ?? [
       {
@@ -292,13 +304,17 @@ export async function runMergeStops(environment = process.env, { customChecks = 
       },
     ];
 
-    const results = await Promise.all(
+    const settled = await Promise.allSettled(
       checks.map(async (check) => {
-        const result = await check.run();
+        const result = await check.run({ cwd, env: envWithBin });
         flushResult(check.name, result, check.summaryFile, targetSummary);
         return { ...check, result };
       }),
     );
+    const results = settled.map((entry) => {
+      if (entry.status === "rejected") throw entry.reason;
+      return entry.value;
+    });
 
     // Run planner-speed uncontended after parallel checks settle so CPU timings stay clean.
     const plannerCheck = customChecks ? null : await runNodeAction("planner-speed/run.mjs", {
@@ -319,7 +335,14 @@ export async function runMergeStops(environment = process.env, { customChecks = 
     }
     return 0;
   } finally {
-    rmSync(scratchDir, { recursive: true, force: true });
+    try {
+      if (added) {
+        const removed = await spawnCapture("git", ["worktree", "remove", "--force", cwd], { cwd: workspace, env: environment });
+        if (removed.status !== 0) throw new Error(`Could not remove the inline merge stops worktree. ${removed.output.trim()}`);
+      }
+    } finally {
+      rmSync(scratchDir, { recursive: true, force: true });
+    }
   }
 }
 

@@ -67,8 +67,9 @@ own steps, and records a later failure of its own artifact or reports as the job
 
 `setup: true` runs `just setup` first. A missing optional test recipe is allowed;
 a failed command or invalid justfile fails the job. New pull request pushes cancel
-their superseded checks, recipes and image builds. Merge queue runs (`merge_group`)
-are never cancelled mid-flight and skip deployment artifact publication. On a branch
+their superseded checks, recipes and image builds. Merge queue runs (`merge_group`) report the same required check names as pull requests, including
+when the short-check job runs `just verify`. They skip deployment artifact publication and are
+never cancelled mid-flight. On a branch
 such as `dev`, one run executes at a time and a newer push waits behind it, replacing
 any push already waiting; releases are never cancelled.
 
@@ -146,10 +147,11 @@ or requesting another permission.
 
 The PR merge stops scan secrets in the changed commits, dangerous workflows and newly
 introduced fixed critical dependency vulnerabilities, running the independent read-only stops
-concurrently on one Linux runner. Callers on Linux runners whose required checks have moved off
-the separate `merge-stops` job can set `inline-merge-stops: true` (default `false`) on `check.yml`
-to run the same stops inside `short check` instead of scheduling a second job. Commit messages and the pull request's
-text are checked as warnings that never stop a merge, and so are the tracked lines that build
+concurrently on one Linux runner. Callers on Linux can set `inline-merge-stops: true`
+(default `false`) on `check.yml` to run the same stops in a temporary worktree before the project
+commands in `short check`.
+Set `retain-separate-merge-stops: true` with inline mode while the separate context is still required.
+Commit messages and the pull request's text are checked as warnings that never stop a merge, and so are the tracked lines that build
 against what a managed runner gives a job ([build-conventions](actions/build-conventions/action.yml)):
 - setting `GRADLE_USER_HOME`, which replaces the runner's persistent Gradle home; Gradle's settings
   go in `GRADLE_OPTS` as `-Dorg.gradle.*`, and a proxy as `-Dhttps.proxyHost` and

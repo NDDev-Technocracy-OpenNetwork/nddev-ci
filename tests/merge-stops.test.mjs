@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -58,6 +59,52 @@ test("merge-stops runner executes independent checks concurrently, preserves sum
     );
     assert.equal(failed, 1);
     assert.equal(readFileSync(output, "utf8"), "failure-layer=project\n");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("inline merge stops read the exact merge in a separate worktree and remove it on failure", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "inline-merge-stops-"));
+  const workspace = path.join(root, "workspace");
+  mkdirSync(workspace);
+  const git = (...args) => execFileSync("git", args, { cwd: workspace, encoding: "utf8" }).trim();
+
+  try {
+    git("init", "--quiet");
+    const marker = path.join(workspace, "marker");
+    writeFileSync(marker, "checked source");
+    git("add", "marker");
+    git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "fixture");
+    const merge = git("rev-parse", "HEAD");
+    writeFileSync(marker, "workspace-only change");
+    let inspected;
+    const result = await runMergeStops({
+      ...process.env,
+      GITHUB_WORKSPACE: workspace,
+      RUNNER_TEMP: root,
+      MERGE_STOPS_ISOLATED_WORKTREE: "true",
+      MERGE_STOPS_MERGE: merge,
+      GITHUB_OUTPUT: "",
+      GITHUB_STEP_SUMMARY: "",
+    }, {
+      customChecks: [{
+        name: "Inspect the checked source",
+        projectStop: true,
+        run({ cwd, env }) {
+          inspected = cwd;
+          assert.notEqual(cwd, workspace);
+          assert.equal(env.GITHUB_WORKSPACE, cwd);
+          assert.equal(readFileSync(path.join(cwd, "marker"), "utf8"), "checked source");
+          return { status: 1, output: "" };
+        },
+      }],
+    });
+    assert.equal(result, 1);
+    assert.ok(inspected);
+    assert.equal(existsSync(inspected), false);
+    assert.equal(git("worktree", "list", "--porcelain").split("\n").filter((line) => line.startsWith("worktree ")).length, 1);
+    assert.equal(readFileSync(marker, "utf8"), "workspace-only change");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
