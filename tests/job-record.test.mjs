@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -62,6 +62,34 @@ test("duration comes from the start file and compiler-cache counters from sccach
     sccache("Compile requests                    120\nCache hits                          100\nCache misses 20\nCache hits rate 83.33 %\n"),
     { requests: 120, hits: 100, misses: 20 },
   );
+});
+
+test("shared host compiler daemons omit aggregate sccache stats while per-slot wrappers keep them", { skip: process.platform === "win32" }, () => {
+  const root = mkdtempSync(path.join(tmpdir(), "job-record-sccache-"));
+  try {
+    const marker = path.join(root, "invoked");
+    const wrapper = path.join(root, "sccache");
+    writeFileSync(wrapper, `#!/bin/sh\necho called > "${marker}"\nprintf 'Compile requests 12\\nCache hits 10\\nCache misses 2\\n'\n`);
+    chmodSync(wrapper, 0o755);
+
+    const perSlot = record({ ...base, RUSTC_WRAPPER: wrapper });
+    assert.equal(perSlot["nddev_ci.sccache.requests"], 12);
+    assert.equal(perSlot["nddev_ci.sccache.hits"], 10);
+    assert.equal(perSlot["nddev_ci.sccache.misses"], 2);
+    assert.equal(existsSync(marker), true);
+
+    rmSync(marker);
+    const disabledFlag = record({ ...base, RUSTC_WRAPPER: wrapper, SCCACHE_CLIENT_SIDE: "0" });
+    assert.equal(disabledFlag["nddev_ci.sccache.requests"], 12);
+    assert.equal(existsSync(marker), true);
+
+    for (const value of ["1", "true"]) {
+      rmSync(marker, { force: true });
+      const shared = record({ ...base, RUSTC_WRAPPER: wrapper, SCCACHE_CLIENT_SIDE: value });
+      assert.equal(Object.keys(shared).some((key) => key.startsWith("nddev_ci.sccache.")), false);
+      assert.equal(existsSync(marker), false);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("native ARM64 records identify the actual OS and measured queue time", () => {

@@ -93,8 +93,10 @@ export function record(environment, now = new Date()) {
       }
     }
   }
+  const clientSideCache = (environment.SCCACHE_CLIENT_SIDE ?? "").trim().toLowerCase();
+  const sharedCompilerDaemon = clientSideCache !== "" && clientSideCache !== "0" && clientSideCache !== "false";
   const wrapper = environment.RUSTC_WRAPPER;
-  if (wrapper && path.basename(wrapper).startsWith("sccache") && existsSync(wrapper)) {
+  if (!sharedCompilerDaemon && wrapper && path.basename(wrapper).startsWith("sccache") && existsSync(wrapper)) {
     const stats = spawnSync(wrapper, ["--show-stats"], { encoding: "utf8", timeout: 30000 });
     if (!stats.error && stats.status === 0)
       for (const [key, value] of Object.entries(sccache(stats.stdout)))
