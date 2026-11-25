@@ -150,9 +150,10 @@ or requesting another permission.
 
 The PR merge stops scan secrets in the changed commits, dangerous workflows and newly
 introduced fixed critical dependency vulnerabilities, running the independent read-only stops
-concurrently on one Linux runner. Callers on Linux runners whose required checks have moved off
-the separate `merge-stops` job can set `inline-merge-stops: true` (default `false`) on `check.yml`
-to run the same stops in a temporary worktree before the project commands in `short check`.
+concurrently on one Linux runner. Callers on Linux can set `inline-merge-stops: true`
+(default `false`) on `check.yml` to run the same stops in a temporary worktree before the project
+commands in `short check`.
+Set `retain-separate-merge-stops: true` with inline mode while the separate context is still required.
 Commit messages and the pull request's text are checked as warnings that never stop a merge, and so are the tracked lines that build
 against what a managed runner gives a job ([build-conventions](actions/build-conventions/action.yml)):
 - setting `GRADLE_USER_HOME`, which replaces the runner's persistent Gradle home; Gradle's settings

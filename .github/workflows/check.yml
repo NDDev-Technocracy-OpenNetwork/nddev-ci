@@ -27,6 +27,10 @@ on:
         description: Run pull request merge stops inside the short check job instead of a separate merge-stops job (Linux runners only).
         type: boolean
         default: false
+      retain-separate-merge-stops:
+        description: Keep the separate merge stops context while a caller migrates its required checks to inline stops.
+        type: boolean
+        default: false
       merge-group-full-check:
         description: Run the full check (just verify) on merge_group events instead of the short check.
         type: boolean
@@ -359,13 +363,13 @@ jobs:
           persist-credentials: false
       - name: Receive the protected registry input
         uses: $/actions/registry-input
-        with:
+        with: &registry-snapshot
           commit: ${{ inputs.registry-commit }}
-          sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
           first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
           second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
           third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
           fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+          sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
       - name: Check direct choices
         uses: $/actions/registry-project
         with:
@@ -483,13 +487,17 @@ jobs:
       - name: Receive the protected registry input
         if: inputs.registry-commit != '' && steps.reuse.outputs.cache-hit != 'true'
         uses: $/actions/registry-input
+        with: *registry-snapshot
+
+      - name: Inline merge stops
+        id: inline-stops
+        if: >-
+          (github.event_name == 'pull_request' || github.event_name == 'merge_group') && inputs.inline-merge-stops
+        uses: $/actions/merge-stops
         with:
-          commit: ${{ inputs.registry-commit }}
-          sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
-          first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
-          second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
-          third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
-          fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+          isolated-worktree: 'true'
+          new-clones: ${{ inputs.new-clones }}
+          upstream-branch: ${{ inputs.upstream-branch }}
 
       - name: Check technology registry
         id: registry-check
@@ -504,16 +512,6 @@ jobs:
         with:
           base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.before }}
           block: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
-
-      - name: Inline merge stops
-        id: inline-stops
-        if: >-
-          (github.event_name == 'pull_request' || github.event_name == 'merge_group') && inputs.inline-merge-stops
-        uses: $/actions/merge-stops
-        with:
-          isolated-worktree: 'true'
-          new-clones: ${{ inputs.new-clones }}
-          upstream-branch: ${{ inputs.upstream-branch }}
 
       - name: Check
         id: project
@@ -662,7 +660,7 @@ jobs:
 
   merge-stops:
     # The merge stops, the same workflow a project with its own command jobs calls.
-    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && !inputs.inline-merge-stops
+    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && (!inputs.inline-merge-stops || inputs.retain-separate-merge-stops)
     uses: $/.github/workflows/merge-stops.yml
     with:
       retain-runs: ${{ inputs.retain-runs }}
