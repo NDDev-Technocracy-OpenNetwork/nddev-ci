@@ -97,9 +97,11 @@ async function runCommitMessages({ cwd, env, base, head, headRef, scratchDir }) 
 
 async function runClones({ cwd, env, base, binDir, scratchDir }) {
   const gitEnv = { ...env, GIT_NO_LAZY_FETCH: "1", GIT_NO_REPLACE_OBJECTS: "1" };
-  const parent = spawnSync("git", ["rev-parse", "HEAD^1"], { cwd, env: gitEnv, encoding: "utf8" });
-  if (parent.status !== 0 || parent.stdout.trim() !== base) {
-    return { status: 1, output: "::error::The checked merge does not use the pull request base.\n" };
+  const mergeGroup = env.GITHUB_EVENT_NAME === "merge_group";
+  const args = mergeGroup ? ["merge-base", "--is-ancestor", base, "HEAD"] : ["rev-parse", "HEAD^1"];
+  const ancestor = spawnSync("git", args, { cwd, env: gitEnv, encoding: "utf8" });
+  if (ancestor.status !== 0 || (!mergeGroup && ancestor.stdout.trim() !== base)) {
+    return { status: 1, output: "::error::The checked merge does not use the declared base.\n" };
   }
   const cloneOut = mkdtempSync(path.join(scratchDir, "clones-"));
   const worktreeDir = path.join(cloneOut, "head");

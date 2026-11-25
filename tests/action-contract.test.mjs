@@ -213,8 +213,10 @@ test("full check runs in one job by default and splits only on split-full-check 
   assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, mg, needs), true);
   assert.equal(evaluateJob(jobContract("merge-stops.yml", "merge-stops").condition, mg, needs), true);
   assert.equal(evaluateJob(jobContract("merge-stops.yml", "merge-stops").name, mg, needs), "merge stops");
-  assert.equal(evaluateJob(plan.condition, mg, needs, {split: true, mergeGroupFull: true}), true);
-  assert.equal(checkName(mg, needs, {mergeGroupFull: true}), "full check");
+  assert.equal(evaluateJob(plan.condition, mg, needs, {split: true, mergeGroupFull: true}), false);
+  assert.deepEqual(evaluateJob(check.matrix, mg, needs, {mergeGroupFull: true}), [
+    {label: "short check", group: "short", argv: ["verify"]},
+  ]);
 });
 
 test("registry-project folds into check on private single-job Linux x64 managed runs and stays separate otherwise", () => {
