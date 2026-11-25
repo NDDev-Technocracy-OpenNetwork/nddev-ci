@@ -16,6 +16,7 @@ const workflowPath = ".github/workflows/ci.yml";
 const sha = (n) => n.toString(16).padStart(40, "0");
 
 const writer = fileURLToPath(new URL("../actions/protected-git/run.sh", import.meta.url));
+const linuxWriter = {skip: process.platform !== "linux" && "The protected Git writer runs on Linux."};
 
 function handoff(t, stalled = "", mode = "promote") {
   const directory = mkdtempSync(path.join(tmpdir(), "promotion-writer-"));
@@ -47,7 +48,7 @@ exec /usr/bin/timeout --kill-after=1s 0.5s "$@"
   return {...result, commands: readFileSync(trace, "utf8")};
 }
 
-test("the promotion writer fetches and pushes the exact checked ref without force", (t) => {
+test("the promotion writer fetches and pushes the exact checked ref without force", linuxWriter, (t) => {
   const result = handoff(t);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.commands, /-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3/);
@@ -55,7 +56,7 @@ test("the promotion writer fetches and pushes the exact checked ref without forc
   assert.ok(result.commands.includes(`push -q origin ${sha(1)}:refs/heads/main\n`));
 });
 
-test("the merge writer merges the exact checked head and pushes the resulting commit without force", (t) => {
+test("the merge writer merges the exact checked head and pushes the resulting commit without force", linuxWriter, (t) => {
   const result = handoff(t, "", "merge");
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.ok(result.commands.includes(`fetch -q --filter=blob:none origin +refs/heads/main:refs/remotes/origin/main ${sha(1)}\n`));
@@ -64,7 +65,7 @@ test("the merge writer merges the exact checked head and pushes the resulting co
 });
 
 for (const operation of ["fetch", "push"]) {
-  test(`a stalled promotion ${operation} fails with a bounded, named error`, (t) => {
+  test(`a stalled promotion ${operation} fails with a bounded, named error`, linuxWriter, (t) => {
     const result = handoff(t, operation);
     assert.equal(result.status, 124, result.stdout + result.stderr);
     assert.ok(result.stdout.includes(`::error title=Protected git ${operation} failed::`));
