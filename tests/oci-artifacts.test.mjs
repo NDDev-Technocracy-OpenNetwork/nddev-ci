@@ -30,6 +30,7 @@ import {
   pullOciArtifacts,
   pushOciArtifact,
   repositoryIsPrivate,
+  retryableFetch,
 } from "../lib/oci-artifacts.mjs";
 import { client, transferArtifacts } from "../lib/qualification.mjs";
 
@@ -720,4 +721,66 @@ test("every upload-artifact and download-artifact step or job in the library is 
     }
   }
   assert.ok(checked >= 9, `expected at least 9 artifact action sites, checked ${checked}`);
+});
+
+test("unretried OCI transport failures report sanitized error codes without leaking secrets", async () => {
+  const errWithCode = (code) => Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("socket"), { code }) });
+  await assert.rejects(
+    retryableFetch(() => Promise.reject(errWithCode("ECONNRESET")), { retry: false }),
+    /The OCI registry transport did not complete \(ECONNRESET\)\./,
+  );
+  await assert.rejects(
+    retryableFetch(() => Promise.reject(errWithCode("CERT_HAS_EXPIRED")), { retry: false }),
+    /The OCI registry transport did not complete \(CERT_HAS_EXPIRED\)\./,
+  );
+  const aggregate = Object.assign(new TypeError("fetch failed"), {
+    cause: new AggregateError([Object.assign(new Error("refused"), { code: "ECONNREFUSED" })], "aggregate"),
+  });
+  await assert.rejects(
+    retryableFetch(() => Promise.reject(aggregate), { retry: false }),
+    /The OCI registry transport did not complete \(ECONNREFUSED\)\./,
+  );
+  await assert.rejects(
+    retryableFetch(() => Promise.reject(errWithCode("ghs_secret_token_should_not_appear")), { retry: false }),
+    (err) => {
+      assert.match(err.message, /The OCI registry transport did not complete \(unclassified transport error\)\./);
+      assert.doesNotMatch(err.message, /ghs_secret_token/);
+      return true;
+    },
+  );
+  await assert.rejects(
+    retryableFetch((signal) => new Promise((_, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }), { retry: false, timeout: 40 }),
+    /The OCI registry transport did not complete \(request timeout\)\./,
+  );
+
+  const root = mkdtempSync(path.join(tmpdir(), "oci-drop-"));
+  const work = path.join(root, "work");
+  mkdirSync(work, { recursive: true });
+  writeFileSync(path.join(work, "item.txt"), "payload");
+  const secretToken = "ghs_secret_upload_token";
+  const dropper = await startHttp((req, res) => {
+    if (req.url.startsWith("/token")) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ token: "bearer-drop" }));
+      return;
+    }
+    if (req.method === "HEAD") { res.writeHead(404); res.end(); return; }
+    req.socket.destroy();
+  });
+  try {
+    await assert.rejects(pushOciArtifact({
+      repository: where.repository, sha: where.sha, branch: where.branch, runId: 5, runAttempt: 1,
+      name: "drop", pathsText: "item.txt", cwd: work, allowedRoots: [work],
+      token: secretToken, registryUrl: dropper.url,
+    }), (err) => {
+      assert.match(err.message, /The OCI registry transport did not complete \([A-Z0-9_]+\)\./);
+      assert.doesNotMatch(err.message, new RegExp(secretToken));
+      return true;
+    });
+  } finally {
+    await dropper.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

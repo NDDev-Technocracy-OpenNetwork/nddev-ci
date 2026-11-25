@@ -252,7 +252,7 @@ test("promotion does not retry writes, malformed JSON, authorization failures or
     } else response.end("{");
   });
   const github = client("fixture", url, {retryReads: true});
-  await assert.rejects(github.json("POST", "/write"), /transport did not complete/);
+  await assert.rejects(github.json("POST", "/write"), /transport did not complete \(UND_ERR_SOCKET\)/);
   await assert.rejects(github.json("GET", "/denied"), /HTTP 403/);
   await assert.rejects(github.json("GET", "/limited"), /HTTP 503/);
   await assert.rejects(github.json("GET", "/malformed"), /malformed JSON/);
