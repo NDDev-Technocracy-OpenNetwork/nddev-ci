@@ -117,6 +117,7 @@ jobs:
           IMAGE: ${{ inputs.image }}
           TARGET: ${{ inputs.target }}
           PLATFORM: ${{ steps.name.outputs.platform }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
         run: node "$IMAGE_PRODUCER" cache "$IMAGE" "$TARGET" "$PLATFORM" >> "$GITHUB_OUTPUT"
 
       - name: Container registry
