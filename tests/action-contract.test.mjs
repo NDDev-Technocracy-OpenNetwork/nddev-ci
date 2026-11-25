@@ -398,3 +398,20 @@ test("the split check identifies a deployment artifact from multiple paths or a 
     rmSync(work, {recursive: true, force: true});
   }
 });
+
+test("prepare full-history keeps complete blobs when fetch-depth is already 0", () => {
+  const source = read("actions/prepare/action.yml");
+  const filterMatch = source.match(/^\s+filter: \$\{\{ (.+) \}\}$/m);
+  const depthMatch = source.match(/^\s+fetch-depth: \$\{\{ (.+) \}\}$/m);
+  assert.ok(filterMatch && depthMatch, "checkout filter and fetch-depth expressions exist");
+  const evalExpr = (expr, inputs) =>
+    runInNewContext(expr.replaceAll("inputs.full-history", "inputs.fullHistory").replaceAll("inputs.fetch-depth", "inputs.fetchDepth"), { inputs });
+  // Inline merge stops on default shallow checkout upgrades to blobless full history.
+  assert.equal(evalExpr(depthMatch[1], { fullHistory: "true", fetchDepth: "1", filter: "" }), "0");
+  assert.equal(evalExpr(filterMatch[1], { fullHistory: "true", fetchDepth: "1", filter: "" }), "blob:none");
+  // Callers requesting fetch-depth: 0 keep full blobs unless they explicitly pass a filter.
+  assert.equal(evalExpr(depthMatch[1], { fullHistory: "true", fetchDepth: "0", filter: "" }), "0");
+  assert.equal(evalExpr(filterMatch[1], { fullHistory: "true", fetchDepth: "0", filter: "" }), "");
+  assert.equal(evalExpr(filterMatch[1], { fullHistory: "true", fetchDepth: "0", filter: "blob:none" }), "blob:none");
+  assert.equal(evalExpr(filterMatch[1], { fullHistory: "false", fetchDepth: "1", filter: "" }), "");
+});
