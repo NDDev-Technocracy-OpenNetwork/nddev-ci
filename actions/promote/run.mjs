@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { branchSha, selectPromotion } from "../../lib/promotion.mjs";
-import { client, qualifyWorkflows, qualificationWorkflows, recheck, transferArtifacts } from "../../lib/qualification.mjs";
+import { client, qualifyWorkflows, qualificationWorkflows, recheck, transferArtifacts, writeUpstreamReason } from "../../lib/qualification.mjs";
 import { ReleaseError, UnversionedError } from "../../lib/release.mjs";
 import { releaseVersion } from "../../lib/release-version.mjs";
 
@@ -81,4 +81,8 @@ export async function main(environment = process.env) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  main().catch((error) => { console.error(`::error::${error.message.replace(/[\r\n%]/g, " ")}`); process.exitCode = 1; });
+  main().catch((error) => {
+    writeUpstreamReason(error);
+    console.error(`::error::${error.message.replace(/[\r\n%]/g, " ")}`);
+    process.exitCode = 1;
+  });

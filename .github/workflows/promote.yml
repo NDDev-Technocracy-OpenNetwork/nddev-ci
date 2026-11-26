@@ -68,7 +68,7 @@ on:
 jobs:
   promote:
     name: promote
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion != 'cancelled'
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     # Public repositories promote on GitHub's runners, private ones on ours.
     runs-on: ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || ((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light') && 'nddev-linux-release' || inputs.runner) }}
     environment: ${{ inputs.environment }}
@@ -128,5 +128,6 @@ jobs:
           status: ${{ job.status }}
           failure-layer: ${{ job.status == 'failure' && 'library' || '' }}
           failure-reason: ${{ job.status == 'failure' && (steps.git.outputs.failure-reason || (steps.choose.outcome == 'failure' && 'promotion-selection-failed') || 'workflow-step-failed') || '' }}
+          upstream-reason: ${{ job.status == 'failure' && steps.choose.outputs.upstream-reason || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

@@ -242,3 +242,15 @@ test:
     assert!(String::from_utf8_lossy(&output.stderr).contains("project assertion failed"));
     assert_eq!(fixture.runner_reason(), "");
 }
+
+#[test]
+fn upstream_github_5xx_failures_are_recorded_as_upstream_reason() {
+    let (fixture, output) = Fixture::run_on(
+        "check:\n    @echo 'GitHub read returned HTTP 500' >&2\n    @exit 1\n",
+        "pull_request",
+        "",
+        "self-hosted",
+    );
+    assert!(!output.status.success());
+    assert_eq!(fixture.runner_reason(), "upstream-reason=github-5xx\n");
+}

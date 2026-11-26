@@ -10,8 +10,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
+import { isTransientHttpResponse } from "../../lib/oci-artifacts.mjs";
 import {
   ReleaseError,
   artifactNames,
@@ -19,10 +21,10 @@ import {
   checksums,
 } from "../../lib/release.mjs";
 import { resolveRelease, tagCommit } from "../../lib/release-version.mjs";
-import { client, qualifyWorkflows, recheck, transferArtifacts } from "../../lib/qualification.mjs";
+import { client, qualifyWorkflows, recheck, transferArtifacts, writeUpstreamReason } from "../../lib/qualification.mjs";
 
-const refuse = (message) => {
-  throw new ReleaseError(message);
+const refuse = (message, options) => {
+  throw new ReleaseError(message, options);
 };
 
 async function sha256(file) {
@@ -31,7 +33,100 @@ async function sha256(file) {
   return hash.digest("hex");
 }
 
-export async function main(env = process.env) {
+function assetMatchesFile(asset, file) {
+  return Boolean(
+    asset &&
+    asset.name === file.name &&
+    asset.state !== "starter" &&
+    asset.size === file.size &&
+    asset.digest === `sha256:${file.sha256}`,
+  );
+}
+
+// Uploads one file onto a draft release with bounded transient retries. On a 5xx or transport
+// failure, re-reads the draft release to accept an already-finished asset or delete a partial
+// starter asset before retrying from a fresh stream.
+export async function uploadDraftAsset(
+  github,
+  { repository, release, file, attempts = 3, backoffMs = (attempt) => 250 * attempt, timeout = 300000 },
+) {
+  const upload = release.upload_url.replace(/\{.*\}$/, "");
+  const route = `${upload}?name=${encodeURIComponent(file.name)}`;
+
+  const reconcilePartial = async () => {
+    const current = await github.json("GET", `/repos/${repository}/releases/${release.id}`);
+    if (current && Array.isArray(current.assets)) release.assets = current.assets;
+    const found = (release.assets ?? []).find((asset) => asset.name === file.name);
+    if (!found) return { done: false };
+    if (assetMatchesFile(found, file)) return { done: true, asset: found };
+    if (current?.draft === false || !release.draft)
+      refuse(`Published release differs from its verified file ${file.name}.`);
+    await github.json("DELETE", `/repos/${repository}/releases/assets/${found.id}`, { optional: true });
+    release.assets = (release.assets ?? []).filter((asset) => asset.id !== found.id);
+    return { done: false };
+  };
+
+  for (let attempt = 1; ; attempt++) {
+    let cause = "";
+    let upstreamReason = "";
+    try {
+      const response = await github.request("POST", route, {
+        upload: true,
+        timeout,
+        raw: {
+          headers: { "Content-Type": "application/octet-stream", "Content-Length": String(file.size) },
+          body: createReadStream(file.path),
+        },
+      });
+      if (response.ok) {
+        let uploaded;
+        try {
+          uploaded = await response.json();
+        } catch (error) {
+          if (error instanceof SyntaxError) refuse(`GitHub returned malformed upload metadata for ${file.name}.`);
+          cause = "interrupted upload response";
+          upstreamReason = "github-transport";
+        }
+        if (!cause) {
+          if (!assetMatchesFile(uploaded, file)) refuse(`GitHub recorded different bytes for ${file.name}.`);
+          release.assets = [...(release.assets ?? []).filter((asset) => asset.name !== file.name), uploaded];
+          return uploaded;
+        }
+      } else {
+        await response.body?.cancel();
+        if (isTransientHttpResponse(response)) {
+          cause = `HTTP ${response.status}`;
+          upstreamReason = "github-5xx";
+        } else {
+          refuse(
+            `Uploading ${file.name} failed with HTTP ${response.status}.`,
+            response.status >= 500 && response.status < 600 ? { upstreamReason: "github-5xx" } : undefined,
+          );
+        }
+      }
+    } catch (error) {
+      if (error instanceof ReleaseError && error.upstreamReason === "github-transport") {
+        const detail = /\(([^)]+)\)\.$/.exec(error.message);
+        cause = detail ? detail[1] : "transport error";
+        upstreamReason = "github-transport";
+      } else {
+        throw error;
+      }
+    }
+
+    const reconciled = await reconcilePartial();
+    if (reconciled.done) return reconciled.asset;
+    if (attempt >= attempts)
+      refuse(
+        `Uploading ${file.name} failed after ${attempt} attempt${attempt === 1 ? "" : "s"} (${cause}).`,
+        { upstreamReason },
+      );
+    const wait = backoffMs(attempt);
+    if (wait > 0) await delay(wait);
+  }
+}
+
+export async function main(env = process.env, { uploadBackoffMs } = {}) {
   const input = (name) => (env[`INPUT_${name.toUpperCase()}`] ?? "").trim();
   const environment = (name) =>
     env[name] || refuse(`The runner did not provide ${name}.`);
@@ -141,22 +236,18 @@ export async function main(env = process.env) {
     if (!allowed.has(asset.name)) refuse(`Release ${tag} holds an unexpected file ${asset.name}.`);
   for (const file of planned) {
     const existing = (release.assets ?? []).find((asset) => asset.name === file.name);
-    if (existing && existing.size === file.size && existing.digest === `sha256:${file.sha256}`) continue;
+    if (assetMatchesFile(existing, file)) continue;
     if (!release.draft) refuse(`Published release ${tag} differs from its verified file ${file.name}.`);
-    if (existing)
-      await github.json("DELETE", `/repos/${repository}/releases/assets/${existing.id}`);
-    const upload = release.upload_url.replace(/\{.*\}$/, "");
-    const response = await github.request("POST", `${upload}?name=${encodeURIComponent(file.name)}`, {
-      upload: true,
-      raw: {
-        headers: { "Content-Type": "application/octet-stream", "Content-Length": String(file.size) },
-        body: createReadStream(file.path),
-      },
+    if (existing) {
+      await github.json("DELETE", `/repos/${repository}/releases/assets/${existing.id}`, { optional: true });
+      release.assets = (release.assets ?? []).filter((asset) => asset.id !== existing.id);
+    }
+    await uploadDraftAsset(github, {
+      repository,
+      release,
+      file,
+      ...(uploadBackoffMs ? { backoffMs: uploadBackoffMs } : {}),
     });
-    if (!response.ok) refuse(`Uploading ${file.name} failed with HTTP ${response.status}.`);
-    const uploaded = await response.json();
-    if (uploaded.size !== file.size || uploaded.digest !== `sha256:${file.sha256}`)
-      refuse(`GitHub recorded different bytes for ${file.name}.`);
   }
   await recheckAll();
   if (release.draft)
@@ -181,6 +272,7 @@ export async function main(env = process.env) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
   main().catch((error) => {
+    writeUpstreamReason(error);
     const message = error instanceof ReleaseError ? error.message : "Release failed before completion.";
     console.log(`::error::${message.replace(/[\r\n%]/g, " ")}`);
     process.exitCode = 1;

@@ -191,6 +191,7 @@ jobs:
           project-outcome: ${{ steps.archive.outcome }}
           failure-reason: ${{ steps.archive.outcome == 'failure' && 'nextest-archive-failed' || steps.push-oci.outputs.failure-reason || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
           runner-reason: ${{ steps.setup.outputs.runner-reason || steps.archive.outputs.runner-reason }}
+          upstream-reason: ${{ steps.archive.outputs.upstream-reason || steps.push-oci.outputs.upstream-reason }}
           task: nextest archive
           task-type: build
           name: nextest-archive
@@ -266,6 +267,7 @@ jobs:
           project-outcome: ${{ steps.run.outcome }}
           failure-reason: ${{ steps.run.outcome == 'failure' && 'nextest-shard-failed' || steps.pull-oci.outputs.failure-reason || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
           runner-reason: ${{ steps.setup.outputs.runner-reason || steps.run.outputs.runner-reason }}
+          upstream-reason: ${{ steps.run.outputs.upstream-reason || steps.pull-oci.outputs.upstream-reason }}
           task: nextest shard ${{ matrix.shard.shard }}/${{ matrix.shard.total }}
           task-type: test
           name: nextest-shard-${{ matrix.shard.shard }}

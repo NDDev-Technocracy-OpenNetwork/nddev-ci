@@ -35,6 +35,8 @@ outputs:
     description: Directory holding verified pulled files.
   failure-reason:
     description: Short plain reason code when artifact transfer fails.
+  upstream-reason:
+    description: Bounded upstream registry failure reason when exhausted GHCR errors stop artifact transfer.
 runs:
   using: node24
   main: run.mjs

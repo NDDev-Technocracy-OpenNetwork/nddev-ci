@@ -1,11 +1,12 @@
 # Moves main to the newest dev commit whose full check and smoke checks passed, and publish.yml
-# releases it. Each of those checks of a dev push starts it when it completes.
+# releases it. qualified artifact completes only after ci, portable recipe and trusted source status
+# qualify the same commit, so one trigger runs promotion per dev push.
 name: promotion
 
 on:
   # The pinned promotion selects checked dev pushes and executes no triggering source.
   workflow_run: # zizmor: ignore[dangerous-triggers]
-    workflows: [ci, portable recipe, qualified artifact, trusted source status]
+    workflows: [qualified artifact]
     branches: [dev]
     types: [completed]
   workflow_dispatch:

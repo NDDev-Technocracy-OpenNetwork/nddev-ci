@@ -124,6 +124,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const mode = (process.env.INPUT_MODE ?? "").trim() || "push";
     writeOutputs(process.env.GITHUB_OUTPUT, {
       "failure-reason": classifyOciFailure(mode, error.message),
+      ...(error?.upstreamReason ? { "upstream-reason": error.upstreamReason } : {}),
     });
     console.error(`::error::${String(error.message).replace(/[\r\n%]/g, " ")}`);
     process.exitCode = 1;

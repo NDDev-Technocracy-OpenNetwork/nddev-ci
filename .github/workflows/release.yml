@@ -123,5 +123,6 @@ jobs:
           status: ${{ job.status }}
           failure-layer: ${{ job.status == 'failure' && 'library' || '' }}
           failure-reason: ${{ job.status == 'failure' && (steps.release.outcome == 'failure' && 'release-failed' || 'workflow-step-failed') || '' }}
+          upstream-reason: ${{ job.status == 'failure' && steps.release.outputs.upstream-reason || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

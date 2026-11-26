@@ -631,12 +631,14 @@ use `provenance.yml`; private repositories use release verification.
 
 [job-record](actions/job-record/action.yml) ends each job with a summary and one
 structured `nddev_ci.job.completed` line: source commit, workflow, result, actual
-OS/architecture, duration and available compiler-cache counters. Missing measured
-queue time remains unknown. A failed job names its `failure-layer`: `project` for its
-own commands or named reports, `library` for the steps around them, or `runner` when
-preparation or a failed command reports an error tied to a declared runner resource. Every failed
-job also records a bounded `nddev_ci.failure.reason` code naming the failure class across all three
-layers, without raw log text or secrets.
+OS/architecture, duration and available compiler-cache counters. Missing, unreadable, future or
+stale start timestamps leave duration unknown instead of emitting corrupt deltas, and missing
+measured queue time remains unknown. A failed job names its `failure-layer`: `project` for its
+own commands or named reports, `library` for the steps around them, `runner` when preparation or
+a failed command reports an error tied to a declared runner resource, or `upstream` when an
+exhausted external service error (such as a GitHub API or GHCR 5xx or transport failure) stopped
+the job. Every failed job also records a bounded `nddev_ci.failure.reason` code naming the failure
+class across all four layers, without raw log text or secrets.
 The runner can
 provide `NDDEV_CI_QUEUE_SECONDS` and `NDDEV_CI_TELEMETRY_FILE`; hosted jobs keep the
 record in the job log. The execution controller owns the SDK, device and generation
@@ -670,12 +672,15 @@ If `sha` is not qualified yet, promotion ends as `unchecked` without falling bac
 Malformed, unreachable or non-fast-forward values fail before any branch write.
 
 Promotion, publication, `qualify`, `checked-artifacts` and `require-status` retry transient
-GitHub API read failures, a dropped or timed-out connection or a 502, 503 or 504 without
+GitHub API read failures, a dropped or timed-out connection or a 500, 502, 503 or 504 without
 `Retry-After`, up to three attempts within the request's time limit. Reads of checked artifact
 metadata and bytes follow the same policy. An interrupted download is discarded before the next
-attempt. A permanent error fails at once, and a read that still fails names its last transport
-cause. Writes are never repeated: the fast-forward push runs separately, and a rerun of
-publication reconciles the tag, draft and files it already made.
+attempt. Draft release asset uploads also retry transient 500, 502, 503 or 504 responses and
+transport errors up to three attempts after re-reading the draft release and deleting any partial
+starter asset, accepting the asset directly if it already landed with the expected size and digest.
+A permanent error fails at once, and a request that still fails names its last transport cause.
+Other writes are never repeated: the fast-forward push runs separately, and a rerun of publication
+reconciles the tag, draft and files it already made.
 
 GitHub's job token cannot move a branch onto commits that change workflow files, so the move
 pushes with a deploy key that has write access. The caller keeps it as `PROMOTION_KEY` in an

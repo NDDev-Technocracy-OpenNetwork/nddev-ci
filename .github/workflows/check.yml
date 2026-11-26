@@ -544,6 +544,7 @@ jobs:
           project-outcome: ${{ (steps.project.outcome == 'failure' || steps.registry-check.outputs.failure-layer == 'project' || steps.inline-stops.outputs.failure-layer == 'project') && 'failure' || steps.project.outcome }}
           failure-reason: ${{ steps.inline-stops.outputs.failure-reason || steps.registry-check.outputs.failure-reason || steps.registry-input.outputs.failure-reason || (steps.project.outcome == 'failure' && 'project-command-failed') || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
           runner-reason: ${{ steps.setup.outputs.runner-reason || steps.project.outputs.runner-reason }}
+          upstream-reason: ${{ steps.project.outputs.upstream-reason }}
           check-run-id: ${{ job.check_run_id }}
           task: ${{ matrix.part.task || matrix.part.label }}
           task-type: test
@@ -640,6 +641,7 @@ jobs:
           status: ${{ job.status }}
           failure-layer: ${{ job.status == 'failure' && (steps.parts.outcome == 'failure' && 'project' || 'library') || '' }}
           failure-reason: ${{ job.status == 'failure' && (steps.parts.outcome == 'failure' && 'full-check-part-failed' || steps.artifact-oci.outputs.failure-reason || 'artifact-verify-failed') || '' }}
+          upstream-reason: ${{ job.status == 'failure' && steps.artifact-oci.outputs.upstream-reason || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started
 

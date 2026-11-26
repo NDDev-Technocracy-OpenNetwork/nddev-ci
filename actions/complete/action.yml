@@ -21,6 +21,9 @@ inputs:
   runner-reason:
     description: A runner failure reason reported by a failed step, if known.
     default: ''
+  upstream-reason:
+    description: A bounded upstream service failure reason reported by a failed step, if known.
+    default: ''
   task:
     description: The task's name in the job record, such as short check or just test.
     required: true
@@ -167,5 +170,6 @@ runs:
         failure-layer: ${{ (inputs.status == 'failure' || steps.artifact.outcome == 'failure' || steps.artifact-oci.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure') && ((inputs.project-outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && 'project' || 'library') || '' }}
         failure-reason: ${{ (inputs.status == 'failure' || steps.artifact.outcome == 'failure' || steps.artifact-oci.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure') && (inputs.failure-reason || (steps.artifact-oci.outcome == 'failure' && (steps.artifact-oci.outputs.failure-reason || 'artifact-upload-failed')) || (steps.artifact.outcome == 'failure' && 'artifact-upload-failed') || ((steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && 'reports-missing') || (steps.images-cleanup.outcome == 'failure' && 'image-cleanup-failed') || (inputs.project-outcome == 'failure' && 'project-command-failed') || 'workflow-step-failed') || '' }}
         runner-reason: ${{ inputs.runner-reason }}
+        upstream-reason: ${{ inputs.upstream-reason || steps.artifact-oci.outputs.upstream-reason }}
         check-run-id: ${{ inputs.check-run-id }}
         started-file: ${{ runner.temp }}/nddev-ci-started

@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { main, record, sccache } from "../actions/job-record/run.mjs";
-import { runnerFailureClassifier } from "../lib/project-command.mjs";
+import { MAX_DURATION_SECONDS, MAX_FUTURE_SKEW_SECONDS, main, record, sccache } from "../actions/job-record/run.mjs";
+import { runProjectCommand, runnerFailureClassifier, upstreamFailureClassifier } from "../lib/project-command.mjs";
 
 const base = {
   INPUT_TASK: "short check",
@@ -107,15 +107,16 @@ test("native ARM64 records identify the actual OS and measured queue time", () =
 
 test("the record reaches the runner's telemetry file only by an absolute regular path", () => {
   const root = mkdtempSync(path.join(tmpdir(), "job-record-sink-"));
+  const quiet = { log: () => {} };
   try {
     const sink = path.join(root, "ci.jsonl");
-    main({ ...base, NDDEV_CI_TELEMETRY_FILE: sink, GITHUB_STEP_SUMMARY: path.join(root, "summary.md") });
-    main({ ...base, INPUT_STATUS: "failure", NDDEV_CI_TELEMETRY_FILE: sink });
+    main({ ...base, NDDEV_CI_TELEMETRY_FILE: sink, GITHUB_STEP_SUMMARY: path.join(root, "summary.md") }, quiet);
+    main({ ...base, INPUT_STATUS: "failure", NDDEV_CI_TELEMETRY_FILE: sink }, quiet);
     const lines = readFileSync(sink, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     assert.deepEqual(lines.map((line) => line["cicd.pipeline.task.run.result"]), ["success", "failure"]);
     assert.match(readFileSync(path.join(root, "summary.md"), "utf8"), /short check: success/);
-    assert.throws(() => main({ ...base, NDDEV_CI_TELEMETRY_FILE: "relative.jsonl" }), /absolute path/);
-    assert.throws(() => main({ ...base, NDDEV_CI_TELEMETRY_FILE: root }), /regular file/);
+    assert.throws(() => main({ ...base, NDDEV_CI_TELEMETRY_FILE: "relative.jsonl" }, quiet), /absolute path/);
+    assert.throws(() => main({ ...base, NDDEV_CI_TELEMETRY_FILE: root }, quiet), /regular file/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -218,4 +219,126 @@ test("runner attribution requires an error tied to one of the job's runner resou
     socketOnly("sccache: error: Server startup failed: Operation not permitted (os error 1)"),
     "cache-unavailable",
   );
+});
+
+test("missing, zero, stale, future or unreadable start files omit duration and empty repo/run emit empty URLs", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "job-record-bounds-"));
+  const now = new Date("2026-11-26T12:00:00Z");
+  const nowSec = Math.round(now.getTime() / 1000);
+  try {
+    const started = path.join(root, "started");
+    assert.equal(record({ ...base, "INPUT_STARTED-FILE": started }, now)["nddev_ci.duration_seconds"], undefined);
+    assert.equal(record({ ...base, "INPUT_STARTED-FILE": root }, now)["nddev_ci.duration_seconds"], undefined);
+
+    for (const content of [
+      "",
+      "0\n",
+      "-10\n",
+      "not-a-number\n",
+      "12.5\n",
+      `${nowSec - MAX_DURATION_SECONDS - 1}\n`,
+      `${Date.parse("2025-06-14T11:56:55Z") / 1000}\n`,
+      `${nowSec + MAX_FUTURE_SKEW_SECONDS + 1}\n`,
+    ]) {
+      writeFileSync(started, content);
+      assert.equal(
+        record({ ...base, "INPUT_STARTED-FILE": started }, now)["nddev_ci.duration_seconds"],
+        undefined,
+        `expected omitted duration for ${JSON.stringify(content)}`,
+      );
+    }
+
+    for (const [value, expected] of [
+      [nowSec, 0],
+      [nowSec + MAX_FUTURE_SKEW_SECONDS, 0],
+      [nowSec - MAX_DURATION_SECONDS, MAX_DURATION_SECONDS],
+    ]) {
+      writeFileSync(started, `${value}\n`);
+      assert.equal(record({ ...base, "INPUT_STARTED-FILE": started }, now)["nddev_ci.duration_seconds"], expected);
+    }
+
+    const minimal = record({ INPUT_TASK: "check", INPUT_STATUS: "success" }, now);
+    assert.equal(minimal["vcs.repository.url.full"], "");
+    assert.equal(minimal["cicd.pipeline.run.url.full"], "");
+    const repoOnly = record({ INPUT_TASK: "check", INPUT_STATUS: "success", GITHUB_REPOSITORY: "owner/repo" }, now);
+    assert.equal(repoOnly["vcs.repository.url.full"], "https://github.com/owner/repo");
+    assert.equal(repoOnly["cicd.pipeline.run.url.full"], "");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("upstream failure layer and bounded upstream-reason classify GitHub and GHCR errors outside project", () => {
+  const failed = { ...base, INPUT_STATUS: "failure" };
+  const direct = record({ ...failed, "INPUT_FAILURE-LAYER": "upstream", "INPUT_FAILURE-REASON": "github-5xx" });
+  assert.equal(direct["nddev_ci.failure.layer"], "upstream");
+  assert.equal(direct["nddev_ci.failure.reason"], "github-5xx");
+
+  const attributed = record({
+    ...failed,
+    "INPUT_FAILURE-LAYER": "project",
+    "INPUT_FAILURE-REASON": "project-command-failed",
+    "INPUT_UPSTREAM-REASON": "github-5xx",
+  });
+  assert.equal(attributed["nddev_ci.failure.layer"], "upstream");
+  assert.equal(attributed["nddev_ci.failure.reason"], "github-5xx");
+
+  // Runner-host failure keeps precedence over upstream failure.
+  const runnerWins = record({
+    ...failed,
+    "INPUT_FAILURE-LAYER": "project",
+    "INPUT_RUNNER-REASON": "network-unavailable",
+    "INPUT_UPSTREAM-REASON": "github-5xx",
+  });
+  assert.equal(runnerWins["nddev_ci.failure.layer"], "runner");
+  assert.equal(runnerWins["nddev_ci.failure.reason"], "network-unavailable");
+
+  const unknownUpstream = record({
+    ...failed,
+    "INPUT_FAILURE-LAYER": "project",
+    "INPUT_FAILURE-REASON": "project-command-failed",
+    "INPUT_UPSTREAM-REASON": "unrecognized",
+  });
+  assert.equal(unknownUpstream["nddev_ci.failure.layer"], "project");
+  assert.equal(unknownUpstream["nddev_ci.failure.reason"], "project-command-failed");
+
+  const classify = upstreamFailureClassifier();
+  for (const [line, expected] of [
+    ["GitHub read returned HTTP 500", "github-5xx"],
+    ["GET https://api.github.com/repos/o/r/releases: HTTP 502 Bad Gateway", "github-5xx"],
+    ["POST https://uploads.github.com/repos/o/r/releases/1/assets: 503 Service Unavailable", "github-5xx"],
+    ["https://api.github.com/graphql failed: connection reset by peer", "github-transport"],
+    ["GitHub transport did not complete (UND_ERR_CONNECT_TIMEOUT)", "github-transport"],
+    ["ghcr.io/owner/repo/ci-artifacts: status 504 Gateway Timeout", "ghcr-5xx"],
+    ["failed to push ghcr.io/owner/repo: unexpected EOF", "ghcr-transport"],
+    ["GET https://api.github.com/repos/o/r/releases: HTTP 404", ""],
+    ["GET https://api.github.com/repos/o/r/releases: HTTP 403", ""],
+    ["http://127.0.0.1:8080/api.github.com: HTTP 500", ""],
+    ["assertion failed: expected HTTP 500 from https://api.github.com", ""],
+    ["test github_500_retry ... FAILED", ""],
+  ]) {
+    assert.equal(classify(line), expected, line);
+  }
+});
+
+test("runProjectCommand emits upstream-reason on failure and lets runner-reason take precedence", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "project-cmd-upstream-"));
+  try {
+    for (const [name, script, exitCode, expected] of [
+      ["upstream", 'console.error("GitHub read returned HTTP 500"); process.exit(1);', 1, "upstream-reason=github-5xx\n"],
+      ["runner", 'console.error("GitHub read returned HTTP 500"); console.error("write /srv/ci/layer: Disk quota exceeded"); process.exit(1);', 1, "runner-reason=disk-quota-exceeded\n"],
+      ["success", 'console.error("GitHub read returned HTTP 500"); process.exit(0);', 0, null],
+    ]) {
+      const out = path.join(root, `${name}.out`);
+      const code = await runProjectCommand(process.execPath, ["-e", script], {
+        environment: { ...process.env, RUNNER_ENVIRONMENT: "self-hosted" },
+        output: out,
+      });
+      assert.equal(code, exitCode, name);
+      if (expected === null) assert.equal(existsSync(out), false, name);
+      else assert.equal(readFileSync(out, "utf8"), expected, name);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

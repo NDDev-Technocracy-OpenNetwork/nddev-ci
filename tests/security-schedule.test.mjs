@@ -55,10 +55,17 @@ test("the local job record measures the first scheduled job start and prints run
   writeFileSync(started, String(Date.parse("2025-06-14T11:56:55Z") / 1000));
   const env = {INPUT_TASK: "daily security", INPUT_STATUS: "success", INPUT_SCHEDULE: cron, GITHUB_RUN_ATTEMPT: "1",
     "INPUT_STARTED-FILE": started, GITHUB_EVENT_NAME: "schedule", GITHUB_STEP_SUMMARY: summary, NDDEV_CI_QUEUE_SECONDS: "572"};
-  record(env);
+  const now = new Date("2025-06-14T12:00:00Z");
+  const lines = [];
+  record(env, {now, log: (line) => lines.push(line)});
+  assert.equal(lines.length, 1);
+  const emitted = JSON.parse(lines[0]);
+  assert.equal(emitted["nddev_ci.duration_seconds"], 185);
+  assert.equal(emitted["vcs.repository.url.full"], "");
+  assert.equal(emitted["cicd.pipeline.run.url.full"], "");
   const text = readFileSync(summary, "utf8");
   assert.match(text, /03:17:00.000Z.*started late by 8h 39m 55s/);
   assert.match(text, /Measured runner wait was 9m 32s/);
   for (const update of [{GITHUB_RUN_ATTEMPT: "2"}, {GITHUB_EVENT_NAME: "workflow_dispatch"}, {INPUT_SCHEDULE: "unknown"}])
-    assert.equal(jobRecord({...env, ...update})["nddev_ci.schedule.expected_at"], undefined);
+    assert.equal(jobRecord({...env, ...update}, now)["nddev_ci.schedule.expected_at"], undefined);
 });

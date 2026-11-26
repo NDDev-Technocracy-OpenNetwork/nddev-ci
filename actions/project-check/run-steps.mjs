@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
-import { runProjectCommand, runnerFailureClassifier } from "../../lib/project-command.mjs";
+import { runProjectCommand, runnerFailureClassifier, upstreamFailureClassifier } from "../../lib/project-command.mjs";
 import { parseJsonSafe, sanitizeProjectEnv } from "../../lib/step-receipts.mjs";
 
 function runBufferedJust(argv, { cwd, environment, label, tempRoot, index }) {
-  const observe = environment.RUNNER_ENVIRONMENT === "self-hosted";
+  const selfHosted = environment.RUNNER_ENVIRONMENT === "self-hosted";
   const partDir = path.join(tempRoot, `part-${index}`);
   const partTmp = path.join(partDir, "tmp");
   const logFile = path.join(partDir, "output.log");
@@ -17,24 +17,28 @@ function runBufferedJust(argv, { cwd, environment, label, tempRoot, index }) {
   return new Promise((resolve, reject) => {
     const out = createWriteStream(logFile);
     const child = spawn("just", argv, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
-    const classify = observe ? runnerFailureClassifier(env) : null;
-    let reason = "";
+    const classifyRunner = selfHosted ? runnerFailureClassifier(env) : null;
+    const classifyUpstream = upstreamFailureClassifier();
+    let runnerReason = "";
+    let upstreamReason = "";
+    const inspect = (text) => {
+      if (classifyRunner) runnerReason = classifyRunner(text) || runnerReason;
+      upstreamReason = classifyUpstream(text) || upstreamReason;
+    };
     const tap = (stream) => {
       const decoder = new StringDecoder("utf8");
       let partial = "";
       stream.on("data", (chunk) => {
         out.write(chunk);
-        if (!classify) return;
         const lines = (partial + decoder.write(chunk)).split("\n");
         partial = lines.pop().slice(-8192);
         for (const line of lines) {
-          reason = classify(line.replace(/\x1b\[[\d;]*m/g, "").slice(-8192)) || reason;
+          inspect(line.replace(/\x1b\[[\d;]*m/g, "").slice(-8192));
         }
       });
       stream.on("end", () => {
-        if (classify && partial) {
-          const finalLine = (partial + decoder.end()).replace(/\x1b\[[\d;]*m/g, "").slice(-8192);
-          reason = classify(finalLine) || reason;
+        if (partial) {
+          inspect((partial + decoder.end()).replace(/\x1b\[[\d;]*m/g, "").slice(-8192));
         }
       });
     };
@@ -46,7 +50,7 @@ function runBufferedJust(argv, { cwd, environment, label, tempRoot, index }) {
     child.on("close", (code, signal) => {
       out.end(() => {
         const status = code ?? (signal ? 128 : 1);
-        resolve({ index, label, argv, status, reason, logFile, partDir });
+        resolve({ index, label, argv, status, reason: runnerReason, upstreamReason, logFile, partDir });
       });
     });
   });
@@ -171,6 +175,7 @@ export async function runSteps(environment = process.env, cwd = process.cwd()) {
           );
           let firstFailure = 0;
           let runnerReason = "";
+          let upstreamReason = "";
           for (const result of settled) {
             if (result.status === 0) {
               if (resultsFile) appendFileSync(resultsFile, `${result.index}\n`);
@@ -178,10 +183,14 @@ export async function runSteps(environment = process.env, cwd = process.cwd()) {
               if (resultsFile) appendFileSync(resultsFile, `failed:${result.index}:${result.status}\n`);
               if (firstFailure === 0) firstFailure = result.status;
               if (!runnerReason && result.reason) runnerReason = result.reason;
+              if (!upstreamReason && result.upstreamReason) upstreamReason = result.upstreamReason;
             }
           }
           if (firstFailure !== 0) {
-            if (runnerReason && output) appendFileSync(output, `runner-reason=${runnerReason}\n`);
+            if (output) {
+              if (runnerReason) appendFileSync(output, `runner-reason=${runnerReason}\n`);
+              else if (upstreamReason) appendFileSync(output, `upstream-reason=${upstreamReason}\n`);
+            }
             return firstFailure;
           }
         } finally {
