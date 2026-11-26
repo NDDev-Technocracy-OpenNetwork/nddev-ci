@@ -81,4 +81,9 @@ export async function main(environment = process.env) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  main().catch((error) => { console.error(`::error::${error.message.replace(/[\r\n%]/g, " ")}`); process.exitCode = 1; });
+  main().catch((error) => {
+    if (error instanceof ReleaseError && error.upstreamReason && process.env.GITHUB_OUTPUT)
+      appendFileSync(process.env.GITHUB_OUTPUT, `upstream-reason=${error.upstreamReason}\n`);
+    console.error(`::error::${error.message.replace(/[\r\n%]/g, " ")}`);
+    process.exitCode = 1;
+  });

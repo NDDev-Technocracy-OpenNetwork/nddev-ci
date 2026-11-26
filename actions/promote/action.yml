@@ -36,6 +36,8 @@ outputs:
     description: ready, current, unchecked or unversioned.
   sha:
     description: The commit to promote when the state is ready.
+  upstream-reason:
+    description: Bounded upstream failure reason when exhausted GitHub or registry errors stop promotion selection.
 runs:
   using: node24
   main: run.mjs

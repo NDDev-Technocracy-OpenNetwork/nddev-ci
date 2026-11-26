@@ -381,7 +381,11 @@ test("workflow concurrency cancels superseded pull requests, queues branch pushe
     assert.equal(jobContract(workflow, job).concurrency[2], "false", `${workflow}:${job} never cancels`);
   }
   assert.match(read(".github/workflows/promote.yml"),
-    /if: github\.event_name != 'workflow_run' \|\| github\.event\.workflow_run\.conclusion != 'cancelled'/);
+    /if: github\.event_name != 'workflow_run' \|\| github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.match(read(".github/workflows/promotion.yml"), /workflows: \[qualified artifact\]/);
+  const qualSmoke = read(".github/workflows/qualification-smoke.yml");
+  assert.match(qualSmoke, /check-workflow: recipe-smoke\.yml/);
+  assert.match(qualSmoke, /required-workflows:\s*\|\n\s+ci\.yml\n\s+source-version-smoke\.yml/);
 
   assert.match(read(".github/workflows/check.yml"),
     /uses: \$\/\.github\/workflows\/merge-stops\.yml\n    with:\n      retain-runs: \$\{\{ inputs\.retain-runs \}\}/);

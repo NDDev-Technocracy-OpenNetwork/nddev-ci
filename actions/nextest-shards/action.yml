@@ -39,6 +39,8 @@ outputs:
     description: JSON matrix of shards in plan mode.
   runner-reason:
     description: Runner failure reason detected during cargo execution, if any.
+  upstream-reason:
+    description: Bounded upstream service failure reason detected during cargo execution, if any.
 runs:
   using: node24
   main: run.mjs

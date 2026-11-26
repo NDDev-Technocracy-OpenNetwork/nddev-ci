@@ -556,3 +556,141 @@ test("a failed workflow ends a shared qualification wait while another workflow 
   await assert.rejects(qualifyWorkflows(github, where, "portable.yml", {waitMinutes: 30,
     sleep: async () => assert.fail("a known failed workflow must not leave a pending waiter")}), /portable.yml/);
 });
+
+test("actions/qualify supports required-workflows and retries transient GitHub HTTP 500 reads", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "qualify-multi-"));
+  let failedOnce = false;
+  const seen = [];
+  const api = await listen((req, res) => {
+    seen.push(req.url);
+    if (!failedOnce && req.url.includes("/workflows/ci.yml/")) {
+      failedOnce = true;
+      res.writeHead(500).end();
+      return;
+    }
+    const name = req.url.split("/workflows/")[1].split("/")[0];
+    const offset = {"recipe-smoke.yml": 0, "ci.yml": 100, "source-version-smoke.yml": 200}[name] ?? 0;
+    const value = inventory([run({id: 7 + offset, path: `.github/workflows/${name}`})]);
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify(value));
+  });
+  try {
+    const {main: qualifyAction} = await import("../actions/qualify/run.mjs");
+    const out = path.join(root, "qualify-out");
+    const result = await qualifyAction({
+      GITHUB_API_URL: api.url,
+      GITHUB_REPOSITORY: where.repository,
+      GITHUB_SHA: where.sha,
+      GITHUB_OUTPUT: out,
+      "INPUT_GITHUB-TOKEN": "fixture-read-token",
+      "INPUT_CHECK-WORKFLOW": "recipe-smoke.yml",
+      "INPUT_REQUIRED-WORKFLOWS": "ci.yml\nsource-version-smoke.yml",
+      "INPUT_WAIT-MINUTES": "0",
+    });
+    assert.equal(result.workflowPath, ".github/workflows/recipe-smoke.yml");
+    assert.equal(result.run_id, 7);
+    assert.equal(failedOnce, true);
+    assert.ok(seen.some((u) => u.includes("/workflows/source-version-smoke.yml/")));
+  } finally {
+    await close(api.server);
+    rmSync(root, {recursive: true, force: true});
+  }
+});
+
+test("draft release asset uploads retry 5xx and transport drops with partial starter cleanup and fail fast on 4xx", async () => {
+  const {uploadDraftAsset} = await import("../actions/release/run.mjs");
+  const root = mkdtempSync(path.join(tmpdir(), "release-upload-retry-"));
+  const filePath = path.join(root, "tool.bin");
+  const payload = Buffer.from("verified release payload");
+  writeFileSync(filePath, payload);
+  const sha = createHash("sha256").update(payload).digest("hex");
+  const file = {name: "tool.bin", path: filePath, size: payload.length, sha256: sha};
+
+  for (const mode of ["starter-502", "completed-on-drop", "exhausted-503", "permanent-422"]) {
+    let uploadAttempts = 0;
+    let deletes = [];
+    let releaseReads = 0;
+    let assets = [];
+    const api = await listen(async (req, res) => {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const body = Buffer.concat(chunks);
+      const send = (status, value, headers = {}) => {
+        res.writeHead(status, {"content-type": "application/json", ...headers});
+        res.end(value === undefined ? undefined : JSON.stringify(value));
+      };
+      if (req.method === "GET" && req.url === `/repos/${where.repository}/releases/11`) {
+        releaseReads++;
+        return send(200, {id: 11, draft: true, assets});
+      }
+      if (req.method === "DELETE" && req.url.startsWith(`/repos/${where.repository}/releases/assets/`)) {
+        const assetId = Number(req.url.split("/").pop());
+        deletes.push(assetId);
+        assets = assets.filter((item) => item.id !== assetId);
+        res.writeHead(204).end();
+        return;
+      }
+      if (req.method === "POST" && req.url.startsWith("/upload?")) {
+        uploadAttempts++;
+        if (mode === "starter-502" && uploadAttempts === 1) {
+          assets.push({id: 501, name: "tool.bin", state: "starter", size: 0, digest: null});
+          return send(502, {message: "bad gateway"});
+        }
+        if (mode === "completed-on-drop" && uploadAttempts === 1) {
+          assets.push({id: 502, name: "tool.bin", state: "uploaded", size: body.length, digest: `sha256:${sha}`});
+          req.socket.destroy();
+          return;
+        }
+        if (mode === "exhausted-503") {
+          assets.push({id: 600 + uploadAttempts, name: "tool.bin", state: "starter", size: 0, digest: null});
+          return send(503, {message: "service unavailable"});
+        }
+        if (mode === "permanent-422") return send(422, {message: "already_exists"});
+        assert.deepEqual(body, payload);
+        const uploaded = {id: 700, name: "tool.bin", state: "uploaded", size: body.length, digest: `sha256:${sha}`};
+        assets.push(uploaded);
+        return send(201, uploaded);
+      }
+      res.writeHead(404).end();
+    });
+    try {
+      const github = client("fixture", api.url, {retryReads: true});
+      const release = {id: 11, draft: true, upload_url: `${api.url}/upload{?name}`, assets: []};
+      const call = () => uploadDraftAsset(github, {
+        repository: where.repository, release, file, backoffMs: () => 0,
+      });
+      if (mode === "starter-502") {
+        const result = await call();
+        assert.equal(result.id, 700);
+        assert.equal(uploadAttempts, 2);
+        assert.deepEqual(deletes, [501]);
+        assert.equal(releaseReads, 1);
+      } else if (mode === "completed-on-drop") {
+        const result = await call();
+        assert.equal(result.id, 502);
+        assert.equal(uploadAttempts, 1);
+        assert.deepEqual(deletes, []);
+        assert.equal(releaseReads, 1);
+      } else if (mode === "exhausted-503") {
+        await assert.rejects(call(), (error) => {
+          assert.match(error.message, /failed after 3 attempts \(HTTP 503\)/);
+          assert.equal(error.upstreamReason, "github-5xx");
+          return true;
+        });
+        assert.equal(uploadAttempts, 3);
+        assert.deepEqual(deletes, [601, 602, 603]);
+      } else {
+        await assert.rejects(call(), (error) => {
+          assert.match(error.message, /HTTP 422/);
+          assert.equal(error.upstreamReason, undefined);
+          return true;
+        });
+        assert.equal(uploadAttempts, 1);
+        assert.equal(releaseReads, 0);
+      }
+    } finally {
+      await close(api.server);
+    }
+  }
+  rmSync(root, {recursive: true, force: true});
+});

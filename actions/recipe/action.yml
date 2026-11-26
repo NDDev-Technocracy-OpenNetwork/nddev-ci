@@ -27,6 +27,8 @@ outputs:
     description: The admitted task runner version.
   runner-reason:
     description: A runner failure reason detected in the failed recipe, when available.
+  upstream-reason:
+    description: A bounded upstream service failure reason detected in the failed recipe, when available.
   receipt-mode:
     description: "Step receipt mode: reused, executed, bypassed or canary."
   reused-run-id:

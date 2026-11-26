@@ -16,11 +16,14 @@ jobs:
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
       - name: Outside telemetry off
         uses: $/actions/telemetry
-      - name: Qualify this exact commit's native fixture workflow
+      - name: Qualify this exact commit's full check and smoke workflows
         id: checked
         uses: $/actions/qualify
         with:
           check-workflow: recipe-smoke.yml
+          required-workflows: |
+            ci.yml
+            source-version-smoke.yml
           wait-minutes: '15'
       - name: Transfer its actual GitHub artifact
         id: files

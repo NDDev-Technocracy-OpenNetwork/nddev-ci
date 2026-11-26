@@ -305,6 +305,7 @@ jobs:
           project-outcome: ${{ (steps.dependencies.outcome == 'failure' || steps.project.outcome == 'failure') && 'failure' || 'success' }}
           failure-reason: ${{ steps.registry-input.outputs.failure-reason || (steps.dependencies.outcome == 'failure' && 'dependency-setup-failed') || (steps.project.outcome == 'failure' && 'recipe-failed') || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
           runner-reason: ${{ steps.setup.outputs.runner-reason || steps.dependencies.outputs.runner-reason || steps.project.outputs.runner-reason }}
+          upstream-reason: ${{ steps.dependencies.outputs.upstream-reason || steps.project.outputs.upstream-reason }}
           task: just ${{ inputs.recipe }}
           task-type: ${{ inputs.artifact != '' && 'build' || 'test' }}
           name: ${{ inputs.recipe }}-${{ runner.os }}-${{ runner.arch }}

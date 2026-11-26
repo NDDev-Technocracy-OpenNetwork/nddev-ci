@@ -28,17 +28,22 @@ inputs:
   failure-layer:
     description: >-
       For a failed job, whose failure it is: project when the project's own commands or its named
-      reports failed, library when a step of the library or the runner around them failed. Empty
-      records nothing; a job that did not fail records nothing either.
+      reports failed, library when a step of the library around them failed, or upstream when an
+      exhausted external service error stopped the job. Empty records nothing; a job that did not
+      fail records nothing either.
     default: ''
   failure-reason:
     description: >-
       For a failed job, a short plain reason code (lowercase ASCII letters, digits and hyphens,
       1-64 characters) naming the failure class. A failed job always records nddev_ci.failure.reason,
-      using runner-reason when runner-attributed, otherwise failure-reason, or a layer fallback.
+      using runner-reason when runner-attributed, upstream-reason when upstream-attributed,
+      otherwise failure-reason, or a layer fallback.
     default: ''
   runner-reason:
     description: A fixed reason code that attributes a failed job to the runner.
+    default: ''
+  upstream-reason:
+    description: A fixed reason code that attributes a failed job to an exhausted upstream service failure.
     default: ''
   receipt-mode:
     description: Optional step-receipt mode (reused, executed, bypassed or canary).

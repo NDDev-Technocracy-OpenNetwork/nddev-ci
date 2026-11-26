@@ -14,6 +14,9 @@ outputs:
   runner-reason:
     description: A runner failure reason detected in the failed recipe, when available.
     value: ${{ steps.command.outputs.runner-reason }}
+  upstream-reason:
+    description: A bounded upstream service failure reason detected in the failed recipe, when available.
+    value: ${{ steps.command.outputs.upstream-reason }}
   receipt-mode:
     description: "Step receipt mode: reused, executed, bypassed or canary."
     value: ${{ steps.receipt-finish.outputs.receipt-mode }}

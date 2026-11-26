@@ -121,6 +121,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        date +%s > "$RUNNER_TEMP/nddev-ci-started"
         # No absolute path, home, parent or hidden name. macOS runs bash 3.2.
         inside() {
           while IFS= read -r line || [ -n "$line" ]; do
@@ -132,7 +133,6 @@ runs:
         }
         inside diagnostics <<< "$DIAGNOSTICS"
         inside reports <<< "$REPORTS"
-        date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:

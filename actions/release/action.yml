@@ -50,6 +50,8 @@ outputs:
     description: Whether the published release is a pre-release (true or false).
   url:
     description: The release page.
+  upstream-reason:
+    description: Bounded upstream failure reason when exhausted GitHub or registry errors stop the release.
 runs:
   using: node24
   main: run.mjs

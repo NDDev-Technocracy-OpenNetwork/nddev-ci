@@ -10,6 +10,9 @@ inputs:
   check-workflow:
     description: Full-check workflow file in .github/workflows.
     default: ci.yml
+  required-workflows:
+    description: Additional workflow file names that must qualify the same exact source, one per line.
+    default: ''
   check-branch:
     description: Integration branch whose full verification qualifies the commit.
     default: dev

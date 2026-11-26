@@ -6,9 +6,13 @@ import { appendFileSync, existsSync, lstatSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { failureReasonPattern, runnerFailureReasons } from "../../lib/project-command.mjs";
+import { failureReasonPattern, runnerFailureReasons, upstreamFailureReasons } from "../../lib/project-command.mjs";
 
 const results = { success: "success", failure: "failure", cancelled: "cancellation" };
+// GitHub Actions enforces a 5-day ceiling on self-hosted job execution; older or future timestamps
+// indicate a stale or corrupt start file and are omitted instead of corrupting duration metrics.
+export const MAX_DURATION_SECONDS = 5 * 24 * 60 * 60;
+export const MAX_FUTURE_SKEW_SECONDS = 60;
 
 export function sccache(text) {
   const stats = {};
@@ -33,9 +37,9 @@ export function record(environment, now = new Date()) {
   if (!["build", "test", "deploy"].includes(type)) throw new Error("task-type must be build, test or deploy");
   const task = input("task");
   if (!/^[A-Za-z0-9][A-Za-z0-9 ._:/-]{0,79}$/.test(task)) throw new Error("task must be a short plain name");
-  const server = environment.GITHUB_SERVER_URL ?? "https://github.com";
-  const repository = environment.GITHUB_REPOSITORY ?? "";
-  const run = environment.GITHUB_RUN_ID ?? "";
+  const server = (environment.GITHUB_SERVER_URL ?? "https://github.com").replace(/\/+$/, "");
+  const repository = (environment.GITHUB_REPOSITORY ?? "").trim();
+  const run = (environment.GITHUB_RUN_ID ?? "").trim();
   const document = {
     timestamp: now.toISOString(),
     severity: status === "success" ? "INFO" : "ERROR",
@@ -43,13 +47,13 @@ export function record(environment, now = new Date()) {
     "service.name": "nddev-ci",
     "cicd.pipeline.name": environment.GITHUB_WORKFLOW ?? "",
     "cicd.pipeline.run.id": run,
-    "cicd.pipeline.run.url.full": `${server}/${repository}/actions/runs/${run}`,
+    "cicd.pipeline.run.url.full": repository && run ? `${server}/${repository}/actions/runs/${run}` : "",
     "cicd.pipeline.task.name": task,
     "cicd.pipeline.task.type": type,
     "cicd.pipeline.task.run.id": environment.GITHUB_JOB ?? "",
     "cicd.pipeline.task.run.result": results[status],
     "cicd.worker.name": environment.RUNNER_NAME ?? "",
-    "vcs.repository.url.full": `${server}/${repository}`,
+    "vcs.repository.url.full": repository ? `${server}/${repository}` : "",
     "vcs.ref.head.name": environment.GITHUB_HEAD_REF || environment.GITHUB_REF_NAME || "",
     "vcs.ref.head.revision": environment.GITHUB_SHA ?? "",
     "nddev_ci.event": environment.GITHUB_EVENT_NAME ?? "",
@@ -59,17 +63,20 @@ export function record(environment, now = new Date()) {
     "host.arch": { X64: "amd64", ARM64: "arm64" }[environment.RUNNER_ARCH] ?? os.arch(),
   };
   const layer = input("failure-layer");
-  if (layer !== "" && !["project", "library"].includes(layer))
-    throw new Error("failure-layer must be project or library");
+  if (layer !== "" && !["project", "library", "upstream"].includes(layer))
+    throw new Error("failure-layer must be project, library or upstream");
   const explicitReason = input("failure-reason");
   if (explicitReason !== "" && !failureReasonPattern.test(explicitReason))
     throw new Error("failure-reason must be a short plain reason code");
   if (status === "failure") {
     const runnerReason = input("runner-reason");
-    const attributed = runnerFailureReasons.has(runnerReason);
-    if (attributed) {
+    const upstreamReason = input("upstream-reason");
+    if (runnerFailureReasons.has(runnerReason)) {
       document["nddev_ci.failure.layer"] = "runner";
       document["nddev_ci.failure.reason"] = runnerReason;
+    } else if (upstreamFailureReasons.has(upstreamReason)) {
+      document["nddev_ci.failure.layer"] = "upstream";
+      document["nddev_ci.failure.reason"] = upstreamReason;
     } else {
       if (layer !== "") document["nddev_ci.failure.layer"] = layer;
       document["nddev_ci.failure.reason"] =
@@ -88,15 +95,32 @@ export function record(environment, now = new Date()) {
       throw new Error("NDDEV_CI_QUEUE_SECONDS must be a measured nonnegative number");
     document["nddev_ci.queue_seconds"] = Number(queued);
   }
-  if (started && existsSync(started)) {
-    const seconds = Number(readFileSync(started, "utf8").trim());
-    if (Number.isSafeInteger(seconds) && seconds > 0) {
-      document["nddev_ci.duration_seconds"] = Math.max(0, Math.round(now.getTime() / 1000) - seconds);
-      if (document["nddev_ci.event"] === "schedule" && document["nddev_ci.run_attempt"] === 1) {
-        const slot = dailySlot(input("schedule"), seconds * 1000);
-        if (slot !== null) {
-          document["nddev_ci.schedule.expected_at"] = new Date(slot).toISOString();
-          document["nddev_ci.schedule.job_start_delay_seconds"] = elapsedSeconds(slot, seconds * 1000);
+  if (started) {
+    let raw = "";
+    try {
+      if (existsSync(started) && lstatSync(started).isFile()) {
+        raw = readFileSync(started, "utf8").trim();
+      }
+    } catch {
+      raw = "";
+    }
+    if (/^\d+$/.test(raw)) {
+      const seconds = Number(raw);
+      const nowSeconds = Math.round(now.getTime() / 1000);
+      const delta = nowSeconds - seconds;
+      if (
+        Number.isSafeInteger(seconds) &&
+        seconds > 0 &&
+        seconds <= nowSeconds + MAX_FUTURE_SKEW_SECONDS &&
+        delta <= MAX_DURATION_SECONDS
+      ) {
+        document["nddev_ci.duration_seconds"] = Math.max(0, delta);
+        if (document["nddev_ci.event"] === "schedule" && document["nddev_ci.run_attempt"] === 1) {
+          const slot = dailySlot(input("schedule"), seconds * 1000);
+          if (slot !== null) {
+            document["nddev_ci.schedule.expected_at"] = new Date(slot).toISOString();
+            document["nddev_ci.schedule.job_start_delay_seconds"] = elapsedSeconds(slot, seconds * 1000);
+          }
         }
       }
     }
@@ -150,10 +174,10 @@ export function record(environment, now = new Date()) {
   return document;
 }
 
-export function main(environment = process.env) {
-  const document = record(environment);
+export function main(environment = process.env, { now = new Date(), log = console.log } = {}) {
+  const document = record(environment, now);
   const line = JSON.stringify(document);
-  console.log(line);
+  log(line);
   const seconds = document["nddev_ci.duration_seconds"];
   const queue = document["nddev_ci.queue_seconds"];
   const layer = document["nddev_ci.failure.layer"];
