@@ -111,7 +111,7 @@ test("shared manifests follow the repository, image, platform, target and ref ac
   } finally { rmSync(root, {recursive: true, force: true}); }
 });
 
-test("image workflow pushes zstd OCI layers and keeps managed build-only runs cache-only", () => {
+test("image workflow exports zstd OCI archive for trace checks and pushes zstd OCI layers", () => {
   const source = readFileSync(new URL("../.github/workflows/image.yml", import.meta.url), "utf8");
   const outputsLine = source.match(/outputs: >-\n\s+\$\{\{ (.+) \}\}/)?.[1];
   assert.ok(outputsLine, "image.yml outputs expression exists");
@@ -122,5 +122,7 @@ test("image workflow pushes zstd OCI layers and keeps managed build-only runs ca
   assert.equal(evaluate({event_name: "pull_request"}, {push: true}, {environment: "self-hosted"}), "type=cacheonly");
   assert.equal(evaluate({event_name: "push"}, {push: false}, {environment: "self-hosted"}), "type=cacheonly");
   assert.equal(evaluate({event_name: "pull_request"}, {push: true}, {environment: "github-hosted"}), "");
+  assert.match(source, /type=oci,dest=\$\{RUNNER_TEMP\}\/nddev-ci-image\.oci\.tar,compression=zstd,compression-level=3,force-compression=true/);
+  assert.match(source, /uses: \$\/actions\/artifact-traces/);
   assert.match(source, /type=gha,mode=max,compression=zstd,compression-level=3,force-compression=true,scope=image-\{0\}/);
 });

@@ -1,0 +1,22 @@
+name: Check artifact for AI-coding traces
+description: Reject deployed directories, tar archives and OCI image archives that contain AI-coding files, harness directories, binaries or generated signatures.
+inputs:
+  directory:
+    description: Relative or absolute path to a directory to inspect.
+    required: false
+    default: ""
+  tar:
+    description: Relative or absolute path to a tar archive (.tar, .tar.gz, .tgz, .tar.zst) to inspect.
+    required: false
+    default: ""
+  oci-archive:
+    description: Relative or absolute path to an OCI image archive to inspect.
+    required: false
+    default: ""
+  policy:
+    description: Optional path to a JSON trace policy file; defaults to the library's shared policy.
+    required: false
+    default: ""
+runs:
+  using: node24
+  main: run.mjs

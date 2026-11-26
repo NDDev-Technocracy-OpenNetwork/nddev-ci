@@ -36,6 +36,10 @@ on:
         description: Pushes outside pull requests; false only builds.
         type: boolean
         default: true
+      check-artifact-traces:
+        description: Reject AI-coding files, harness directories, binaries and generated signatures in the built image before pushing.
+        type: boolean
+        default: true
       runner:
         description: The label of our runners, used by private repositories.
         type: string
@@ -128,8 +132,55 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
+      - name: Export OCI archive for trace inspection
+        id: export
+        if: inputs.check-artifact-traces
+        env:
+          BUILDER: ${{ steps.builder.outputs.builder }}
+          CONTEXT: ${{ inputs.context }}
+          DOCKERFILE: ${{ inputs.dockerfile }}
+          TARGET: ${{ inputs.target }}
+          NETWORK: ${{ steps.builder.outputs.network }}
+          PLATFORM: ${{ steps.name.outputs.platform }}
+          INPUT_BUILD_ARGS: ${{ inputs.build-args }}
+          MIRROR_BUILD_ARGS: ${{ steps.builder.outputs.arguments }}
+          CACHE_FROM: ${{ steps.cache.outputs.from || (runner.environment == 'github-hosted' && format('type=gha,scope=image-{0}', inputs.image)) || '' }}
+          CACHE_TO: ${{ steps.cache.outputs.to || (runner.environment == 'github-hosted' && github.event_name != 'pull_request' && format('type=gha,mode=max,compression=zstd,compression-level=3,force-compression=true,scope=image-{0}', inputs.image)) || '' }}
+          IMAGE_SOURCE: ${{ github.server_url }}/${{ github.repository }}
+          IMAGE_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          args=(buildx build --builder "$BUILDER" --platform "$PLATFORM" --file "$DOCKERFILE" --provenance=mode=max --sbom=true)
+          args+=(--output "type=oci,dest=${RUNNER_TEMP}/nddev-ci-image.oci.tar,compression=zstd,compression-level=3,force-compression=true")
+          args+=(--label "org.opencontainers.image.source=${IMAGE_SOURCE}" --label "org.opencontainers.image.revision=${IMAGE_REVISION}")
+          if [ -n "$TARGET" ]; then args+=(--target "$TARGET"); fi
+          if [ -n "$NETWORK" ]; then args+=(--network "$NETWORK" --allow network.host); fi
+          for block in "$INPUT_BUILD_ARGS" "$MIRROR_BUILD_ARGS"; do
+            while IFS= read -r entry; do
+              [ -n "$entry" ] && args+=(--build-arg "$entry")
+            done <<< "$block"
+          done
+          while IFS= read -r entry; do
+            [ -n "$entry" ] && args+=(--cache-from "$entry")
+          done <<< "$CACHE_FROM"
+          if [ -n "$CACHE_TO" ]; then args+=(--cache-to "$CACHE_TO"); fi
+          args+=("$CONTEXT")
+          docker "${args[@]}"
+
+      - name: Check image artifact traces
+        id: traces
+        if: inputs.check-artifact-traces
+        uses: $/actions/artifact-traces
+        with:
+          oci-archive: ${{ runner.temp }}/nddev-ci-image.oci.tar
+
+      - name: Remove temporary image archive
+        if: always() && inputs.check-artifact-traces
+        run: rm -f -- "$RUNNER_TEMP/nddev-ci-image.oci.tar"
+
       - name: Build the image
         id: build
+        if: '!inputs.check-artifact-traces || (github.event_name != ''pull_request'' && inputs.push)'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ inputs.context }}
@@ -179,7 +230,7 @@ jobs:
           task: image ${{ inputs.image }}
           task-type: build
           status: ${{ job.status }}
-          failure-layer: ${{ job.status == 'failure' && (steps.build.outcome == 'failure' && 'project' || 'library') || '' }}
+          failure-layer: ${{ job.status == 'failure' && ((steps.export.outcome == 'failure' || steps.traces.outcome == 'failure' || steps.build.outcome == 'failure') && 'project' || 'library') || '' }}
           runner-reason: ${{ steps.builder.outputs.runner-reason }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started
