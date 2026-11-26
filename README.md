@@ -145,6 +145,12 @@ already in that branch's Git ancestry are skipped while the fork's own commits, 
 pull request text are still checked. It reads Git objects and event data without executing project code
 or requesting another permission.
 
+[artifact-traces](actions/artifact-traces/action.yml) inspects a directory, tar archive or OCI
+image archive against the shared pattern policy in `lib/client-traces-policy.json` (also used by
+the authorship check) and rejects agent instruction files, harness directories, harness binaries
+and generated signatures. `image.yml` runs this check before pushing when `check-artifact-traces`
+is enabled (the default), and `lib/images.mjs` checks every canonical OCI archive it produces.
+
 The PR merge stops scan secrets in the changed commits, dangerous workflows and newly
 introduced fixed critical dependency vulnerabilities, running the independent read-only stops
 concurrently on one Linux runner. On full Linux checkouts, `check.yml` defaults to

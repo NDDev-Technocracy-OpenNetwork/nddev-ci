@@ -36,6 +36,10 @@ on:
         description: Pushes outside pull requests; false only builds.
         type: boolean
         default: true
+      check-artifact-traces:
+        description: Reject AI-coding files, harness directories, binaries and generated signatures in the built image before pushing.
+        type: boolean
+        default: true
       runner:
         description: The label of our runners, used by private repositories.
         type: string
@@ -142,11 +146,11 @@ jobs:
           network: ${{ steps.builder.outputs.network }}
           allow: ${{ steps.builder.outputs.network != '' && 'network.host' || '' }}
           platforms: ${{ steps.name.outputs.platform }}
-          push: ${{ github.event_name != 'pull_request' && inputs.push }}
-          # Pushed images use OCI zstd layers; build-only managed runs stay cache-only so the built-in
-          # Docker builder does not load them into the host store.
+          push: ${{ !inputs.check-artifact-traces && github.event_name != 'pull_request' && inputs.push }}
+          # When trace checking is enabled, export an OCI archive first so layers are inspected
+          # before publication; otherwise push directly or stay cache-only on managed PR builds.
           outputs: >-
-            ${{ (github.event_name != 'pull_request' && inputs.push) && 'type=registry,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true' || (runner.environment == 'self-hosted' && 'type=cacheonly' || '') }}
+            ${{ inputs.check-artifact-traces && format('type=oci,dest={0}/nddev-ci-image.oci.tar,compression=zstd,compression-level=3,force-compression=true', runner.temp) || ((github.event_name != 'pull_request' && inputs.push) && 'type=registry,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true' || (runner.environment == 'self-hosted' && 'type=cacheonly' || '')) }}
           tags: ${{ steps.name.outputs.name }}:sha-${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
@@ -156,12 +160,48 @@ jobs:
           cache-from: ${{ steps.cache.outputs.from || (runner.environment == 'github-hosted' && format('type=gha,scope=image-{0}', inputs.image)) || '' }}
           cache-to: ${{ steps.cache.outputs.to || (runner.environment == 'github-hosted' && github.event_name != 'pull_request' && format('type=gha,mode=max,compression=zstd,compression-level=3,force-compression=true,scope=image-{0}', inputs.image)) || '' }}
 
+      - name: Check image artifact traces
+        id: traces
+        if: inputs.check-artifact-traces
+        uses: $/actions/artifact-traces
+        with:
+          oci-archive: ${{ runner.temp }}/nddev-ci-image.oci.tar
+
+      - name: Push verified image
+        id: push
+        if: inputs.check-artifact-traces && github.event_name != 'pull_request' && inputs.push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          target: ${{ inputs.target }}
+          builder: ${{ steps.builder.outputs.builder }}
+          build-args: |
+            ${{ inputs.build-args }}
+            ${{ steps.builder.outputs.arguments }}
+          network: ${{ steps.builder.outputs.network }}
+          allow: ${{ steps.builder.outputs.network != '' && 'network.host' || '' }}
+          platforms: ${{ steps.name.outputs.platform }}
+          push: true
+          outputs: type=registry,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true
+          tags: ${{ steps.name.outputs.name }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+          cache-from: ${{ steps.cache.outputs.from || (runner.environment == 'github-hosted' && format('type=gha,scope=image-{0}', inputs.image)) || '' }}
+
+      - name: Remove temporary image archive
+        if: always() && inputs.check-artifact-traces
+        run: rm -f -- "$RUNNER_TEMP/nddev-ci-image.oci.tar"
+
       - name: Image reference
         id: reference
         env:
           PUSHED: ${{ github.event_name != 'pull_request' && inputs.push }}
           NAME: ${{ steps.name.outputs.name }}
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ inputs.check-artifact-traces && steps.push.outputs.digest || steps.build.outputs.digest }}
         run: |
           set -euo pipefail
           if [ "$PUSHED" = true ]; then
@@ -179,7 +219,7 @@ jobs:
           task: image ${{ inputs.image }}
           task-type: build
           status: ${{ job.status }}
-          failure-layer: ${{ job.status == 'failure' && (steps.build.outcome == 'failure' && 'project' || 'library') || '' }}
+          failure-layer: ${{ job.status == 'failure' && ((steps.build.outcome == 'failure' || steps.traces.outcome == 'failure' || steps.push.outcome == 'failure') && 'project' || 'library') || '' }}
           runner-reason: ${{ steps.builder.outputs.runner-reason }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

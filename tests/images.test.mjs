@@ -111,16 +111,23 @@ test("shared manifests follow the repository, image, platform, target and ref ac
   } finally { rmSync(root, {recursive: true, force: true}); }
 });
 
-test("image workflow pushes zstd OCI layers and keeps managed build-only runs cache-only", () => {
+test("image workflow exports zstd OCI archive for trace checks and pushes zstd OCI layers", () => {
   const source = readFileSync(new URL("../.github/workflows/image.yml", import.meta.url), "utf8");
   const outputsLine = source.match(/outputs: >-\n\s+\$\{\{ (.+) \}\}/)?.[1];
   assert.ok(outputsLine, "image.yml outputs expression exists");
-  const evaluate = (github, inputs, runner) => runInNewContext(outputsLine, {github, inputs, runner});
+  const expr = outputsLine.replaceAll("inputs.check-artifact-traces", "inputs.checkArtifactTraces");
+  const format = (template, value) => template.replace("{0}", value);
+  const evaluate = (github, inputs, runner) => runInNewContext(expr, {github, inputs, runner, format});
   const zstdRegistry = "type=registry,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true";
-  assert.equal(evaluate({event_name: "push"}, {push: true}, {environment: "self-hosted"}), zstdRegistry);
-  assert.equal(evaluate({event_name: "push"}, {push: true}, {environment: "github-hosted"}), zstdRegistry);
-  assert.equal(evaluate({event_name: "pull_request"}, {push: true}, {environment: "self-hosted"}), "type=cacheonly");
-  assert.equal(evaluate({event_name: "push"}, {push: false}, {environment: "self-hosted"}), "type=cacheonly");
-  assert.equal(evaluate({event_name: "pull_request"}, {push: true}, {environment: "github-hosted"}), "");
+  const zstdOci = "type=oci,dest=/tmp/run/nddev-ci-image.oci.tar,compression=zstd,compression-level=3,force-compression=true";
+  assert.equal(evaluate({event_name: "push"}, {push: true, checkArtifactTraces: true}, {environment: "self-hosted", temp: "/tmp/run"}), zstdOci);
+  assert.equal(evaluate({event_name: "pull_request"}, {push: true, checkArtifactTraces: true}, {environment: "github-hosted", temp: "/tmp/run"}), zstdOci);
+  assert.equal(evaluate({event_name: "push"}, {push: true, checkArtifactTraces: false}, {environment: "self-hosted"}), zstdRegistry);
+  assert.equal(evaluate({event_name: "push"}, {push: true, checkArtifactTraces: false}, {environment: "github-hosted"}), zstdRegistry);
+  assert.equal(evaluate({event_name: "pull_request"}, {push: true, checkArtifactTraces: false}, {environment: "self-hosted"}), "type=cacheonly");
+  assert.equal(evaluate({event_name: "push"}, {push: false, checkArtifactTraces: false}, {environment: "self-hosted"}), "type=cacheonly");
+  assert.equal(evaluate({event_name: "pull_request"}, {push: true, checkArtifactTraces: false}, {environment: "github-hosted"}), "");
+  assert.match(source, /outputs: type=registry,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true/);
+  assert.match(source, /uses: \$\/actions\/artifact-traces/);
   assert.match(source, /type=gha,mode=max,compression=zstd,compression-level=3,force-compression=true,scope=image-\{0\}/);
 });

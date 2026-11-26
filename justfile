@@ -75,6 +75,10 @@ check: (_tools "check") scan-source-secrets
     node --check lib/read-token.mjs
     node --check actions/read-token/run.mjs
     node --check tests/read-token.test.mjs
+    node --check lib/artifact-traces.mjs
+    node --check actions/artifact-traces/run.mjs
+    node --check tests/artifact-traces.test.mjs
+    node -e 'import("./lib/artifact-traces.mjs").then((m) => m.loadPolicy())'
     node --check lib/authorship.mjs
     node --check actions/authorship/run.mjs
     node --check tests/authorship.test.mjs
