@@ -23,8 +23,8 @@ function run(cwd, args, env = {}) {
 }
 
 // A repository that serves partial clones, with a pull request of two commits beside a base
-// that moved on, and a checkout of the proposed merge that holds the history without contents.
-function fixture(body, { sparse = false } = {}) {
+// that moved on, and a checkout of the proposed merge.
+function fixture(body, { sparse = false, cloneArgs = ["--filter=blob:none"] } = {}) {
 	const root = mkdtempSync(path.join(tmpdir(), "ci-change-objects-"));
 	const origin = path.join(root, "origin");
 	const checkout = path.join(root, "checkout");
@@ -48,7 +48,7 @@ function fixture(body, { sparse = false } = {}) {
 		mkdirSync(path.join(origin, ".github/workflows"), { recursive: true });
 		mkdirSync(path.join(origin, "retained"));
 		mkdirSync(path.join(origin, "project"));
-		commit({
+		const rootCommit = commit({
 			"kept.txt": "kept\n",
 			".betterleaks.toml": "[extend]\nuseDefault = true\n",
 			"committed.toml": "subject_length = 72\n",
@@ -72,7 +72,7 @@ function fixture(body, { sparse = false } = {}) {
 		const clone = run(root, [
 			"clone",
 			"--quiet",
-			"--filter=blob:none",
+			...cloneArgs,
 			"--no-checkout",
 			pathToFileURL(origin).href,
 			checkout,
@@ -88,7 +88,7 @@ function fixture(body, { sparse = false } = {}) {
 		assert.equal(out.status, 0, out.stderr);
 		body({
 			checkout,
-			revisions: { base, head, merge },
+			revisions: { root: rootCommit, base, head, merge },
 			retained: git("rev-parse", `${merge}:retained/opaque.bin`),
 		});
 	} finally {
@@ -147,11 +147,51 @@ test("sparse merge stops leave unchanged payloads outside the worktree and objec
 	}, { sparse: true });
 });
 
+test("completeTree skips fetching and preserves history on a full checkout", () => {
+	fixture(({ checkout, revisions }) => {
+		const offline = { GIT_NO_LAZY_FETCH: "1" };
+		assert.equal(run(checkout, ["remote", "set-url", "origin", "file:///nonexistent"]).status, 0);
+		fetch(checkout, [revisions.base, revisions.head], { completeTree: true });
+		assert.equal(run(checkout, ["rev-parse", "--is-shallow-repository"]).stdout.trim(), "false");
+		assert.equal(run(checkout, ["merge-base", "--is-ancestor", revisions.root, revisions.merge]).status, 0);
+		assert.equal(run(checkout, ["show", `${revisions.base}:base.txt`], offline).stdout, "base 2\n");
+	}, { cloneArgs: [] });
+});
+
+test("completeTree fetches missing blobs and trees without creating a shallow boundary", () => {
+	for (const filter of ["--filter=blob:none", "--filter=tree:0"]) {
+		fixture(({ checkout, revisions }) => {
+			const offline = { GIT_NO_LAZY_FETCH: "1" };
+			assert.notEqual(run(checkout, ["show", `${revisions.base}:change.txt`], offline).status, 0);
+			fetch(checkout, [revisions.base, revisions.head], { completeTree: true });
+			assert.equal(run(checkout, ["rev-parse", "--is-shallow-repository"]).stdout.trim(), "false");
+			assert.equal(run(checkout, ["merge-base", "--is-ancestor", revisions.root, revisions.merge]).status, 0);
+			assert.equal(run(checkout, ["show", `${revisions.base}:change.txt`], offline).stdout, "change 1\n");
+			assert.equal(run(checkout, ["show", `${revisions.head}:change.txt`], offline).stdout, "change 3\n");
+		}, { cloneArgs: [filter] });
+	}
+});
+
+test("completeTree falls back to a depth-1 fetch when the commit is absent locally", () => {
+	fixture(({ checkout, revisions }) => {
+		const offline = { GIT_NO_LAZY_FETCH: "1" };
+		assert.notEqual(run(checkout, ["cat-file", "-e", `${revisions.base}^{commit}`], offline).status, 0);
+		fetch(checkout, [revisions.base], { completeTree: true });
+		assert.equal(run(checkout, ["cat-file", "-e", `${revisions.base}^{commit}`], offline).status, 0);
+		assert.equal(run(checkout, ["show", `${revisions.base}:base.txt`], offline).stdout, "base 2\n");
+		assert.equal(run(checkout, ["show", `${revisions.base}:change.txt`], offline).stdout, "change 1\n");
+	}, { cloneArgs: ["--depth=1", "--no-single-branch"] });
+});
+
 test("a commit identity that is not exact is refused", () => {
 	fixture(({ checkout, revisions }) => {
 		assert.throws(
 			() => missing(checkout, { ...revisions, head: "change" }),
 			/exact Git commit identities/,
+		);
+		assert.throws(
+			() => fetch(checkout, ["--upload-pack=evil"], { completeTree: true }),
+			/exact Git object identities/,
 		);
 		assert.throws(
 			() => fetch(checkout, ["0".repeat(40)], { server: "http://example.invalid", token: "t" }),
