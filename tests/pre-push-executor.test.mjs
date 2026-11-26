@@ -201,8 +201,7 @@ test("managed push waits only for an admission refusal and keeps the same transf
       "#!/bin/sh",
       "IFS= read -r request || exit 2",
       'printf "%s\\n" "$request" >> "$TEST_ATTEMPTS"',
-      'if [ "$TEST_REJECTION" = "always" ] ||',
-      '   { [ "$TEST_REJECTION" = "once" ] && [ "$(wc -l < "$TEST_ATTEMPTS")" -eq 1 ]; }; then',
+      'if [ "$TEST_REJECTION" = "busy" ] && [ "$(wc -l < "$TEST_ATTEMPTS")" -le 2 ]; then',
       '    printf "%s\\n" "no managed pre-push slot is available" >&2',
       "    exit 1",
       "fi",
@@ -224,25 +223,21 @@ test("managed push waits only for an admission refusal and keeps the same transf
       });
     };
     const claims = () => readFileSync(attempts, "utf8").trim().split("\n").map(JSON.parse);
-    const retried = send("once");
-    assert.equal(retried.status, 0, retried.stderr);
-    assert.match(retried.stderr, /Waiting up to 120 seconds/);
-    assert.equal(claims().length, 2);
-    assert.deepEqual(...claims());
-
-    const failed = send("build");
-    assert.equal(failed.status, 1);
-    assert.doesNotMatch(failed.stderr, /Waiting up to/);
-    assert.equal(claims().length, 1);
-
     const clock = path.join(directory, "clock.mjs");
     writeFileSync(clock, [
       "let reads = 0;",
-      'Object.defineProperty(performance, "now", { value: () => reads++ === 0 ? 0 : 120001 });',
+      'Object.defineProperty(performance, "now", { value: () => reads++ === 0 ? 0 : 121000 });',
     ].join("\n"));
-    const timedOut = send("always", { NODE_OPTIONS: "--import " + clock });
-    assert.equal(timedOut.status, 1);
-    assert.match(timedOut.stderr, /No managed pre-push slot became available on build-test within 120 seconds/);
+    const retried = send("busy", { NODE_OPTIONS: "--import " + clock });
+    assert.equal(retried.status, 0, retried.stderr);
+    assert.match(retried.stderr, /Waiting for a managed pre-push slot on build-test/);
+    assert.match(retried.stderr, /Still waiting .* after 121 seconds/);
+    assert.equal(claims().length, 3);
+    assert.deepEqual(claims(), Array(3).fill(claims()[0]));
+
+    const failed = send("build");
+    assert.equal(failed.status, 1);
+    assert.doesNotMatch(failed.stderr, /Waiting for a managed pre-push slot/);
     assert.equal(claims().length, 1);
     assert.equal(git("for-each-ref", "refs/contour/pre-push"), "");
   } finally {
