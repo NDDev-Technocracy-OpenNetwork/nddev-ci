@@ -129,6 +129,11 @@ async function runRelease(env) {
   const [code] = await once(child, "close");
   return {code, output};
 }
+async function refuseRelease(env, reason) {
+  const {code, output} = await runRelease(env);
+  assert.equal(code, 1, output); assert.match(output, reason);
+  assert.equal(existsSync(env.GITHUB_OUTPUT), false, "a refused release emits no outputs");
+}
 
 test("mutable status reads revalidate a cached success after a newer failure", async () => {
   let state = "success", id = 1, cached;
@@ -350,13 +355,11 @@ test("a permanent API error fails the release at once with its cause", async () 
   let requests = 0;
   const api = await listen((req, res) => { requests++; res.writeHead(404).end(); });
   try {
-    const {code, output} = await runRelease({
+    await refuseRelease({
       GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: root,
       GITHUB_API_URL: api.url, "INPUT_API-URL": api.url, "INPUT_GITHUB-TOKEN": "opaque-credential-fixture",
-      "INPUT_WAIT-MINUTES": "0", GITHUB_OUTPUT: path.join(root, "outputs")});
-    assert.equal(code, 1, output); assert.equal(requests, 1);
-    assert.match(output, /HTTP 404/);
-    assert.equal(existsSync(path.join(root, "outputs")), false);
+      "INPUT_WAIT-MINUTES": "0", GITHUB_OUTPUT: path.join(root, "outputs")}, /HTTP 404/);
+    assert.equal(requests, 1);
   } finally { await close(api.server); rmSync(root, {recursive: true, force: true}); }
 });
 
@@ -536,10 +539,8 @@ for (const variant of ["failed", "replaced", "foreign", "duplicate"])
       assert.ok(secondaryReads > 0, "the negative case must reach required workflow qualification");
       if (variant === "replaced") assert.ok(secondaryReads > 1, "the newer attempt must be rechecked");
       secondaryReads = 0;
-      const {code, output} = await runRelease({...env, GITHUB_OUTPUT: path.join(root, "outputs")});
+      await refuseRelease({...env, GITHUB_OUTPUT: path.join(root, "outputs")}, /No qualification|same run identity/);
       assert.equal(writes, 0, "required workflows must stop the first publication mutation");
-      assert.equal(code, 1, output);assert.match(output, /No qualification|same run identity/);
-      assert.equal(existsSync(path.join(root, "outputs")), false);
     } finally {await close(api.server);rmSync(root, {recursive: true, force: true});}
   });
 
