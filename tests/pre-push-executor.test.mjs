@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const cli = fileURLToPath(new URL("../tools/verify-before-push.mjs", import.meta.url));
 
@@ -77,14 +77,14 @@ test("managed push transfers one exact standalone source and binds its registry 
     ].join("\n"), { mode: 0o700 });
     environment.TEST_REGISTRY = snapshot;
 
-    const send = () => spawnSync(process.execPath, [
+    const send = (candidate = tip) => spawnSync(process.execPath, [
       cli, "--send-managed", "build-test", "/trusted/build-check", "example/project", lock, resolver,
     ], {
       cwd: source, env: environment, encoding: "utf8",
       input: [
-        "HEAD " + tip + " refs/heads/one " + "0".repeat(40),
-        "HEAD " + tip + " refs/heads/two " + "0".repeat(40),
-        "HEAD " + tip + " refs/tags/same " + "0".repeat(40),
+        "HEAD " + candidate + " refs/heads/one " + "0".repeat(40),
+        "HEAD " + candidate + " refs/heads/two " + "0".repeat(40),
+        "HEAD " + candidate + " refs/tags/same " + "0".repeat(40),
         "",
       ].join("\n"),
     });
@@ -117,9 +117,9 @@ test("managed push transfers one exact standalone source and binds its registry 
       NDDEV_CI_PRE_PUSH_REGISTRY_SHA256: digest,
       NDDEV_CI_REGISTRY_SNAPSHOT: snapshot,
     };
-    const run = (selected, env) => spawnSync(process.execPath, [
-      cli, "--receive", "example/project", selected, ref, "none",
-    ], { cwd: receiver, env, encoding: "utf8", input: gitBundle });
+    const run = (selected, env, transferRef = ref, input = gitBundle) => spawnSync(process.execPath, [
+      cli, "--receive", "example/project", selected, transferRef, "none",
+    ], { cwd: receiver, env, encoding: "utf8", input });
     const wrongSource = run("b".repeat(40), admission);
     assert.equal(wrongSource.status, 1);
     assert.match(wrongSource.stderr, /transferred source does not match/);
@@ -137,6 +137,34 @@ test("managed push transfers one exact standalone source and binds its registry 
     assert.equal(rejected.status, 1);
     assert.match(rejected.stderr, /differs from the selected source/);
     assert.deepEqual(readFileSync(argumentsFile, "utf8").trim().split("\n"), argv);
+
+    writeFileSync(snapshot, bytes);
+    const published = path.join(temporary, "published.git");
+    execFileSync("git", ["clone", "--quiet", "--bare", source, published], { env: environment });
+    git("remote", "add", "published", "git@github.com:example/project.git");
+    git("update-ref", "refs/remotes/published/dev", tip);
+    writeFileSync(path.join(source, "candidate.txt"), "unpublished source");
+    git("add", "candidate.txt");
+    git("commit", "--quiet", "-m", "unpublished");
+    const incrementalTip = git("rev-parse", "HEAD");
+
+    const incremental = send(incrementalTip);
+    assert.equal(incremental.status, 0, incremental.stderr);
+    const newFrame = readFileSync(bundle);
+    const separator = newFrame.indexOf(10);
+    const nextRequest = JSON.parse(newFrame.subarray(0, separator));
+    const incrementalBundle = newFrame.subarray(separator + 1 + bytes.length);
+    const headerEnd = incrementalBundle.indexOf("\n\n");
+    assert.ok(headerEnd > 0);
+    assert.match(incrementalBundle.subarray(0, headerEnd).toString(), new RegExp("\\n-" + tip + " "));
+    const received = run(incrementalTip, {
+      ...admission,
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "url." + pathToFileURL(published).href + ".insteadOf",
+      GIT_CONFIG_VALUE_0: "git@github.com:example/project.git",
+    }, nextRequest.transfer_ref, incrementalBundle);
+    assert.equal(received.status, 0, received.stderr);
+    assert.deepEqual(readdirSync(receiver), []);
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }
