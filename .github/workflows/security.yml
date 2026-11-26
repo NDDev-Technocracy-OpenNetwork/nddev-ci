@@ -93,7 +93,17 @@ jobs:
           fi
           [ "$RUNNER_OS" = Linux ] || { echo "::error::the daily scan runs on Linux runners"; exit 1; }
           case "$(uname -m)" in x86_64 | aarch64 | arm64) ;; *) echo "::error::the daily scan supports Linux x64 and ARM64"; exit 1 ;; esac
+          case "${RUNNER_TEMP:-}" in
+            '' | *$'\n'* | *$'\r'*) echo "::error::RUNNER_TEMP must be an absolute single-line path"; exit 1 ;;
+            /*) ;;
+            *) echo "::error::RUNNER_TEMP must be an absolute single-line path"; exit 1 ;;
+          esac
           date +%s > "$RUNNER_TEMP/nddev-ci-started"
+          # Route scanner scratch files through RUNNER_TEMP so clones and archives stay off /tmp.
+          tmp="$RUNNER_TEMP/security/tmp"
+          mkdir -p "$tmp"
+          chmod 0700 "$tmp"
+          printf 'TMPDIR=%s\nTEMP=%s\nTMP=%s\n' "$tmp" "$tmp" "$tmp" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

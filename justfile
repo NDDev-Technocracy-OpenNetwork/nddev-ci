@@ -108,6 +108,7 @@ check: (_tools "check") scan-source-secrets
     node --check lib/security-policy.mjs
     node --check tests/license-policy.test.mjs
     node --check tests/security-report.test.mjs
+    node --check tests/security-tmpdir.test.mjs
     node --check tests/portable-recipe.test.mjs
     node --check tests/release-assets.test.mjs
     node --check tests/windows-archive.test.mjs
