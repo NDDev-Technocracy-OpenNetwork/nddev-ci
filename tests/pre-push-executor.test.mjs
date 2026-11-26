@@ -171,18 +171,27 @@ test("managed push transfers one exact standalone source and binds its registry 
 });
 
 
-test("managed push waits only for an admission refusal and keeps the same transfer identity", {
+test("managed push waits only for an admission refusal and resends one bundle with capped backoff", {
   skip: process.platform !== "linux",
 }, () => {
   const directory = mkdtempSync(path.join(tmpdir(), "pre-push-slot-"));
   const bin = path.join(directory, "bin");
   const attempts = path.join(directory, "attempts");
+  const packs = path.join(directory, "packs");
+  const digests = path.join(directory, "digests");
+  const delays = path.join(directory, "delays");
+  const temporary = path.join(directory, "tmp");
   const environment = {
     ...process.env,
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_SYSTEM: "/dev/null",
     PATH: bin + path.delimiter + process.env.PATH,
     TEST_ATTEMPTS: attempts,
+    TEST_GIT: execFileSync("which", ["git"], { encoding: "utf8" }).trim(),
+    TEST_PACKS: packs,
+    TEST_DIGESTS: digests,
+    TEST_DELAYS: delays,
+    TMPDIR: temporary,
   };
   const git = (...args) => execFileSync("git", args, {
     cwd: directory, env: environment, encoding: "utf8",
@@ -190,6 +199,15 @@ test("managed push waits only for an admission refusal and keeps the same transf
 
   try {
     mkdirSync(bin);
+    mkdirSync(temporary);
+    writeFileSync(path.join(bin, "git"), [
+      "#!/bin/sh",
+      'if [ "$1" = bundle ] && [ "$2" = create ]; then',
+      '    printf "%s\\n" pack >> "$TEST_PACKS"',
+      "fi",
+      'exec "$TEST_GIT" "$@"',
+      "",
+    ].join("\n"), { mode: 0o700 });
     git("init", "--quiet", "--object-format=sha1", "--template=");
     git("config", "user.name", "Check qualification");
     git("config", "user.email", "check@example.com");
@@ -201,11 +219,11 @@ test("managed push waits only for an admission refusal and keeps the same transf
       "#!/bin/sh",
       "IFS= read -r request || exit 2",
       'printf "%s\\n" "$request" >> "$TEST_ATTEMPTS"',
-      'if [ "$TEST_REJECTION" = "busy" ] && [ "$(wc -l < "$TEST_ATTEMPTS")" -le 2 ]; then',
+      'sha256sum >> "$TEST_DIGESTS" || exit 2',
+      'if [ "$TEST_REJECTION" = "busy" ] && [ "$(wc -l < "$TEST_ATTEMPTS")" -le 7 ]; then',
       '    printf "%s\\n" "no managed pre-push slot is available" >&2',
       "    exit 1",
       "fi",
-      "cat >/dev/null",
       'if [ "$TEST_REJECTION" = "build" ]; then',
       '    printf "%s\\n" "the managed pre-push verification did not pass" >&2',
       "    exit 1",
@@ -214,7 +232,7 @@ test("managed push waits only for an admission refusal and keeps the same transf
     ].join("\n"), { mode: 0o700 });
 
     const send = (rejection, options = {}) => {
-      writeFileSync(attempts, "");
+      for (const record of [attempts, packs, digests, delays]) writeFileSync(record, "");
       return spawnSync(process.execPath, [
         cli, "--send-managed", "build-test", "/trusted/build-check", "example/project", "none", "none",
       ], {
@@ -225,20 +243,35 @@ test("managed push waits only for an admission refusal and keeps the same transf
     const claims = () => readFileSync(attempts, "utf8").trim().split("\n").map(JSON.parse);
     const clock = path.join(directory, "clock.mjs");
     writeFileSync(clock, [
-      "let reads = 0;",
-      'Object.defineProperty(performance, "now", { value: () => reads++ === 0 ? 0 : 121000 });',
+      'import { appendFileSync } from "node:fs";',
+      'import { syncBuiltinESMExports } from "node:module";',
+      'import timers from "node:timers/promises";',
+      "let elapsed = 0;",
+      "timers.setTimeout = async ms => {",
+      '  appendFileSync(process.env.TEST_DELAYS, ms + "\\n");',
+      "  elapsed += ms;",
+      "};",
+      "syncBuiltinESMExports();",
+      'Object.defineProperty(performance, "now", { value: () => elapsed });',
     ].join("\n"));
     const retried = send("busy", { NODE_OPTIONS: "--import " + clock });
     assert.equal(retried.status, 0, retried.stderr);
     assert.match(retried.stderr, /Waiting for a managed pre-push slot on build-test/);
-    assert.match(retried.stderr, /Still waiting .* after 121 seconds/);
-    assert.equal(claims().length, 3);
-    assert.deepEqual(claims(), Array(3).fill(claims()[0]));
+    assert.match(retried.stderr, /Still waiting .* after 125 seconds/);
+    assert.equal(claims().length, 8);
+    assert.deepEqual(claims(), Array(8).fill(claims()[0]));
+    assert.equal(readFileSync(packs, "utf8"), "pack\n");
+    const received = readFileSync(digests, "utf8").trim().split("\n");
+    assert.deepEqual(received, Array(8).fill(received[0]));
+    assert.deepEqual(readFileSync(delays, "utf8").trim().split("\n").map(Number),
+      [5000, 10000, 20000, 30000, 30000, 30000, 30000]);
+    assert.deepEqual(readdirSync(temporary), []);
 
     const failed = send("build");
     assert.equal(failed.status, 1);
     assert.doesNotMatch(failed.stderr, /Waiting for a managed pre-push slot/);
     assert.equal(claims().length, 1);
+    assert.deepEqual(readdirSync(temporary), []);
     assert.equal(git("for-each-ref", "refs/contour/pre-push"), "");
   } finally {
     rmSync(directory, { recursive: true, force: true });
