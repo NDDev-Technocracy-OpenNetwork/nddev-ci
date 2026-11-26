@@ -169,3 +169,83 @@ test("managed push transfers one exact standalone source and binds its registry 
     rmSync(temporary, { recursive: true, force: true });
   }
 });
+
+
+test("managed push waits only for an admission refusal and keeps the same transfer identity", {
+  skip: process.platform !== "linux",
+}, () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "pre-push-slot-"));
+  const bin = path.join(directory, "bin");
+  const attempts = path.join(directory, "attempts");
+  const environment = {
+    ...process.env,
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+    PATH: bin + path.delimiter + process.env.PATH,
+    TEST_ATTEMPTS: attempts,
+  };
+  const git = (...args) => execFileSync("git", args, {
+    cwd: directory, env: environment, encoding: "utf8",
+  }).trim();
+
+  try {
+    mkdirSync(bin);
+    git("init", "--quiet", "--object-format=sha1", "--template=");
+    git("config", "user.name", "Check qualification");
+    git("config", "user.email", "check@example.com");
+    writeFileSync(path.join(directory, "justfile"), "verify:\n    true\n");
+    git("add", "justfile");
+    git("commit", "--quiet", "-m", "candidate");
+    const tip = git("rev-parse", "HEAD");
+    writeFileSync(path.join(bin, "ssh"), [
+      "#!/bin/sh",
+      "IFS= read -r request || exit 2",
+      'printf "%s\\n" "$request" >> "$TEST_ATTEMPTS"',
+      'if [ "$TEST_REJECTION" = "always" ] ||',
+      '   { [ "$TEST_REJECTION" = "once" ] && [ "$(wc -l < "$TEST_ATTEMPTS")" -eq 1 ]; }; then',
+      '    printf "%s\\n" "no managed pre-push slot is available" >&2',
+      "    exit 1",
+      "fi",
+      "cat >/dev/null",
+      'if [ "$TEST_REJECTION" = "build" ]; then',
+      '    printf "%s\\n" "the managed pre-push verification did not pass" >&2',
+      "    exit 1",
+      "fi",
+      "",
+    ].join("\n"), { mode: 0o700 });
+
+    const send = (rejection, options = {}) => {
+      writeFileSync(attempts, "");
+      return spawnSync(process.execPath, [
+        cli, "--send-managed", "build-test", "/trusted/build-check", "example/project", "none", "none",
+      ], {
+        cwd: directory, env: { ...environment, ...options, TEST_REJECTION: rejection }, encoding: "utf8",
+        input: "HEAD " + tip + " refs/heads/candidate " + "0".repeat(40) + "\n",
+      });
+    };
+    const claims = () => readFileSync(attempts, "utf8").trim().split("\n").map(JSON.parse);
+    const retried = send("once");
+    assert.equal(retried.status, 0, retried.stderr);
+    assert.match(retried.stderr, /Waiting up to 120 seconds/);
+    assert.equal(claims().length, 2);
+    assert.deepEqual(...claims());
+
+    const failed = send("build");
+    assert.equal(failed.status, 1);
+    assert.doesNotMatch(failed.stderr, /Waiting up to/);
+    assert.equal(claims().length, 1);
+
+    const clock = path.join(directory, "clock.mjs");
+    writeFileSync(clock, [
+      "let reads = 0;",
+      'Object.defineProperty(performance, "now", { value: () => reads++ === 0 ? 0 : 120001 });',
+    ].join("\n"));
+    const timedOut = send("always", { NODE_OPTIONS: "--import " + clock });
+    assert.equal(timedOut.status, 1);
+    assert.match(timedOut.stderr, /No managed pre-push slot became available on build-test within 120 seconds/);
+    assert.equal(claims().length, 1);
+    assert.equal(git("for-each-ref", "refs/contour/pre-push"), "");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
