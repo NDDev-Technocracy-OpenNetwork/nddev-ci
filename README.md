@@ -634,8 +634,9 @@ structured `nddev_ci.job.completed` line: source commit, workflow, result, actua
 OS/architecture, duration and available compiler-cache counters. Missing measured
 queue time remains unknown. A failed job names its `failure-layer`: `project` for its
 own commands or named reports, `library` for the steps around them, or `runner` when
-preparation or a failed command reports an error tied to a declared runner resource. The
-`nddev_ci.failure.reason` field identifies the Docker, cache, network or storage symptom.
+preparation or a failed command reports an error tied to a declared runner resource. Every failed
+job also records a bounded `nddev_ci.failure.reason` code naming the failure class across all three
+layers, without raw log text or secrets.
 The runner can
 provide `NDDEV_CI_QUEUE_SECONDS` and `NDDEV_CI_TELEMETRY_FILE`; hosted jobs keep the
 record in the job log. The execution controller owns the SDK, device and generation

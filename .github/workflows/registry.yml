@@ -165,5 +165,7 @@ jobs:
           task: publish to ${{ inputs.registry }}
           task-type: deploy
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && 'library' || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.crate.outcome == 'failure' && 'crate-reproduction-failed' || steps.files.outcome == 'failure' && 'release-files-invalid' || 'registry-publish-failed') || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

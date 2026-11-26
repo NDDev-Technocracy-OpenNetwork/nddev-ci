@@ -109,8 +109,22 @@ export async function main(environment = process.env) {
   throw new Error(`Unknown OCI artifact mode: ${mode}`);
 }
 
+export function classifyOciFailure(mode, message) {
+  const text = String(message ?? "");
+  if (/too many files/i.test(text)) return "artifact-too-many-files";
+  if (/no files matched/i.test(text)) return "artifact-missing";
+  if (/exceed|oversized/i.test(text)) return "artifact-oversized";
+  if (mode === "verify") return "artifact-verify-failed";
+  if (mode === "pull") return "artifact-download-failed";
+  return "artifact-upload-failed";
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
+    const mode = (process.env.INPUT_MODE ?? "").trim() || "push";
+    writeOutputs(process.env.GITHUB_OUTPUT, {
+      "failure-reason": classifyOciFailure(mode, error.message),
+    });
     console.error(`::error::${String(error.message).replace(/[\r\n%]/g, " ")}`);
     process.exitCode = 1;
   });

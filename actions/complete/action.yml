@@ -15,6 +15,9 @@ inputs:
   project-outcome:
     description: The outcome of the project's own command steps, success or failure.
     default: ''
+  failure-reason:
+    description: A short plain failure reason code reported by an earlier failed step, if known.
+    default: ''
   runner-reason:
     description: A runner failure reason reported by a failed step, if known.
     default: ''
@@ -162,6 +165,7 @@ runs:
         status: ${{ (inputs.status == 'success' && (steps.artifact.outcome == 'failure' || steps.artifact-oci.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure')) && 'failure' || inputs.status }}
         # The project's commands or reports, or the steps around them (nddev_ci.failure.layer).
         failure-layer: ${{ (inputs.status == 'failure' || steps.artifact.outcome == 'failure' || steps.artifact-oci.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure') && ((inputs.project-outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && 'project' || 'library') || '' }}
+        failure-reason: ${{ (inputs.status == 'failure' || steps.artifact.outcome == 'failure' || steps.artifact-oci.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure') && (inputs.failure-reason || (steps.artifact-oci.outcome == 'failure' && (steps.artifact-oci.outputs.failure-reason || 'artifact-upload-failed')) || (steps.artifact.outcome == 'failure' && 'artifact-upload-failed') || ((steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && 'reports-missing') || (steps.images-cleanup.outcome == 'failure' && 'image-cleanup-failed') || (inputs.project-outcome == 'failure' && 'project-command-failed') || 'workflow-step-failed') || '' }}
         runner-reason: ${{ inputs.runner-reason }}
         check-run-id: ${{ inputs.check-run-id }}
         started-file: ${{ runner.temp }}/nddev-ci-started

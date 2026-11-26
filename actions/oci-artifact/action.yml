@@ -33,6 +33,8 @@ outputs:
     description: Full-check part label recorded in the manifest, if any.
   directory:
     description: Directory holding verified pulled files.
+  failure-reason:
+    description: Short plain reason code when artifact transfer fails.
 runs:
   using: node24
   main: run.mjs

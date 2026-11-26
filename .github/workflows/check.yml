@@ -329,6 +329,8 @@ jobs:
           task: plan the full check
           task-type: test
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && 'library' || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.plan.outcome == 'failure' && 'plan-failed' || steps.receipts.outcome == 'failure' && 'step-receipts-failed' || 'setup-failed') || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started
 
@@ -362,6 +364,7 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Receive the protected registry input
+        id: registry-input
         uses: $/actions/registry-input
         with: &registry-snapshot
           commit: ${{ inputs.registry-commit }}
@@ -371,6 +374,7 @@ jobs:
           fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
           sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
       - name: Check direct choices
+        id: registry-check
         uses: $/actions/registry-project
         with:
           base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.before }}
@@ -382,6 +386,8 @@ jobs:
           task: technology registry
           task-type: test
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && (steps.registry-check.outputs.failure-layer || 'library') || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.registry-check.outputs.failure-reason || steps.registry-input.outputs.failure-reason || 'registry-scan-failed') || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started
 
@@ -469,6 +475,7 @@ jobs:
           # jscpd:ignore-end
 
       - name: Receive the protected registry input
+        id: registry-input
         if: inputs.registry-commit != ''
         uses: $/actions/registry-input
         with: *registry-snapshot
@@ -535,6 +542,7 @@ jobs:
         with:
           status: ${{ job.status }}
           project-outcome: ${{ (steps.project.outcome == 'failure' || steps.registry-check.outputs.failure-layer == 'project' || steps.inline-stops.outputs.failure-layer == 'project') && 'failure' || steps.project.outcome }}
+          failure-reason: ${{ steps.inline-stops.outputs.failure-reason || steps.registry-check.outputs.failure-reason || steps.registry-input.outputs.failure-reason || (steps.project.outcome == 'failure' && 'project-command-failed') || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
           runner-reason: ${{ steps.setup.outputs.runner-reason || steps.project.outputs.runner-reason }}
           check-run-id: ${{ job.check_run_id }}
           task: ${{ matrix.part.task || matrix.part.label }}
@@ -582,6 +590,7 @@ jobs:
       - name: Start
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
       - name: Every part passed
+        id: parts
         env:
           RESULT: ${{ needs.check.result }}
           ALL_REUSED: ${{ needs.plan.outputs.all-reused }}
@@ -629,6 +638,8 @@ jobs:
           task: full check
           task-type: test
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && (steps.parts.outcome == 'failure' && 'project' || 'library') || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.parts.outcome == 'failure' && 'full-check-part-failed' || steps.artifact-oci.outputs.failure-reason || 'artifact-verify-failed') || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started
 

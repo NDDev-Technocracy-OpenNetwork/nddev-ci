@@ -31,6 +31,9 @@ outputs:
   failure-layer:
     description: "'project' when a merge stop judged the change; empty otherwise."
     value: ${{ steps.run.outputs.failure-layer }}
+  failure-reason:
+    description: Short plain reason code for the failing merge stop, if any.
+    value: ${{ steps.run.outputs.failure-reason }}
 runs:
   using: composite
   steps:

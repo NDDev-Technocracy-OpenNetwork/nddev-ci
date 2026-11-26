@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+record_reason() {
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    printf 'failure-reason=%s\n' "$1" >> "$GITHUB_OUTPUT"
+  fi
+}
+
 case "$OPERATION" in
 promote | merge) ;;
-*) echo '::error::The protected Git writer requires promote or merge.'; exit 2 ;;
+*) record_reason protected-git-failed; echo '::error::The protected Git writer requires promote or merge.'; exit 2 ;;
 esac
 
 if [ -z "$KEY" ]; then
+  record_reason missing-promotion-key
   case "$OPERATION" in
   promote)
     echo "::error title=Promotion needs a trusted writer::Commit $SHA passed its checks. A trusted promoter can fast-forward $TARGET to that exact commit."
@@ -32,7 +39,7 @@ fi
 
 case "$KEY" in
 *"-----END OPENSSH PRIVATE KEY-----"*) ;;
-*) echo '::error::PROMOTION_KEY holds no OpenSSH private key'; exit 1 ;;
+*) record_reason invalid-promotion-key; echo '::error::PROMOTION_KEY holds no OpenSSH private key'; exit 1 ;;
 esac
 
 known_hosts=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/github-known-hosts
@@ -47,6 +54,7 @@ network_git() {
   printf 'Starting %s git %s.\n' "$OPERATION" "$command"
   timeout --kill-after=5s 120s git "$@" || status=$?
   if [ "$status" -ne 0 ]; then
+    record_reason protected-git-failed
     echo "::error title=Protected git $command failed::Git $command exited with status $status during $OPERATION."
     return "$status"
   fi

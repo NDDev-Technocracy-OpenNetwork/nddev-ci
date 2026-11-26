@@ -63,6 +63,7 @@ jobs:
           required-checks: ${{ inputs.required-checks }}
 
       - name: Merge into the base branch
+        id: git
         if: steps.choose.outputs.state == 'ready'
         uses: $/actions/protected-git
         with:
@@ -82,5 +83,7 @@ jobs:
           task: merge
           task-type: deploy
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && 'library' || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.git.outputs.failure-reason || (steps.choose.outcome == 'failure' && 'merge-selection-failed') || 'workflow-step-failed') || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

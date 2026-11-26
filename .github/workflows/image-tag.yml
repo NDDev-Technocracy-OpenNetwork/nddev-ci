@@ -87,5 +87,7 @@ jobs:
           task: tag ${{ inputs.image }}
           task-type: deploy
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && 'library' || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.tag.outcome == 'failure' && 'image-tag-failed' || 'workflow-step-failed') || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

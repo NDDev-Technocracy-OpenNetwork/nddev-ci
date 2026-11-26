@@ -189,6 +189,7 @@ jobs:
           status: ${{ job.status }}
           check-run-id: ${{ job.check_run_id }}
           project-outcome: ${{ steps.archive.outcome }}
+          failure-reason: ${{ steps.archive.outcome == 'failure' && 'nextest-archive-failed' || steps.push-oci.outputs.failure-reason || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
           runner-reason: ${{ steps.setup.outputs.runner-reason || steps.archive.outputs.runner-reason }}
           task: nextest archive
           task-type: build
@@ -263,6 +264,7 @@ jobs:
           status: ${{ job.status }}
           check-run-id: ${{ job.check_run_id }}
           project-outcome: ${{ steps.run.outcome }}
+          failure-reason: ${{ steps.run.outcome == 'failure' && 'nextest-shard-failed' || steps.pull-oci.outputs.failure-reason || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
           runner-reason: ${{ steps.setup.outputs.runner-reason || steps.run.outputs.runner-reason }}
           task: nextest shard ${{ matrix.shard.shard }}/${{ matrix.shard.total }}
           task-type: test

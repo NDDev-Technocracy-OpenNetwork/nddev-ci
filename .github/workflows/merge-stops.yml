@@ -121,4 +121,5 @@ jobs:
           check-run-id: ${{ job.check_run_id }}
           # A stop that judged the change, or the steps around them (nddev_ci.failure.layer).
           failure-layer: ${{ job.status == 'failure' && (steps.stops.outputs.failure-layer || 'library') || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.stops.outputs.failure-reason || 'merge-stops-setup-failed') || '' }}
           started-file: ${{ runner.temp }}/nddev-ci-started
