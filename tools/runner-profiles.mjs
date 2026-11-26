@@ -56,11 +56,8 @@ function route(file, {
   // a managed runner.
   const managedRoute = recipe ? "!" + manual + " && " + managedLane : managedLane;
   const legacyImage = recipe ? publicImage : defaultImage;
-  const publicRoute = file === "check.yml" || file === "merge-stops.yml"
-    ? "(inputs['public-self-hosted-runner'] || " + publicImage + ")"
-    : publicImage;
   return [
-    "$" + "{{ !" + privateRepo + " && " + publicRoute + " || " + privateRepo + " && (" +
+    "$" + "{{ !" + privateRepo + " && " + publicImage + " || " + privateRepo + " && (" +
       scoped + " && " + image(profile) + " || " + manual + " && (" + image(profile) + " || " + legacyImage + ")",
     "|| " + managedRoute + ") || '' }}",
   ].map((line) => "      " + line).join("\n");
