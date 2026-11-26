@@ -2,9 +2,9 @@ import { appendFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { client, qualifyWorkflows, qualificationWorkflows, recheck, transferArtifacts } from "../../lib/qualification.mjs";
-import { UnversionedError } from "../../lib/release.mjs";
+import { ReleaseError, UnversionedError } from "../../lib/release.mjs";
 import { releaseVersion } from "../../lib/release-version.mjs";
-import { selectPromotion } from "../../lib/promotion.mjs";
+import { branchSha, selectPromotion } from "../../lib/promotion.mjs";
 
 export async function main(environment = process.env) {
   const input = (name) => environment[`INPUT_${name.toUpperCase()}`] || "";
@@ -12,17 +12,20 @@ export async function main(environment = process.env) {
   if (!token) throw new Error("A read token is required to choose the commit.");
   const github = client(token, environment.GITHUB_API_URL, {retryReads: true});
   const fallbackActorId = environment.NDDEV_BRANCH_FALLBACK_ACTOR_ID;
+  const source = input("source-branch") || "dev";
+  const target = input("target-branch") || "main";
+  const requestedSha = input("sha");
   const workflows = qualificationWorkflows(`.github/workflows/${input("check-workflow") || "ci.yml"}`, input("required-workflows"));
   const result = await selectPromotion(github, {
     repository: environment.GITHUB_REPOSITORY,
     workflowPath: `.github/workflows/${input("check-workflow") || "ci.yml"}`,
     requiredWorkflows: input("required-workflows"), fallbackActorId,
-    source: input("source-branch") || "dev", target: input("target-branch") || "main",
+    source, target, sha: requestedSha,
   });
   const prereleaseFile = input("prerelease-file").trim();
-  if (result.state === "ready" && (input("release-metadata") || prereleaseFile || workflows.length > 1)) {
+  if (result.state === "ready" && (input("release-metadata") || prereleaseFile || workflows.length > 1 || requestedSha)) {
     const qualifications = await qualifyWorkflows(github, {repository: environment.GITHUB_REPOSITORY,
-      sha: result.sha, workflowPath: workflows[0], branch: input("source-branch") || "dev"},
+      sha: result.sha, workflowPath: workflows[0], branch: source},
     input("required-workflows"), {waitMinutes: 0, fallbackActorId});
     if (input("release-metadata") || prereleaseFile) {
       let files = [];
@@ -54,14 +57,23 @@ export async function main(environment = process.env) {
         Object.assign(result, {state: "unversioned", reason: error.message, sha: null});
       } finally { if (parent) rmSync(parent, {recursive: true, force: true}); }
     }
-    if (result.state === "ready") await Promise.all(qualifications.map((qualified, index) =>
-      recheck(github, qualified, {fallbackActorId: index === 0 ? fallbackActorId : undefined})));
+    if (result.state === "ready") {
+      await Promise.all([
+        ...qualifications.map((qualified, index) =>
+          recheck(github, qualified, {fallbackActorId: index === 0 ? fallbackActorId : undefined})),
+        branchSha(github, environment.GITHUB_REPOSITORY, target).then((currentTarget) => {
+          if (currentTarget !== result.target_sha)
+            throw new ReleaseError(`The ${target} branch moved during promotion qualification.`);
+        }),
+      ]);
+    }
   }
   for (const {sha, state, reason} of result.skipped ?? []) console.log(`Passed over ${sha}: ${state}. ${reason}`);
   appendFileSync(environment.GITHUB_OUTPUT, `state=${result.state}\nsha=${result.sha ?? ""}\n`);
   console.log(result.state === "ready" ? `Promoting ${result.sha}, checked by run ${result.run_id}.`
     : result.state === "current" ? "Nothing new to promote."
     : result.state === "unversioned" ? `::notice::${result.reason}`
+    : requestedSha ? `Commit ${requestedSha} does not have a passed check yet.`
     : "No new commit has a passed check yet.");
   return result;
 }

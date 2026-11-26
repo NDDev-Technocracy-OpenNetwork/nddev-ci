@@ -1,5 +1,6 @@
-# Moves the target to the newest source commit whose full check passed; the push of the move starts
-# the caller's release workflow on the target. Defaults are dev to main; promotion only moves an ancestor forward. GitHub's job
+# Moves the target to the newest source commit whose full check passed, or to one exact source
+# commit when `sha` is supplied; the push of the move starts the caller's release workflow on the
+# target. Defaults are dev to main; promotion only moves an ancestor forward. GitHub's job
 # token cannot move a branch onto commits that change workflow files, so the move pushes with a
 # deploy key with write access: the caller keeps it as PROMOTION_KEY in an environment limited to
 # its dev branch and calls this workflow with `secrets: inherit`, since GitHub resolves an
@@ -18,6 +19,10 @@ on:
         description: The branch that moves forward to qualified source history.
         type: string
         default: main
+      sha:
+        description: Optional full 40-character lowercase commit SHA on the source branch to promote instead of selecting the newest qualified commit.
+        type: string
+        default: ''
       required-workflows:
         description: Additional workflow file names that must qualify the same exact source, one per line.
         type: string
@@ -100,6 +105,7 @@ jobs:
           source-branch: ${{ inputs.source-branch }}
           target-branch: ${{ inputs.target-branch }}
           prerelease-file: ${{ inputs.prerelease-file }}
+          sha: ${{ inputs.sha }}
 
       - name: Move the target forward
         id: git

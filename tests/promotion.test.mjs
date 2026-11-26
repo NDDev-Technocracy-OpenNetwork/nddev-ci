@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { main as promote } from "../actions/promote/run.mjs";
 import { comparisonPageSize, selectPromotion } from "../lib/promotion.mjs";
 import { client, qualify, recheck } from "../lib/qualification.mjs";
+import { ReleaseError } from "../lib/release.mjs";
 
 const repository = "fixture/library";
 const workflowPath = ".github/workflows/ci.yml";
@@ -347,4 +349,433 @@ test("promotion validates a commit's prerelease-file before moving main", async 
   const graduate = await runPromote("graduate");
   assert.equal(graduate.state, "ready");
   assert.equal(graduate.version, "2.0.0");
+});
+
+// Commit-DAG contract fake for exact-SHA branch and compare API interactions.
+function graphApi({parents, source, target, runs = {}, extraRuns = {}, onRoute}) {
+  const calls = [];
+  const ancestors = (start) => {
+    const order = [];
+    const seen = new Set([start]);
+    for (const queue = [start]; queue.length;) {
+      const current = queue.shift();
+      order.push(current);
+      for (const parent of parents[current] ?? []) {
+        if (!seen.has(parent)) {
+          seen.add(parent);
+          queue.push(parent);
+        }
+      }
+    }
+    return {order, set: seen};
+  };
+  const state = {source, target};
+  return {
+    calls,
+    state,
+    json: async (method, route, options = {}) => {
+      calls.push(route);
+      if (onRoute) {
+        const override = onRoute(route, state);
+        if (override !== undefined) return override;
+      }
+      if (route === `/repos/${repository}/branches/dev`) return {name: "dev", commit: {sha: state.source}};
+      if (route === `/repos/${repository}/branches/main`) return {name: "main", commit: {sha: state.target}};
+      if (route.startsWith(`/repos/${repository}/compare/`)) {
+        const url = new URL(route, "https://api.invalid");
+        const [base, head] = url.pathname.split("/compare/")[1].split("...");
+        const perPage = Number(url.searchParams.get("per_page") ?? comparisonPageSize);
+        const page = Number(url.searchParams.get("page") ?? 1);
+        if (!Object.hasOwn(parents, base) || !Object.hasOwn(parents, head)) {
+          if (options.optional) return null;
+          throw new ReleaseError("The API request failed with HTTP 404.");
+        }
+        const ancBase = ancestors(base);
+        const ancHead = ancestors(head);
+        const common = ancHead.order.filter((commit) => ancBase.set.has(commit));
+        if (!common.length) {
+          if (options.optional) return null;
+          throw new ReleaseError("The API request failed with HTTP 404.");
+        }
+        const ahead = ancHead.order.filter((commit) => !ancBase.set.has(commit)).reverse();
+        const behind = ancBase.order.filter((commit) => !ancHead.set.has(commit));
+        const mergeBase = ancHead.set.has(base) ? base : ancBase.set.has(head) ? head : common[0];
+        return {
+          ahead_by: ahead.length,
+          behind_by: behind.length,
+          total_commits: ahead.length,
+          base_commit: {sha: base},
+          merge_base_commit: {sha: mergeBase},
+          commits: ahead.slice((page - 1) * perPage, page * perPage).map((value) => ({sha: value})),
+        };
+      }
+      const url = new URL(route, "https://api.invalid");
+      const head = url.searchParams.get("head_sha");
+      const workflow = url.pathname.split("/workflows/")[1]?.split("/")[0];
+      const table = workflow === "ci.yml" ? runs : (extraRuns[workflow] ?? {});
+      const listed = (table[head] ?? []).filter((item) => !url.searchParams.has("event") || item.event === url.searchParams.get("event"));
+      return {total_count: listed.length, workflow_runs: listed};
+    },
+  };
+}
+
+test("explicit empty sha keeps branch-head promotion selection unchanged", async () => {
+  const github = api({ahead: [sha(1), sha(2), sha(3)], runs: {[sha(1)]: [run(sha(1))], [sha(3)]: [run(sha(3))]}});
+  const result = await selectPromotion(github, {repository, workflowPath, sha: ""});
+  assert.equal(result.state, "ready");
+  assert.equal(result.sha, sha(3));
+});
+
+test("malformed sha inputs are rejected before any API call", async () => {
+  const badValues = [
+    "a".repeat(7),
+    "a".repeat(39),
+    "a".repeat(41),
+    "A".repeat(40),
+    "   ",
+    ` ${sha(1)}`,
+    `${sha(1)}\n`,
+    "g".repeat(40),
+    "dev",
+    "HEAD",
+    "../dev",
+    null,
+    123,
+  ];
+  for (const value of badValues) {
+    const github = graphApi({parents: {[sha(0)]: []}, source: sha(0), target: sha(0)});
+    await assert.rejects(
+      selectPromotion(github, {repository, workflowPath, sha: value}),
+      /40-character|hexadecimal|SHA/i,
+      `value=${JSON.stringify(value)}`,
+    );
+    assert.equal(github.calls.length, 0, `no API call for malformed sha=${JSON.stringify(value)}`);
+  }
+});
+
+test("explicit sha ahead of target promotes that exact commit even when newer qualified commits exist on source", async () => {
+  const parents = {[sha(0)]: [], [sha(1)]: [sha(0)], [sha(2)]: [sha(1)], [sha(3)]: [sha(2)]};
+  const github = graphApi({
+    parents,
+    source: sha(3),
+    target: sha(0),
+    runs: {[sha(1)]: [run(sha(1))], [sha(2)]: [run(sha(2))], [sha(3)]: [run(sha(3))]},
+  });
+  const result = await selectPromotion(github, {repository, workflowPath, sha: sha(2)});
+  assert.equal(result.state, "ready");
+  assert.equal(result.sha, sha(2));
+  const workflowCalls = github.calls.filter((route) => route.includes("/actions/workflows/"));
+  assert.equal(workflowCalls.length, 1);
+  assert.ok(workflowCalls[0].includes(`head_sha=${sha(2)}`), "only the requested sha is qualified");
+});
+
+test("explicit sha equal to source head promotes directly without a source ancestry comparison", async () => {
+  const parents = {[sha(0)]: [], [sha(1)]: [sha(0)], [sha(2)]: [sha(1)]};
+  const github = graphApi({
+    parents,
+    source: sha(2),
+    target: sha(0),
+    runs: {[sha(2)]: [run(sha(2))]},
+  });
+  const result = await selectPromotion(github, {repository, workflowPath, sha: sha(2)});
+  assert.equal(result.state, "ready");
+  assert.equal(result.sha, sha(2));
+  assert.deepEqual(
+    github.calls.filter((route) => route.includes("/compare/")),
+    [`/repos/${repository}/compare/${sha(0)}...${sha(2)}?per_page=1`],
+  );
+});
+
+test("explicit sha already at or behind target is an idempotent current no-op", async () => {
+  const parents = {[sha(0)]: [], [sha(1)]: [sha(0)], [sha(2)]: [sha(1)], [sha(3)]: [sha(2)]};
+  const cases = [
+    {name: "sha equals target and source", source: sha(0), target: sha(0), requested: sha(0), compares: 0},
+    {name: "sha equals target while source is ahead", source: sha(3), target: sha(1), requested: sha(1), compares: 1},
+    {name: "sha behind target when target equals source", source: sha(2), target: sha(2), requested: sha(1), compares: 2},
+    {name: "sha behind target while source is even further ahead", source: sha(3), target: sha(2), requested: sha(1), compares: 3},
+  ];
+  for (const scenario of cases) {
+    const github = graphApi({
+      parents,
+      source: scenario.source,
+      target: scenario.target,
+      runs: {[sha(1)]: [run(sha(1))], [sha(2)]: [run(sha(2))], [sha(3)]: [run(sha(3))]},
+    });
+    const result = await selectPromotion(github, {repository, workflowPath, sha: scenario.requested});
+    assert.equal(result.state, "current", scenario.name);
+    assert.equal(result.sha, undefined, scenario.name);
+    assert.equal(github.calls.filter((route) => route.includes("/actions/workflows/")).length, 0, scenario.name);
+    assert.equal(github.calls.filter((route) => route.includes("/compare/")).length, scenario.compares, scenario.name);
+  }
+});
+
+test("explicit sha outside source or incompatible with target is refused before qualification", async () => {
+  // Linear base: 0 -> 1 -> 2 -> 3; side branch: 1 -> 4; orphan: 5; merge diamond: 0 -> 1 -> 6 (main) -> 8 (dev) with 0 -> 7 -> 8
+  const cases = [
+    {
+      name: "missing commit (404)",
+      parents: {[sha(0)]: [], [sha(1)]: [sha(0)]},
+      source: sha(1), target: sha(0), requested: sha(99), pattern: /not found|not an ancestor/i,
+    },
+    {
+      name: "orphan commit with no common history",
+      parents: {[sha(0)]: [], [sha(1)]: [sha(0)], [sha(5)]: []},
+      source: sha(1), target: sha(0), requested: sha(5), pattern: /not found|not an ancestor/i,
+    },
+    {
+      name: "commit on diverged branch not in source",
+      parents: {[sha(0)]: [], [sha(1)]: [sha(0)], [sha(2)]: [sha(1)], [sha(4)]: [sha(1)]},
+      source: sha(2), target: sha(0), requested: sha(4), pattern: /not an ancestor/i,
+    },
+    {
+      name: "commit strictly ahead of source",
+      parents: {[sha(0)]: [], [sha(1)]: [sha(0)], [sha(2)]: [sha(1)]},
+      source: sha(1), target: sha(0), requested: sha(2), pattern: /not an ancestor/i,
+    },
+    {
+      name: "target diverged from source when sha equals target",
+      parents: {[sha(0)]: [], [sha(1)]: [sha(0)], [sha(2)]: [sha(0)]},
+      source: sha(1), target: sha(2), requested: sha(2), pattern: /not an ancestor/i,
+    },
+    {
+      name: "target diverged from source when sha is behind target",
+      parents: {[sha(0)]: [], [sha(1)]: [sha(0)], [sha(2)]: [sha(0)]},
+      source: sha(1), target: sha(2), requested: sha(0), pattern: /only moves main forward/i,
+    },
+    {
+      name: "merge-diamond side-branch commit on source lacking target",
+      parents: {[sha(0)]: [], [sha(1)]: [sha(0)], [sha(6)]: [sha(1)], [sha(7)]: [sha(0)], [sha(8)]: [sha(6), sha(7)]},
+      source: sha(8), target: sha(6), requested: sha(7), pattern: /only moves main forward/i,
+    },
+  ];
+  for (const scenario of cases) {
+    const github = graphApi({
+      parents: scenario.parents,
+      source: scenario.source,
+      target: scenario.target,
+      runs: {[scenario.requested]: [run(scenario.requested)]},
+    });
+    await assert.rejects(
+      selectPromotion(github, {repository, workflowPath, sha: scenario.requested}),
+      scenario.pattern,
+      scenario.name,
+    );
+    assert.equal(github.calls.filter((route) => route.includes("/actions/workflows/")).length, 0, scenario.name);
+  }
+});
+
+test("unqualified explicit sha returns unchecked and never falls back to older or newer green commits", async (t) => {
+  const parents = {[sha(0)]: [], [sha(1)]: [sha(0)], [sha(2)]: [sha(1)], [sha(3)]: [sha(2)]};
+  for (const variant of ["missing", "pending", "failed", "required-failed"]) {
+    const primaryRuns = variant === "missing" ? []
+      : variant === "pending" ? [run(sha(2), {status: "in_progress", conclusion: null})]
+      : variant === "failed" ? [run(sha(2), {conclusion: "failure"})]
+      : [run(sha(2))];
+    const extraRuns = variant === "required-failed"
+      ? {"portable.yml": {[sha(2)]: [run(sha(2), {path: ".github/workflows/portable.yml", conclusion: "failure"})]}}
+      : {};
+    const github = graphApi({
+      parents,
+      source: sha(3),
+      target: sha(0),
+      runs: {[sha(1)]: [run(sha(1))], [sha(2)]: primaryRuns, [sha(3)]: [run(sha(3))]},
+      extraRuns,
+    });
+    const url = await listen(t, async (request, response) => {
+      const value = await github.json(request.method, request.url, {optional: true});
+      if (value === null) {
+        response.writeHead(404).end();
+        return;
+      }
+      response.end(JSON.stringify(value));
+    });
+    const dir = mkdtempSync(path.join(tmpdir(), "promotion-exact-unchecked-"));
+    t.after(() => rmSync(dir, {recursive: true, force: true}));
+    const output = path.join(dir, "output");
+    const result = await promote({
+      "INPUT_GITHUB-TOKEN": "fixture",
+      INPUT_SHA: sha(2),
+      ...(variant === "required-failed" ? {"INPUT_REQUIRED-WORKFLOWS": "portable.yml"} : {}),
+      GITHUB_API_URL: url,
+      GITHUB_REPOSITORY: repository,
+      GITHUB_OUTPUT: output,
+    });
+    assert.equal(result.state, "unchecked", variant);
+    assert.equal(result.sha, undefined, variant);
+    assert.equal(result.skipped.length, 1, variant);
+    assert.equal(result.skipped[0].sha, sha(2), variant);
+    assert.equal(readFileSync(output, "utf8"), "state=unchecked\nsha=\n", variant);
+  }
+});
+
+test("actions/promote with explicit sha enforces metadata, prerelease and recheck while preserving sha when source advances", async (t) => {
+  const parents = {[sha(0)]: [], [sha(1)]: [sha(0)], [sha(2)]: [sha(1)], [sha(3)]: [sha(2)]};
+  const targetCommit = sha(2);
+  const newerCommit = sha(3);
+  const dir = mkdtempSync(path.join(tmpdir(), "promotion-exact-gates-"));
+  t.after(() => rmSync(dir, {recursive: true, force: true}));
+  const archive = path.join(dir, "build.zip");
+  const metadata = {schema_version: 1, source_commit: targetCommit, version: "2.1.0"};
+  execFileSync("python3", [
+    "-I", "-c",
+    "import sys,stat,zipfile; z=zipfile.ZipFile(sys.argv[1],'w'); i=zipfile.ZipInfo('linux.json'); i.external_attr=(stat.S_IFREG|0o644)<<16; z.writestr(i,sys.argv[2]); z.close()",
+    archive, JSON.stringify(metadata),
+  ]);
+  const bytes = readFileSync(archive);
+  const digest = createHash("sha256").update(bytes).digest("hex");
+
+  for (const mode of ["source-advances", "target-moves", "check-replaced"]) {
+    const primary = run(targetCommit);
+    const secondary = run(targetCommit, {path: ".github/workflows/portable.yml"});
+    let secondaryCalls = 0;
+    let artifactFetched = false;
+    const github = graphApi({
+      parents,
+      source: targetCommit,
+      target: sha(0),
+      runs: {[targetCommit]: [primary], [newerCommit]: [run(newerCommit)]},
+      extraRuns: {"portable.yml": {[targetCommit]: [secondary], [newerCommit]: [run(newerCommit, {path: ".github/workflows/portable.yml"})]}},
+    });
+    const prereleaseRefs = [];
+    const url = await listen(t, async (request, response) => {
+      if (request.url.startsWith(`/repos/${repository}/actions/runs/${primary.id}/artifacts?`)) {
+        return response.end(JSON.stringify({
+          total_count: 1,
+          artifacts: [{
+            id: 9,
+            name: "build",
+            size_in_bytes: bytes.length,
+            digest: `sha256:${digest}`,
+            expired: false,
+            created_at: started,
+            expires_at: new Date(Date.now() + 600000).toISOString(),
+            workflow_run: {id: primary.id, head_sha: targetCommit, head_branch: "dev"},
+          }],
+        }));
+      }
+      if (request.url === `/repos/${repository}/actions/artifacts/9/zip`) {
+        artifactFetched = true;
+        // Mutate branch or check state mid-qualification to test recheck boundaries.
+        if (mode === "source-advances") github.state.source = newerCommit;
+        if (mode === "target-moves") github.state.target = sha(1);
+        return response.end(bytes);
+      }
+      if (request.url.startsWith(`/repos/${repository}/contents/.github/prerelease?ref=`)) {
+        prereleaseRefs.push(new URL(request.url, "https://api.invalid").searchParams.get("ref"));
+        const buf = Buffer.from("2.1.0-rc\n");
+        return response.end(JSON.stringify({
+          type: "file", path: ".github/prerelease", encoding: "base64",
+          size: buf.length, content: buf.toString("base64"),
+        }));
+      }
+      if (request.url === `/repos/${repository}/git/matching-refs/tags/v`) return response.end(JSON.stringify([]));
+      if (request.url.includes("/workflows/portable.yml/")) {
+        secondaryCalls++;
+        if (mode === "check-replaced" && artifactFetched) {
+          return response.end(JSON.stringify({
+            total_count: 2,
+            workflow_runs: [secondary, {...secondary, run_attempt: 2, conclusion: "failure"}],
+          }));
+        }
+      }
+      const value = await github.json(request.method, request.url, {optional: true});
+      if (value === null) {
+        response.writeHead(404).end();
+        return;
+      }
+      response.end(JSON.stringify(value));
+    });
+
+    const out = path.join(dir, `out-${mode}`);
+    const env = {
+      "INPUT_GITHUB-TOKEN": "fixture",
+      INPUT_SHA: targetCommit,
+      "INPUT_REQUIRED-WORKFLOWS": "portable.yml",
+      INPUT_ARTIFACTS: "build",
+      "INPUT_RELEASE-METADATA": "linux.json",
+      "INPUT_PRERELEASE-FILE": ".github/prerelease",
+      RUNNER_TEMP: dir,
+      GITHUB_API_URL: url,
+      GITHUB_REPOSITORY: repository,
+      GITHUB_OUTPUT: out,
+    };
+    if (mode === "source-advances") {
+      const result = await promote(env);
+      assert.equal(result.state, "ready");
+      assert.equal(result.sha, targetCommit);
+      assert.equal(result.version, "2.1.0-rc.1");
+      assert.equal(readFileSync(out, "utf8"), `state=ready\nsha=${targetCommit}\n`);
+      assert.deepEqual(prereleaseRefs, [targetCommit]);
+      assert.ok(secondaryCalls >= 3, "select, qualify and recheck all inspect required workflow");
+    } else if (mode === "target-moves") {
+      await assert.rejects(promote(env), /moved during promotion qualification/i);
+      assert.equal(existsSync(out), false, "moving target blocks emitting ready output");
+    } else {
+      await assert.rejects(promote(env), /No qualification|replaced/i);
+      assert.equal(existsSync(out), false, "replaced check blocks emitting ready output");
+    }
+  }
+});
+
+test("actions/promote with explicit sha rechecks single-workflow runs and rejects malformed INPUT_SHA", async (t) => {
+  const parents = {[sha(0)]: [], [sha(1)]: [sha(0)], [sha(2)]: [sha(1)], [sha(3)]: [sha(2)]};
+  const targetCommit = sha(2);
+  const newerCommit = sha(3);
+  const dir = mkdtempSync(path.join(tmpdir(), "promotion-exact-single-"));
+  t.after(() => rmSync(dir, {recursive: true, force: true}));
+
+  for (const mode of ["source-advances", "target-moves", "check-replaced", "whitespace-sha"]) {
+    const primary = run(targetCommit);
+    let primaryReads = 0;
+    const github = graphApi({
+      parents,
+      source: targetCommit,
+      target: sha(0),
+      runs: {[targetCommit]: [primary], [newerCommit]: [run(newerCommit)]},
+    });
+    const url = await listen(t, async (request, response) => {
+      if (request.url.includes("/workflows/ci.yml/")) {
+        primaryReads++;
+        if (primaryReads === 2 && mode === "source-advances") github.state.source = newerCommit;
+        if (primaryReads === 2 && mode === "target-moves") github.state.target = sha(1);
+        if (primaryReads >= 3 && mode === "check-replaced") {
+          return response.end(JSON.stringify({
+            total_count: 2,
+            workflow_runs: [primary, {...primary, run_attempt: 2, conclusion: "failure"}],
+          }));
+        }
+      }
+      const value = await github.json(request.method, request.url, {optional: true});
+      if (value === null) {
+        response.writeHead(404).end();
+        return;
+      }
+      response.end(JSON.stringify(value));
+    });
+    const out = path.join(dir, `single-${mode}`);
+    const env = {
+      "INPUT_GITHUB-TOKEN": "fixture",
+      INPUT_SHA: mode === "whitespace-sha" ? "   " : targetCommit,
+      GITHUB_API_URL: url,
+      GITHUB_REPOSITORY: repository,
+      GITHUB_OUTPUT: out,
+    };
+    if (mode === "source-advances") {
+      const result = await promote(env);
+      assert.equal(result.state, "ready");
+      assert.equal(result.sha, targetCommit);
+      assert.equal(readFileSync(out, "utf8"), `state=ready\nsha=${targetCommit}\n`);
+      assert.equal(primaryReads, 3, "select, qualify and recheck all run for explicit sha");
+    } else if (mode === "target-moves") {
+      await assert.rejects(promote(env), /moved during promotion qualification/i);
+      assert.equal(existsSync(out), false);
+    } else if (mode === "check-replaced") {
+      await assert.rejects(promote(env), /No qualification|replaced/i);
+      assert.equal(existsSync(out), false);
+    } else {
+      await assert.rejects(promote(env), /40-character|hexadecimal|SHA/i);
+      assert.equal(existsSync(out), false);
+      assert.equal(github.calls.length, 0);
+    }
+  }
 });

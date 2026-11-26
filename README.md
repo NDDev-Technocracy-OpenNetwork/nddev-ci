@@ -658,6 +658,17 @@ newest full check on a push passed. The move is a push, so a release workflow th
 commit whose check failed or still runs waits for the next promotion. It never moves `main`
 backward or sideways: when `main` holds a commit `dev` lacks, it stops.
 
+Pass optional `sha` (a full 40-character lowercase commit SHA) to pin promotion to one exact commit
+on `source-branch` instead of selecting the newest qualified commit. Use it when a preceding job
+validates one commit before calling `promote.yml`, so a newer commit pushed to `source-branch` in
+between cannot be promoted instead. Promotion verifies that `sha` is an ancestor of (or equal to)
+`source-branch` and strictly ahead of `target-branch`, runs the same workflow qualification,
+`required-workflows`, `release-metadata`, `prerelease-file` and `recheck` gates on that exact
+commit, and fast-forwards `target-branch` to `sha` only. If `sha` is already at or behind a
+non-diverged `target-branch`, promotion ends as `current` without rewinding or advancing past it.
+If `sha` is not qualified yet, promotion ends as `unchecked` without falling back to another commit.
+Malformed, unreachable or non-fast-forward values fail before any branch write.
+
 Promotion, publication, `qualify`, `checked-artifacts` and `require-status` retry transient
 GitHub API read failures, a dropped or timed-out connection or a 502, 503 or 504 without
 `Retry-After`, up to three attempts within the request's time limit. Reads of checked artifact
