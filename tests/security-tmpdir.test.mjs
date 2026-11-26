@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -207,34 +208,10 @@ process.stdout.write(JSON.stringify({ results: [] }));
   }
 });
 
-const grypeRegistry = `
-const http = require("node:http");
-const crypto = require("node:crypto");
-const [day] = process.argv.slice(1);
-const name = "vulnerability-db_v6.1.10_2026-11-12T00:22:10Z_1794464458.tar.zst";
-const server = http.createServer((request, response) => {
-  if (request.url === "/grype/" + day + "/v6/latest.json")
-    response.end(JSON.stringify({ path: name, checksum: "sha256:" + crypto.createHash("sha256").update("archive").digest("hex") }));
-  else if (request.url === "/grype/" + day + "/v6/" + name) response.end("archive");
-  else { response.statusCode = 404; response.end(); }
-});
-server.listen(0, "127.0.0.1", () => console.log(server.address().port));
-`;
-
-test("daily-sbom forwards TMPDIR, TEMP and TMP to syft, grype and trivy including cache import", linux, async (t) => {
+test("daily-sbom forwards TMPDIR, TEMP and TMP to curl, syft, grype and trivy including cache import", linux, (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "security-tmpdir-sbom-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const day = "2026-11-13";
-  const server = spawn(process.execPath, ["-e", grypeRegistry, day], {
-    stdio: ["ignore", "pipe", "inherit"],
-  });
-  t.after(() => {
-    server.kill();
-    rmSync(root, { recursive: true, force: true });
-  });
-  const port = await new Promise((resolve) =>
-    server.stdout.once("data", (bytes) => resolve(String(bytes).trim())),
-  );
-
   const workspace = path.join(root, "checkout");
   const runnerTemp = path.join(root, "runner temp");
   const expectedTmp = path.join(runnerTemp, "security", "tmp");
@@ -245,50 +222,86 @@ test("daily-sbom forwards TMPDIR, TEMP and TMP to syft, grype and trivy includin
     mkdirSync(folder, { recursive: true });
 
   const log = path.join(root, "sbom-env.jsonl");
-  const stub = `#!${process.execPath}
+  const archiveName = "vulnerability-db_v6.1.10_2026-11-12T00:22:10Z_1794464458.tar.zst";
+  const archiveDigest = createHash("sha256").update("archive").digest("hex");
+
+  const installStub = (name, body) => {
+    const target = path.join(tools, name);
+    writeFileSync(
+      target,
+      `#!${process.execPath}
 const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
-const tool = path.basename(process.argv[1]);
-fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({
-  tool,
-  sub: args[0] === "db" ? args.slice(0, 2).join(" ") : "scan",
+const record = (sub) => fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({
+  tool: ${JSON.stringify(name)},
+  sub,
   TMPDIR: process.env.TMPDIR ?? null,
   TEMP: process.env.TEMP ?? null,
   TMP: process.env.TMP ?? null,
 }) + "\\n");
-if (tool === "grype" && args[0] === "db") {
+${body}
+`,
+    );
+    chmodSync(target, 0o700);
+  };
+
+  installStub(
+    "curl",
+    `
+const outIndex = args.indexOf("--output");
+record(outIndex === -1 ? "listing" : "download");
+if (outIndex === -1) {
+  process.stdout.write(JSON.stringify({ path: ${JSON.stringify(archiveName)}, checksum: "sha256:${archiveDigest}" }));
+} else {
+  fs.writeFileSync(args[outIndex + 1], "archive");
+}
+`,
+  );
+  installStub(
+    "syft",
+    `
+record("scan");
+const target = args.find((arg) => arg.startsWith("cyclonedx-json=")).slice(15);
+fs.writeFileSync(target, "{}");
+`,
+  );
+  installStub(
+    "grype",
+    `
+if (args[0] === "db") {
+  record(args.slice(0, 2).join(" "));
   const db = path.join(process.env.GRYPE_DB_CACHE_DIR, "6", "vulnerability.db");
   if (args[1] === "import") {
     fs.mkdirSync(path.dirname(db), { recursive: true });
     fs.writeFileSync(db, "valid");
     process.exit(0);
   }
-  const valid = fs.existsSync(db) && fs.readFileSync(db, "utf8") === "valid";
-  process.stdout.write(valid ? "Status:    valid\\n" : "Status:    invalid\\n");
-  process.exit(valid ? 0 : 1);
+  const ok = fs.existsSync(db) && fs.readFileSync(db, "utf8") === "valid";
+  process.stdout.write(ok ? "Status:    valid\\n" : "Status:    invalid\\n");
+  process.exit(ok ? 0 : 1);
 }
-if (tool === "syft") {
-  const out = args.find((arg) => arg.startsWith("cyclonedx-json=")).slice(15);
-  fs.writeFileSync(out, "{}");
-}
-if (tool === "grype") process.stdout.write(JSON.stringify({ matches: [] }));
-if (tool === "trivy") fs.writeFileSync(args[args.indexOf("--output") + 1], "{}");
-`;
-  for (const tool of ["syft", "grype", "trivy"]) {
-    const target = path.join(tools, tool);
-    writeFileSync(target, stub);
-    chmodSync(target, 0o700);
-  }
+record("scan");
+process.stdout.write(JSON.stringify({ matches: [] }));
+`,
+  );
+  installStub(
+    "trivy",
+    `
+record("scan");
+fs.writeFileSync(args[args.indexOf("--output") + 1], "{}");
+`,
+  );
 
   const env = {
     ...process.env,
+    PATH: `${tools}${path.delimiter}${process.env.PATH ?? ""}`,
     GITHUB_WORKSPACE: workspace,
     RUNNER_TEMP: runnerTemp,
     TMPDIR: expectedTmp,
     TEMP: expectedTmp,
     TMP: expectedTmp,
-    NDDEV_CI_ARTIFACT_REGISTRY: `http://127.0.0.1:${port}`,
+    NDDEV_CI_ARTIFACT_REGISTRY: "http://127.0.0.1:8740",
     NDDEV_BUILD_CACHE_ROOT: cache,
     INPUT_TOOLS: tools,
     INPUT_OUTPUT: output,
@@ -306,7 +319,9 @@ if (tool === "trivy") fs.writeFileSync(args[args.indexOf("--output") + 1], "{}")
   assert.deepEqual(
     seen.map((entry) => `${entry.tool}:${entry.sub}`),
     [
+      "curl:listing",
       "grype:db status",
+      "curl:download",
       "grype:db import",
       "grype:db status",
       "syft:scan",
