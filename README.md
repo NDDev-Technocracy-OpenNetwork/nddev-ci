@@ -336,14 +336,14 @@ standard x64 slots to native builds and tests. Release and promotion workflows (
 runner service can place them ahead of branch and pull request checks. The protected technology
 registry check stays on `nddev-linux-small` because its CLI asset is Linux x64.
 
-Private pull requests authored and triggered by a bot route their managed check, recipe, image,
-merge-stop, registry and source-version jobs to the matching `-maintenance` label
-(`nddev-linux-light-maintenance`, `nddev-linux-small-maintenance`,
+Private pull requests authored and triggered by a bot route their managed check, recipe,
+nextest-shards, image, merge-stop, registry and source-version jobs to the matching `-maintenance`
+label (`nddev-linux-light-maintenance`, `nddev-linux-small-maintenance`,
 `nddev-linux-standart-maintenance`, `nddev-linux-bounded-maintenance`, `nddev-macos-maintenance`
 or `nddev-windows-maintenance`). The runner service registers those labels against the same
 hardware and class and places them only when no release or foreground job waits. A person's run or
-rerun and branch checks use the ordinary managed label. Explicit hosted selections keep their
-existing route.
+rerun, branch checks and bot-opened `release/*` pull requests use the ordinary managed label.
+Explicit hosted selections keep their existing route.
 
 Configure `runner-profile` for each private `check.yml` or `recipe.yml` call that supports
 profile-scoped GitHub-hosted runs. The caller listens for PR `labeled` events and declares the

@@ -24,6 +24,7 @@ const botPullRequest = [
   "github.event.sender.type == 'Bot'",
   "github.event.pull_request.user.type == 'Bot'",
   "github.actor == github.triggering_actor",
+  "!startsWith(github.head_ref, 'release/')",
 ].join(" && ");
 const maintenanceLabels = {
   "nddev-linux-bounded": "nddev-linux-bounded-maintenance",
