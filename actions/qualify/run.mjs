@@ -6,7 +6,7 @@ export async function main(environment = process.env) {
   const input = (name) => environment[`INPUT_${name.toUpperCase()}`] || "";
   const token = input("github-token");
   if (!token) throw new Error("A read token is required for qualification.");
-  const result = await qualify(client(token, input("api-url") || environment.GITHUB_API_URL), {
+  const result = await qualify(client(token, input("api-url") || environment.GITHUB_API_URL, {retryReads: true}), {
     repository: input("repository") || environment.GITHUB_REPOSITORY,
     sha: input("commit") || environment.GITHUB_SHA,
     workflowPath: `.github/workflows/${input("check-workflow") || "ci.yml"}`,

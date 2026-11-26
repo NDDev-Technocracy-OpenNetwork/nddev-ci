@@ -655,10 +655,13 @@ newest full check on a push passed. The move is a push, so a release workflow th
 commit whose check failed or still runs waits for the next promotion. It never moves `main`
 backward or sideways: when `main` holds a commit `dev` lacks, it stops.
 
-Promotion retries transient GitHub API read failures up to three attempts within the request's
-time limit. Reads of checked artifact metadata and bytes follow the same policy. An interrupted
-download is discarded before the next attempt. If a read still fails, the error names the last
-transport cause. The fast-forward push runs separately.
+Promotion, publication, `qualify`, `checked-artifacts` and `require-status` retry transient
+GitHub API read failures, a dropped or timed-out connection or a 502, 503 or 504 without
+`Retry-After`, up to three attempts within the request's time limit. Reads of checked artifact
+metadata and bytes follow the same policy. An interrupted download is discarded before the next
+attempt. A permanent error fails at once, and a read that still fails names its last transport
+cause. Writes are never repeated: the fast-forward push runs separately, and a rerun of
+publication reconciles the tag, draft and files it already made.
 
 GitHub's job token cannot move a branch onto commits that change workflow files, so the move
 pushes with a deploy key that has write access. The caller keeps it as `PROMOTION_KEY` in an

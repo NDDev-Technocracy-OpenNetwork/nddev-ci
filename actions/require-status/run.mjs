@@ -7,7 +7,7 @@ export async function main(environment = process.env) {
   const input = (name) => environment[`INPUT_${name.toUpperCase()}`] || "";
   const token = input("github-token");
   if (!token) throw new Error("A repository-scoped status-read token is required.");
-  const result = await requireStatus(client(token, environment.GITHUB_API_URL), {
+  const result = await requireStatus(client(token, environment.GITHUB_API_URL, {retryReads: true}), {
     repository: environment.GITHUB_REPOSITORY, sha: input("sha"), context: input("context"),
     creator: Number(input("creator-id")), maximumStatuses: Number(input("maximum-statuses")),
   });
