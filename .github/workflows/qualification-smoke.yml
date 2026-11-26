@@ -14,8 +14,13 @@ jobs:
     steps:
       - name: Start
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Outside telemetry off
         uses: $/actions/telemetry
+      - name: Qualify OCI bundle and stdio contract
+        run: node --test tests/oci-artifacts.test.mjs tests/project-command.test.mjs
       - name: Qualify this exact commit's full check and smoke workflows
         id: checked
         uses: $/actions/qualify

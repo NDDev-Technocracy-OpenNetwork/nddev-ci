@@ -570,8 +570,12 @@ Private repositories upload and download no GitHub Actions workflow artifacts: c
 (`check.yml`, `recipe.yml`, `actions/complete`, `actions/checked-artifacts`, `promote.yml`,
 `release.yml`) and caller SBOMs (`security.yml` `sboms` via [oci-artifact](actions/oci-artifact/action.yml))
 travel through GHCR (`ghcr.io/<owner>/<repository>/ci-artifacts`) as content-addressed OCI Image
-Manifests verified by digest and exact source, run, attempt and artifact-name annotations. Public
-repositories keep using GitHub Actions workflow artifacts unchanged.
+Manifests verified by digest and exact source, run, attempt and artifact-name annotations.
+Artifacts of up to 128 files keep individual per-file layers; directories over 128 files are
+packed into one deterministic POSIX tar+gzip layer (`<name>.tar.gz`, annotated with
+`org.nddev.ci.archive: tar+gzip`), unpacked on full directory pulls and preserved as a single
+top-level archive for release and deployment consumers. Public repositories keep using GitHub
+Actions workflow artifacts unchanged.
 
 Because reusable workflows cannot elevate `GITHUB_TOKEN` beyond the calling job's ceiling, callers
 declare permissions on their calling job:
