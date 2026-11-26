@@ -185,6 +185,10 @@ test("runner attribution requires an error tied to one of the job's runner resou
     ["Cannot connect to the Docker daemon at unix:///run/fixture-docker.sock", "docker-unavailable"],
     ['Docker GET unix:///run/fixture-docker.sock/_ping returned HTTP 502', "docker-unavailable"],
     ["sccache: failed to read /runner/cache/entry: Permission denied", "cache-unavailable"],
+    ["sccache: error: Server startup failed: Operation not permitted (os error 1)", "cache-unavailable"],
+    ["sccache: error: couldn't connect to server", "cache-unavailable"],
+    ["sccache: error: Connection to server timed out", "cache-unavailable"],
+    ["error[E0308]: mismatched types in sccache_test.rs", ""],
     ["http://cache.example.test:8000/packages: HTTP 503", "cache-unavailable"],
     ["failed to connect to proxy.example.test:3128: connection refused", "network-unavailable"],
     ["write /runner/tmp/file: no space left on device", "runner-storage"],
@@ -204,4 +208,14 @@ test("runner attribution requires an error tied to one of the job's runner resou
   ];
   const classify = runnerFailureClassifier(environment);
   for (const [line, reason] of cases) assert.equal(classify(line), reason, line);
+  const unconfigured = runnerFailureClassifier({});
+  assert.equal(
+    unconfigured("sccache: error: Server startup failed: Operation not permitted (os error 1)"),
+    "",
+  );
+  const socketOnly = runnerFailureClassifier({ SCCACHE_SERVER_UDS: "/run/sccache/server.sock" });
+  assert.equal(
+    socketOnly("sccache: error: Server startup failed: Operation not permitted (os error 1)"),
+    "cache-unavailable",
+  );
 });
