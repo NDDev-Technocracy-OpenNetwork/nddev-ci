@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "forbidden_filenames": [
+    "AGENTS.md",
+    "AGENTS.override.md",
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    "GEMINI.md",
+    "CODEX.md",
+    "CURSOR.md",
+    "COPILOT.md",
+    "copilot-instructions.md",
+    ".cursorrules",
+    ".clinerules",
+    ".windsurfrules",
+    ".aider.conf.yml",
+    ".aider.model.settings.yml",
+    ".aider.model.metadata.json",
+    ".aiderignore",
+    ".mcp.json"
+  ],
+  "forbidden_filename_prefixes": [
+    ".aider."
+  ],
+  "forbidden_directories": [
+    ".claude",
+    ".agents",
+    ".codex",
+    ".cursor",
+    ".serena",
+    ".gemini",
+    ".antigravity",
+    ".pi",
+    ".opencode",
+    ".cline",
+    ".roo",
+    ".windsurf",
+    ".playwright-mcp",
+    ".aider",
+    "claude-code"
+  ],
+  "forbidden_path_suffixes": [
+    ".github/copilot-instructions.md",
+    ".github/instructions",
+    ".github/prompts",
+    ".github/agents"
+  ],
+  "forbidden_binaries": [
+    "claude",
+    "codex",
+    "cursor",
+    "cursor-agent",
+    "agy",
+    "antigravity",
+    "opencode",
+    "aider",
+    "serena",
+    "windsurf"
+  ],
+  "signatures": {
+    "assistants": [
+      "Claude Code",
+      "Claude Opus",
+      "Claude Sonnet",
+      "Claude Haiku",
+      "Claude",
+      "Codex",
+      "ChatGPT",
+      "OpenAI Codex",
+      "OpenAI",
+      "GitHub Copilot",
+      "Copilot",
+      "Cursor Agent",
+      "Cursor",
+      "Gemini CLI",
+      "Gemini",
+      "Aider",
+      "Windsurf"
+    ],
+    "versioned_assistants": [
+      "Claude Opus",
+      "Claude Sonnet",
+      "Claude Haiku"
+    ],
+    "generated_verbs": [
+      "generated",
+      "written",
+      "authored",
+      "implemented"
+    ],
+    "generated_prepositions": [
+      "with",
+      "by",
+      "using"
+    ],
+    "trailer_keys": [
+      "co-authored-by",
+      "signed-off-by"
+    ],
+    "trailer_email_prefixes": [
+      "noreply",
+      "no-reply",
+      "codex",
+      "cursoragent",
+      "copilot"
+    ],
+    "trailer_bot_logins": [
+      "copilot",
+      "claude",
+      "codex"
+    ],
+    "trailer_email_domains": [
+      "anthropic.com",
+      "openai.com",
+      "cursor.com",
+      "github.com",
+      "users.noreply.github.com",
+      "google.com"
+    ]
+  }
+}

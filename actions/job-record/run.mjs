@@ -6,7 +6,7 @@ import { appendFileSync, existsSync, lstatSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { runnerFailureReasons } from "../../lib/project-command.mjs";
+import { failureReasonPattern, runnerFailureReasons } from "../../lib/project-command.mjs";
 
 const results = { success: "success", failure: "failure", cancelled: "cancellation" };
 
@@ -59,13 +59,21 @@ export function record(environment, now = new Date()) {
     "host.arch": { X64: "amd64", ARM64: "arm64" }[environment.RUNNER_ARCH] ?? os.arch(),
   };
   const layer = input("failure-layer");
-  if (layer !== "") {
-    if (!["project", "library"].includes(layer)) throw new Error("failure-layer must be project or library");
-    if (status === "failure") {
-      const reason = input("runner-reason");
-      const attributed = runnerFailureReasons.has(reason);
-      document["nddev_ci.failure.layer"] = attributed ? "runner" : layer;
-      if (attributed) document["nddev_ci.failure.reason"] = reason;
+  if (layer !== "" && !["project", "library"].includes(layer))
+    throw new Error("failure-layer must be project or library");
+  const explicitReason = input("failure-reason");
+  if (explicitReason !== "" && !failureReasonPattern.test(explicitReason))
+    throw new Error("failure-reason must be a short plain reason code");
+  if (status === "failure") {
+    const runnerReason = input("runner-reason");
+    const attributed = runnerFailureReasons.has(runnerReason);
+    if (attributed) {
+      document["nddev_ci.failure.layer"] = "runner";
+      document["nddev_ci.failure.reason"] = runnerReason;
+    } else {
+      if (layer !== "") document["nddev_ci.failure.layer"] = layer;
+      document["nddev_ci.failure.reason"] =
+        explicitReason || (layer !== "" ? `${layer}-failure` : "job-failure");
     }
   }
   const job = input("check-run-id");
@@ -158,7 +166,10 @@ export function main(environment = process.env) {
       "| Runner | System | Queue | Duration | Compiler cache |", "| --- | --- | --- | --- | --- |",
       `| ${document["cicd.worker.name"]} (${document["nddev_ci.runner.environment"]}) | ${document["os.type"]} ${document["host.arch"]} | ${queue === undefined ? "unknown" : `${queue}s`} | ${seconds === undefined ? "unknown" : `${Math.floor(seconds / 60)}m ${seconds % 60}s`} | ${cache || "none"} |`,
       "",
-      ...(layer ? [`Failure layer: \`${layer}\`${reason ? ` (\`${reason}\`)` : ""}`, ""] : []),
+      ...(layer || reason ? [
+        layer ? `Failure layer: \`${layer}\`${reason ? ` (\`${reason}\`)` : ""}` : `Failure reason: \`${reason}\``,
+        "",
+      ] : []),
       ...(document["nddev_ci.receipt.reused_run_id"] ? [
         `Step receipts: \`${document["nddev_ci.receipt.mode"] || "reused"}\` (reused run [#${document["nddev_ci.receipt.reused_run_id"]}](${document["vcs.repository.url.full"]}/actions/runs/${document["nddev_ci.receipt.reused_run_id"]})${document["nddev_ci.receipt.canary_result"] ? `, canary: \`${document["nddev_ci.receipt.canary_result"]}\`` : ""})`,
         "",

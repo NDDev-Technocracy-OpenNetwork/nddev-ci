@@ -51,5 +51,7 @@ jobs:
           task: provenance
           task-type: build
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && 'library' || '' }}
+          failure-reason: ${{ job.status == 'failure' && 'provenance-attestation-failed' || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

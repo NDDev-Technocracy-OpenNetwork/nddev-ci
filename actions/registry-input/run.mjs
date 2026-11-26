@@ -52,5 +52,14 @@ export function main(environment = process.env) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try { main(); }
-  catch (error) { console.error("::error::" + error.message); process.exitCode = 1; }
+  catch (error) {
+    if (process.env.GITHUB_OUTPUT) {
+      const reason = /commit or digest/i.test(String(error.message ?? ""))
+        ? "missing-registry-snapshot-identity"
+        : "registry-snapshot-invalid";
+      appendFileSync(process.env.GITHUB_OUTPUT, `failure-reason=${reason}\n`);
+    }
+    console.error("::error::" + error.message);
+    process.exitCode = 1;
+  }
 }

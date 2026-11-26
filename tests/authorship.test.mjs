@@ -173,7 +173,10 @@ test("the shared merge stop includes authorship in the project failure layer", (
   assert.match(workflow, /upstream-branch: \$\{\{ inputs\.upstream-branch \}\}/);
   assert.match(checkWorkflow, /upstream-branch: \$\{\{ inputs\.upstream-branch \}\}/);
   assert.match(workflow, /steps\.stops\.outputs\.failure-layer/);
-  assert.match(runner, /name: "Change authorship",\s+projectStop: true,\s+run: \(\) => runNodeAction\("authorship\/run\.mjs"/);
+  assert.match(
+    runner,
+    /name: "Change authorship",\s+reason: "merge-stop-authorship",\s+projectStop: true,\s+run: \(\) => runNodeAction\("authorship\/run\.mjs"/,
+  );
 });
 
 test("authorship action accepts merge_group event payloads without pull_request", (t) => {

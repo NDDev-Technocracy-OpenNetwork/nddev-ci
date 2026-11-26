@@ -458,6 +458,8 @@ jobs:
           task: daily security
           task-type: test
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && 'library' || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.licences.outcome == 'failure' && 'license-policy-invalid' || 'security-scan-failed') || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started
           schedule: ${{ github.event_name == 'schedule' && ((!github.event.timezone || github.event.timezone == 'UTC') && github.event.schedule || 'unknown') || '' }}

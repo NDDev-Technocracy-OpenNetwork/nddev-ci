@@ -185,7 +185,11 @@ async function runWorkflows({ cwd, env, binDir }) {
   if (poutineRes.stderr.trimEnd()) chunks.push(poutineRes.stderr.trimEnd());
 
   if (actionlintRes.status !== 0 || zizmorRes.status !== 0 || poutineRes.status !== 0) {
-    return { status: 1, output: chunks.join("\n") + "\n" };
+    return {
+      status: 1,
+      reason: zizmorRes.status !== 0 ? "merge-stop-zizmor" : "merge-stop-workflow",
+      output: chunks.join("\n") + "\n",
+    };
   }
 
   let report;
@@ -257,6 +261,7 @@ export async function runMergeStops(environment = process.env, { customChecks = 
     const checks = customChecks ?? [
       {
         name: "Change authorship",
+        reason: "merge-stop-authorship",
         projectStop: true,
         run: () => runNodeAction("authorship/run.mjs", {
           cwd, env: envWithBin,
@@ -280,6 +285,7 @@ export async function runMergeStops(environment = process.env, { customChecks = 
       }] : []),
       {
         name: "No secret in the change",
+        reason: "merge-stop-secret",
         projectStop: true,
         run: () => runNodeAction("secret-scan/run.mjs", {
           cwd, env: envWithBin, extraEnv: { INPUT_BASE: base, INPUT_HEAD: head },
@@ -287,6 +293,7 @@ export async function runMergeStops(environment = process.env, { customChecks = 
       },
       {
         name: "No new fixed critical dependency",
+        reason: "merge-stop-dependencies",
         projectStop: true,
         summaryFile: depSummary,
         run: () => runNodeAction("dependency-guard/run.mjs", {
@@ -296,11 +303,13 @@ export async function runMergeStops(environment = process.env, { customChecks = 
       },
       ...(newClones ? [{
         name: "No new code clones",
+        reason: "merge-stop-clones",
         projectStop: true,
         run: () => runClones({ cwd, env: envWithBin, base, head, merge, binDir, scratchDir }),
       }] : []),
       {
         name: "No dangerous workflow",
+        reason: "merge-stop-workflow",
         projectStop: true,
         run: () => runWorkflows({ cwd, env: envWithBin, binDir }),
       },
@@ -324,12 +333,19 @@ export async function runMergeStops(environment = process.env, { customChecks = 
     });
     if (plannerCheck) {
       flushResult("Planner speed", plannerCheck, "", targetSummary);
-      results.push({ name: "Planner speed", projectStop: true, result: plannerCheck });
+      results.push({ name: "Planner speed", reason: "merge-stop-planner-speed", projectStop: true, result: plannerCheck });
     }
 
     const failedProjectStops = results.filter((entry) => entry.projectStop && entry.result.status !== 0);
     if (failedProjectStops.length > 0) {
-      if (outputFile) appendFileSync(outputFile, "failure-layer=project\n");
+      const first = failedProjectStops[0];
+      const staleMergeBase = first.result.output?.includes(
+        "Dependency merge base is neither the PR base nor a later commit of it.",
+      );
+      const failureReason = staleMergeBase
+        ? "stale-pr-merge-base"
+        : (first.result.reason || first.reason || "merge-stops-failed");
+      if (outputFile) appendFileSync(outputFile, `failure-layer=project\nfailure-reason=${failureReason}\n`);
       for (const entry of failedProjectStops) {
         process.stderr.write(`::error::Merge stop failed: ${entry.name}\n`);
       }

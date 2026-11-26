@@ -145,6 +145,12 @@ already in that branch's Git ancestry are skipped while the fork's own commits, 
 pull request text are still checked. It reads Git objects and event data without executing project code
 or requesting another permission.
 
+[artifact-traces](actions/artifact-traces/action.yml) inspects a directory, tar archive or OCI
+image archive against the shared pattern policy in `lib/client-traces-policy.json` (also used by
+the authorship check) and rejects agent instruction files, harness directories, harness binaries
+and generated signatures. `image.yml` runs this check before pushing when `check-artifact-traces`
+is enabled (the default), and `lib/images.mjs` checks every canonical OCI archive it produces.
+
 The PR merge stops scan secrets in the changed commits, dangerous workflows and newly
 introduced fixed critical dependency vulnerabilities, running the independent read-only stops
 concurrently on one Linux runner. On full Linux checkouts, `check.yml` defaults to
@@ -628,8 +634,9 @@ structured `nddev_ci.job.completed` line: source commit, workflow, result, actua
 OS/architecture, duration and available compiler-cache counters. Missing measured
 queue time remains unknown. A failed job names its `failure-layer`: `project` for its
 own commands or named reports, `library` for the steps around them, or `runner` when
-preparation or a failed command reports an error tied to a declared runner resource. The
-`nddev_ci.failure.reason` field identifies the Docker, cache, network or storage symptom.
+preparation or a failed command reports an error tied to a declared runner resource. Every failed
+job also records a bounded `nddev_ci.failure.reason` code naming the failure class across all three
+layers, without raw log text or secrets.
 The runner can
 provide `NDDEV_CI_QUEUE_SECONDS` and `NDDEV_CI_TELEMETRY_FILE`; hosted jobs keep the
 record in the job log. The execution controller owns the SDK, device and generation
