@@ -2,6 +2,13 @@ name: Prepare in-job image builds
 description: >-
   Select the runner's image builder and package routes for builds, tests and scans. Build with
   the fixed NDDEV_CI_IMAGES producer, or the existing NDDEV_CI_IMAGE_BUILD_FLAGS for direct builds.
+inputs:
+  buildx-version:
+    description: Optional exact Buildx version for GitHub-hosted runners.
+    default: ''
+  buildkit-image:
+    description: Optional digest-pinned BuildKit image for GitHub-hosted runners.
+    default: ''
 outputs:
   producer:
     description: Fixed Node entrypoint for a complete canonical image-artifact batch.
@@ -87,15 +94,29 @@ runs:
         esac
         printf 'name=%s\n' "$builder" >> "$GITHUB_OUTPUT"
 
+    - name: Verify managed Buildx against registry
+      if: runner.environment == 'self-hosted' && env.NDDEV_CI_REGISTRY_SNAPSHOT != ''
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/resolve.mjs" managed
+
+    - name: Resolve hosted BuildKit versions
+      if: runner.environment == 'github-hosted'
+      id: hosted-versions
+      shell: bash
+      env:
+        INPUT_BUILDX_VERSION: ${{ inputs.buildx-version }}
+        INPUT_BUILDKIT_IMAGE: ${{ inputs.buildkit-image }}
+      run: node "$GITHUB_ACTION_PATH/resolve.mjs" hosted
+
     - name: BuildKit on GitHub-hosted runners
       if: runner.environment == 'github-hosted'
       id: hosted-builder
       uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       with:
-        version: v0.39.1
+        version: ${{ steps.hosted-versions.outputs.buildx-version }}
         cache-binary: false
         driver: docker-container
-        driver-opts: image=moby/buildkit:v0.35.1@sha256:baf6138eb8c37644800c7c913fba051e840ebb9ba13eaf92d92ef9a1712d0b4c
+        driver-opts: image=${{ steps.hosted-versions.outputs.buildkit-image }}
         use: true
 
     # A later step builds with these flags and scans with the same database routes as the daily

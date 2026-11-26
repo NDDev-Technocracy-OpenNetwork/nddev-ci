@@ -12,6 +12,22 @@ on:
         description: Keep a separate concurrency group per run so every image build finishes.
         type: boolean
         default: false
+      registry-commit:
+        description: Exact commit of the protected registry input selected by the caller.
+        type: string
+        default: ''
+      buildx-version:
+        description: Optional exact Buildx version for GitHub-hosted runners.
+        type: string
+        default: ''
+      buildkit-image:
+        description: Optional digest-pinned BuildKit image for GitHub-hosted runners.
+        type: string
+        default: ''
+      check-registry-images:
+        description: Verify Dockerfile base images against the protected registry snapshot when registry-commit is set.
+        type: boolean
+        default: true
       image:
         description: The image name inside the owner's namespace, such as platform-backend.
         type: string
@@ -50,6 +66,19 @@ on:
           native platform: ubuntu-24.04 (linux/amd64) or ubuntu-24.04-arm (linux/arm64).
         type: string
         default: ubuntu-24.04
+    secrets:
+      REGISTRY_SNAPSHOT_FIRST:
+        description: Protected environment snapshot fragment.
+        required: false
+      REGISTRY_SNAPSHOT_SECOND:
+        description: Protected environment snapshot fragment.
+        required: false
+      REGISTRY_SNAPSHOT_THIRD:
+        description: Protected environment snapshot fragment.
+        required: false
+      REGISTRY_SNAPSHOT_FOURTH:
+        description: Protected environment snapshot fragment.
+        required: false
     outputs:
       reference:
         description: The pushed image by digest, ghcr.io/<owner>/<image>@sha256:<digest>; empty when nothing was pushed.
@@ -68,6 +97,7 @@ jobs:
       group: nddev-ci-image-${{ github.workflow }}-${{ inputs.image }}-${{ inputs.target }}-${{ inputs.hosted-runner }}-${{ inputs.runner }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || github.ref }}
       cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
     timeout-minutes: 60
+    environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
     permissions:
       contents: read # read the source
       packages: write # push the image and its attestations to GitHub's container registry
@@ -108,10 +138,34 @@ jobs:
       - name: Outside telemetry off
         uses: $/actions/telemetry
 
+      - name: Receive the protected registry input
+        id: registry-input
+        if: inputs.registry-commit != ''
+        uses: $/actions/registry-input
+        with:
+          commit: ${{ inputs.registry-commit }}
+          sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
+          first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
+          second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
+          third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
+          fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+
       # Managed image jobs share the machine's builder and kept layers.
       - name: Image builder
         id: builder
         uses: $/actions/image-builder
+        with:
+          buildx-version: ${{ inputs.buildx-version }}
+          buildkit-image: ${{ inputs.buildkit-image }}
+
+      - name: Check Dockerfile images against registry
+        id: dockerfile-registry
+        if: inputs.registry-commit != '' && inputs.check-registry-images
+        env:
+          INPUT_DOCKERFILE: ${{ inputs.dockerfile }}
+          INPUT_BUILD_ARGS: ${{ inputs.build-args }}
+          IMAGE_PRODUCER: ${{ steps.builder.outputs.producer }}
+        run: node "$(dirname "$IMAGE_PRODUCER")/../actions/image-builder/check-dockerfile.mjs"
 
       - name: Central build cache
         if: runner.environment == 'self-hosted'
@@ -230,8 +284,8 @@ jobs:
           task: image ${{ inputs.image }}
           task-type: build
           status: ${{ job.status }}
-          failure-layer: ${{ job.status == 'failure' && ((steps.export.outcome == 'failure' || steps.traces.outcome == 'failure' || steps.build.outcome == 'failure') && 'project' || 'library') || '' }}
-          failure-reason: ${{ job.status == 'failure' && (steps.traces.outcome == 'failure' && 'artifact-traces-found' || (steps.export.outcome == 'failure' || steps.build.outcome == 'failure') && 'image-build-failed' || steps.builder.outcome == 'failure' && 'image-builder-failed' || 'workflow-step-failed') || '' }}
+          failure-layer: ${{ job.status == 'failure' && ((steps.dockerfile-registry.outcome == 'failure' || steps.export.outcome == 'failure' || steps.traces.outcome == 'failure' || steps.build.outcome == 'failure') && 'project' || 'library') || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.registry-input.outputs.failure-reason || (steps.dockerfile-registry.outcome == 'failure' && 'registry-image-rejected') || (steps.traces.outcome == 'failure' && 'artifact-traces-found') || ((steps.export.outcome == 'failure' || steps.build.outcome == 'failure') && 'image-build-failed') || (steps.builder.outcome == 'failure' && 'image-builder-failed') || 'workflow-step-failed') || '' }}
           runner-reason: ${{ steps.builder.outputs.runner-reason }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

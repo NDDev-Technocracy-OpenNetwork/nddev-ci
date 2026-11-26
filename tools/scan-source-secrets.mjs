@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { constants, closeSync, fstatSync, openSync, readSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { betterleaksVersion, commitId } from "../lib/secret-scan.mjs";
+import { commitId, resolveBetterleaksVersion } from "../lib/secret-scan.mjs";
 import { basePolicy } from "../lib/secret-policy.mjs";
 
 const maximumBytes = 16 * 1024 * 1024;
@@ -119,9 +119,10 @@ try {
     for (const name of Object.keys(environment)) {
       if (/^(BETTERLEAKS_CONFIG|GITLEAKS_CONFIG|GIT_|GH_TOKEN$|GITHUB_TOKEN$)/.test(name)) delete environment[name];
     }
+    const expectedBetterleaks = resolveBetterleaksVersion(environment);
     const version = spawnSync("betterleaks", ["version"], { env: environment, encoding: "utf8" });
-    if (version.status !== 0 || version.stdout.trim() !== betterleaksVersion) {
-      throw new Error("The local source scan requires Betterleaks " + betterleaksVersion + ".");
+    if (version.status !== 0 || version.stdout.trim() !== expectedBetterleaks) {
+      throw new Error("The local source scan requires Betterleaks " + expectedBetterleaks + ".");
     }
     const policy = basePolicy(cwd, policyBase, environment);
     try {

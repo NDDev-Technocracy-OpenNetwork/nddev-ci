@@ -273,20 +273,38 @@ its reports.
 
 ### Protected registry input
 
-Both `check.yml` and `recipe.yml` accept `registry-commit` when a recipe verifies
-its lock against a protected registry snapshot. Use `select-registry-input.yml` to
-read the commit from the tracked lock and pass it to both checks. The trusted publisher prepares the repository's
-`registry-input-<commit>` environment before that source enters CI. It places the
-gzip-compressed, base64-encoded schema-1 snapshot in the environment secrets
-`REGISTRY_SNAPSHOT_FIRST` through `REGISTRY_SNAPSHOT_FOURTH` and records its
-uncompressed SHA-256 in the environment variable `REGISTRY_SNAPSHOT_SHA256`.
+`check.yml`, `recipe.yml`, `merge-stops.yml`, `security.yml`, `image.yml` and `nextest-shards.yml`
+all accept `registry-commit` together with the four `REGISTRY_SNAPSHOT_*` secrets and receive the
+protected snapshot ahead of tool, SDK and image-builder preparation (inside `actions/prepare` or
+before `actions/merge-stops`, `actions/security-tools` and `actions/image-builder`). Use
+`select-registry-input.yml` to read the commit from the tracked lock and pass it to each workflow.
+The trusted publisher prepares the repository's `registry-input-<commit>` environment before that
+source enters CI. It places the gzip-compressed, base64-encoded schema-1 snapshot in the environment
+secrets `REGISTRY_SNAPSHOT_FIRST` through `REGISTRY_SNAPSHOT_FOURTH` and records its uncompressed
+SHA-256 in the environment variable `REGISTRY_SNAPSHOT_SHA256`.
 
-Map all four `REGISTRY_SNAPSHOT_*` names in the caller job's `secrets` section.
-The called job loads the values from its selected protected environment.
+Map all four `REGISTRY_SNAPSHOT_*` names in the caller job's `secrets` section. The called job
+loads the values from its selected protected environment, verifies the digest and commit, parses
+`technologies.toml` directly in the embedded Node 24 runtime (with no Python dependency on Linux,
+macOS or Windows), and exports the private regular file as `NDDEV_CI_REGISTRY_SNAPSHOT`. The input
+action removes the file after the job.
 
-The job verifies the digest and commit and exports the private regular file as
-`NDDEV_CI_REGISTRY_SNAPSHOT`. The project uses that file to verify the selected
-versions before installation. The input action removes the file after the job.
+All four job-needed technology kinds are installable and checkable from `NDDEV_CI_REGISTRY_SNAPSHOT`:
+- `toolchain`: `toolchains` and `just` resolve their accepted versions from the snapshot; explicit
+  `*-version` inputs are checked against the snapshot's accepted lines.
+- `tool`: `tools` accepts bare registry names when a snapshot is present; managed runners take
+  verified tools (`just`, merge-stop tools, daily security scanners and `osv-scanner`) from their
+  managed tool cache against the snapshot with zero library-hardcoded versions.
+- `image`: `image.yml` checks Dockerfile base images and `# syntax=` directives against the
+  snapshot, and `actions/image-builder` verifies managed Buildx and hosted BuildKit/Buildx inputs
+  against it.
+- `action`: external GitHub Action commit pins in `.github/workflows` are checked against the
+  snapshot's pinned `commit` SHAs, and actions can be materialized directly from snapshot commits.
+
+On GitHub-hosted runners, callers pass explicit inputs (`just-version`, `tool-pins`,
+`buildx-version`, `buildkit-image` and SDK version inputs); unmigrated public callers temporarily
+fall back to the isolated hosted-only compatibility module (`lib/hosted-compat-pins.mjs`), which
+refuses execution on managed runners.
 
 For a pull request or a push to `dev`, `check.yml` runs the protected technology registry check
 when a protected registry commit is selected. On a private single-job Linux x64 managed check with

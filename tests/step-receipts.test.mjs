@@ -656,9 +656,8 @@ test("actions/recipe reuses verified gateway receipt and skips re-running the re
   const gateway = await startMockGateway();
   const tempDir = mkdtempSync(path.join(tmpdir(), "step-receipts-recipe-"));
   const justVersion = spawnSync("just", ["--version"], { encoding: "utf8" }).stdout.trim().replace(/^just /, "");
-  const pinnedJust = JSON.parse(readFileSync("actions/recipe/just.json", "utf8")).version;
   try {
-    if (justVersion !== pinnedJust) return;
+    if (!justVersion) return;
     const baseEnv = {
       ...process.env, ...makeEnv(dir, tempDir, gateway.url),
       INPUT_MANAGED: "true", INPUT_RECIPE: "lint", INPUT_ARGUMENTS: "[]",

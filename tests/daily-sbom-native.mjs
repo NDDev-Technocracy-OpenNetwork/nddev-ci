@@ -15,49 +15,42 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { hostedSecurityToolPins } from "../lib/hosted-compat-pins.mjs";
 import { downloadAsset } from "../lib/release-asset.mjs";
 
 async function tools(directory) {
-  // Tool versions and archive hashes come from the same declaration as the daily workflow.
-  const workflow = readFileSync(
-    new URL("../.github/workflows/security.yml", import.meta.url),
-    "utf8",
-  );
-  const value = (name) => {
-    const match = workflow.match(new RegExp(`^      ${name}: "([^"]+)"$`, "m"));
-    assert(match, `the workflow declares ${name}`);
-    return match[1];
-  };
+  // Tool versions and archive hashes come from the same hosted declaration as actions/security-tools.
+  const pins = hostedSecurityToolPins({ RUNNER_ENVIRONMENT: "github-hosted" });
   const assets = [
     [
       "syft",
       "anchore/syft",
-      756262255,
-      31486443,
-      `syft_${value("SYFT_VERSION")}_linux_amd64.tar.gz`,
+      pins.syft.assetX64,
+      pins.syft.sizeX64,
+      `syft_${pins.syft.version}_linux_amd64.tar.gz`,
     ],
     [
       "grype",
       "anchore/grype",
-      763662038,
-      32723797,
-      `grype_${value("GRYPE_VERSION")}_linux_amd64.tar.gz`,
+      pins.grype.assetX64,
+      pins.grype.sizeX64,
+      `grype_${pins.grype.version}_linux_amd64.tar.gz`,
     ],
     [
       "trivy",
       "aquasecurity/trivy",
-      713401165,
-      52714130,
-      `trivy_${value("TRIVY_VERSION")}_Linux-64bit.tar.gz`,
+      pins.trivy.assetX64,
+      pins.trivy.sizeX64,
+      `trivy_${pins.trivy.version}_Linux-64bit.tar.gz`,
     ],
   ];
   for (const [tool, repository, asset, size, name] of assets) {
     // These asset IDs are the Linux x64 archives that the library's own check runs on.
-    const sha256 = value(`${tool.toUpperCase()}_SHA256_X64`);
+    const sha256 = pins[tool].sha256.x64;
     const archive = path.join(directory, `${tool}.tar.gz`);
     // The same verified transport serves upstream and an explicitly declared registry.
     await downloadAsset(
-      { repository, asset, size, sha256, name, tag: `v${value(`${tool.toUpperCase()}_VERSION`)}` },
+      { repository, asset, size, sha256, name, tag: `v${pins[tool].version}` },
       archive,
       tool === "trivy" ? undefined : process.env.GH_TOKEN,
       process.env.NDDEV_CI_ARTIFACT_REGISTRY,

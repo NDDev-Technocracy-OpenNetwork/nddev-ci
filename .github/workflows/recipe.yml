@@ -7,6 +7,22 @@ on:
         description: Exact commit of the protected registry input selected by the caller.
         type: string
         default: ''
+      toolchains:
+        description: Optional comma-separated registry toolchain names resolved from the protected registry snapshot.
+        type: string
+        default: ''
+      just-version:
+        description: Optional exact Just version for GitHub-hosted runners.
+        type: string
+        default: ''
+      buildx-version:
+        description: Optional exact Buildx version for GitHub-hosted runners.
+        type: string
+        default: ''
+      buildkit-image:
+        description: Optional digest-pinned BuildKit image for GitHub-hosted runners.
+        type: string
+        default: ''
       artifact-registry:
         description: Optional tool-download registry; empty uses the runner setting or official upstream sources.
         type: string
@@ -232,6 +248,16 @@ jobs:
         with:
           managed: ${{ runner.environment == 'self-hosted' }}
           artifact-registry: ${{ inputs.artifact-registry }}
+          registry-commit: ${{ inputs.registry-commit }}
+          registry-snapshot-sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
+          registry-snapshot-first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
+          registry-snapshot-second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
+          registry-snapshot-third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
+          registry-snapshot-fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+          toolchains: ${{ inputs.toolchains }}
+          just-version: ${{ inputs.just-version }}
+          buildx-version: ${{ inputs.buildx-version }}
+          buildkit-image: ${{ inputs.buildkit-image }}
           diagnostics: ${{ inputs.diagnostics }}
           reports: ${{ inputs.reports }}
           fetch-depth: ${{ inputs.fetch-depth }}
@@ -260,24 +286,13 @@ jobs:
           tools: ${{ inputs.tools }}
           tool-assets: ${{ inputs.tool-assets }}
 
-      - name: Receive the protected registry input
-        id: registry-input
-        if: inputs.registry-commit != ''
-        uses: $/actions/registry-input
-        with:
-          commit: ${{ inputs.registry-commit }}
-          sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
-          first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
-          second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
-          third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
-          fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
-
       - name: Prepare only the declared dependencies
         id: dependencies
         if: inputs.prepare != ''
         uses: $/actions/recipe
         with:
           managed: ${{ runner.environment == 'self-hosted' }}
+          just-version: ${{ inputs.just-version }}
           recipe: ${{ inputs.prepare }}
           working-directory: ${{ inputs.working-directory }}
           justfile: ${{ inputs.justfile }}
@@ -289,6 +304,7 @@ jobs:
           GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
         with:
           managed: ${{ runner.environment == 'self-hosted' }}
+          just-version: ${{ inputs.just-version }}
           recipe: ${{ inputs.recipe }}
           arguments: ${{ inputs.arguments }}
           working-directory: ${{ inputs.working-directory }}
@@ -303,7 +319,7 @@ jobs:
           status: ${{ job.status }}
           check-run-id: ${{ job.check_run_id }}
           project-outcome: ${{ (steps.dependencies.outcome == 'failure' || steps.project.outcome == 'failure') && 'failure' || 'success' }}
-          failure-reason: ${{ steps.registry-input.outputs.failure-reason || (steps.dependencies.outcome == 'failure' && 'dependency-setup-failed') || (steps.project.outcome == 'failure' && 'recipe-failed') || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
+          failure-reason: ${{ steps.setup.outputs.registry-failure-reason || (steps.dependencies.outcome == 'failure' && 'dependency-setup-failed') || (steps.project.outcome == 'failure' && 'recipe-failed') || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
           runner-reason: ${{ steps.setup.outputs.runner-reason || steps.dependencies.outputs.runner-reason || steps.project.outputs.runner-reason }}
           upstream-reason: ${{ steps.dependencies.outputs.upstream-reason || steps.project.outputs.upstream-reason }}
           task: just ${{ inputs.recipe }}

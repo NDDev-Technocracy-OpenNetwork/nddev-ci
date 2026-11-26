@@ -3,32 +3,92 @@ import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { loadRegistrySnapshot, resolveTool, resolveToolchain } from "../../lib/registry-resolve.mjs";
 import { ActionError } from "../../lib/release-asset.mjs";
 import { managedRunner } from "../../lib/runner-profile.mjs";
 
 const names = ["node", "python", "uv", "bun", "rust", "java", "go", "flutter", "dart"];
 const key = (name) => `SDK_${name.toUpperCase()}_VERSION`;
+const bareNamePattern = /^[a-z0-9][a-z0-9-]*$/;
+const exactSemverPattern = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+const exactJavaPattern = /^[1-9][0-9]*\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\.(0|[1-9][0-9]*))?(?:\+(0|[1-9][0-9]*))?$/;
 
-export function selections(environment) {
+function resolveToolsList(rawTools, snapshot) {
+  if (rawTools === "") return "";
+  if (rawTools.length > 1024) {
+    throw new ActionError("Tools must be comma-separated name@exact-version entries, each name once.");
+  }
+  const seen = new Set();
+  const resolved = [];
+  for (const entry of rawTools.split(",")) {
+    if (!entry) {
+      throw new ActionError("Tools must be comma-separated name@exact-version entries, each name once.");
+    }
+    const at = entry.indexOf("@");
+    if (at === -1) {
+      if (!snapshot || !bareNamePattern.test(entry)) {
+        throw new ActionError("Tools must be comma-separated name@exact-version entries, each name once.");
+      }
+      if (seen.has(entry)) {
+        throw new ActionError("Tools must be comma-separated name@exact-version entries, each name once.");
+      }
+      seen.add(entry);
+      const version = resolveTool(snapshot, entry).version;
+      if (!exactSemverPattern.test(version)) {
+        throw new ActionError(`Resolved tool ${entry} version ${version} is not an exact stable version.`);
+      }
+      resolved.push(`${entry}@${version}`);
+      continue;
+    }
+    const name = entry.slice(0, at);
+    const version = entry.slice(at + 1);
+    if (!bareNamePattern.test(name) || !exactSemverPattern.test(version) || seen.has(name)) {
+      throw new ActionError("Tools must be comma-separated name@exact-version entries, each name once.");
+    }
+    seen.add(name);
+    if (snapshot) resolveTool(snapshot, name, version);
+    resolved.push(`${name}@${version}`);
+  }
+  return resolved.join(",");
+}
+
+export function resolveSelectionEnvironment(environment) {
   managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED);
+  const snapshot = loadRegistrySnapshot(environment);
+  const resolvedEnv = { ...environment };
   const selected = {};
+
+  const requestedToolchains = (environment.SDK_TOOLCHAINS ?? "").trim();
+  if (requestedToolchains !== "") {
+    if (!snapshot) {
+      throw new ActionError("Selecting toolchains by registry name requires NDDEV_CI_REGISTRY_SNAPSHOT.");
+    }
+    const seen = new Set();
+    for (const item of requestedToolchains.split(",")) {
+      const name = item.trim();
+      if (!names.includes(name) || seen.has(name)) {
+        throw new ActionError(`Unknown or duplicate toolchain selection: ${JSON.stringify(item)}.`);
+      }
+      seen.add(name);
+      if ((resolvedEnv[key(name)] ?? "") === "") {
+        resolvedEnv[key(name)] = resolveToolchain(snapshot, name).version;
+      }
+    }
+  }
+
   for (const name of names) {
-    const version = environment[key(name)] ?? "";
+    const version = resolvedEnv[key(name)] ?? "";
     if (version === "") continue;
-    const exact = name === "java"
-      ? /^[1-9][0-9]*\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\.(0|[1-9][0-9]*))?(?:\+(0|[1-9][0-9]*))?$/
-      : /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+    const exact = name === "java" ? exactJavaPattern : exactSemverPattern;
     if (!exact.test(version))
       throw new ActionError(`The ${name} selection must be an exact stable version.`);
+    if (snapshot) resolveToolchain(snapshot, name, version);
     selected[name] = version;
   }
-  const tools = environment.SDK_TOOLS ?? "";
-  if (tools !== "") {
-    const exact = "[a-z0-9][a-z0-9-]*@(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)";
-    const names = tools.split(",").map((tool) => tool.split("@")[0]);
-    if (tools.length > 1024 || !new RegExp(`^${exact}(,${exact})*$`).test(tools) || new Set(names).size !== names.length)
-      throw new ActionError("Tools must be comma-separated name@exact-version entries, each name once.");
-  }
+
+  const tools = resolveToolsList(environment.SDK_TOOLS ?? "", snapshot);
+  if (tools !== "") resolvedEnv.SDK_TOOLS = tools;
+
   for (const name of ["COMPONENTS", "TARGETS"]) {
     const value = environment[`SDK_RUST_${name}`] ?? "";
     if (value === "") continue;
@@ -36,7 +96,11 @@ export function selections(environment) {
         !/^[a-z0-9][a-z0-9_-]*(,[a-z0-9][a-z0-9_-]*)*$/.test(value))
       throw new ActionError("Rust components and targets require a selected toolchain and comma-separated names.");
   }
-  return selected;
+  return { selected, resolvedEnv, tools };
+}
+
+export function selections(environment) {
+  return resolveSelectionEnvironment(environment).selected;
 }
 
 // GitHub's tool cache keeps the SDKs that setup actions download from GitHub releases. One cache
@@ -57,16 +121,16 @@ export function supported(selected, platform = process.platform, arch = process.
 export function imageKey(environment, platform = process.platform, readRelease = () => readFileSync("/etc/os-release", "utf8"), release = os.release()) {
   const declared = environment.ImageOS ?? "";
   if (/^[a-z0-9]{1,32}$/.test(declared)) return declared;
-  let key = "";
+  let keyName = "";
   if (platform === "linux") {
     const fields = Object.fromEntries(readRelease().split("\n").map((line) => line.split("=")).filter((pair) => pair.length === 2)
       .map(([name, value]) => [name, value.replace(/^"|"$/g, "")]));
-    key = `${fields.ID ?? ""}${fields.VERSION_ID ?? ""}`;
-  } else if (platform === "darwin") key = `darwin${release.split(".")[0]}`;
-  else if (platform === "win32") key = `win${release.split(".")[2] ?? ""}`;
-  key = key.toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (!/^[a-z0-9]{2,32}$/.test(key)) throw new ActionError("The hosted runner image is unknown.");
-  return key;
+    keyName = `${fields.ID ?? ""}${fields.VERSION_ID ?? ""}`;
+  } else if (platform === "darwin") keyName = `darwin${release.split(".")[0]}`;
+  else if (platform === "win32") keyName = `win${release.split(".")[2] ?? ""}`;
+  keyName = keyName.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!/^[a-z0-9]{2,32}$/.test(keyName)) throw new ActionError("The hosted runner image is unknown.");
+  return keyName;
 }
 
 // The macOS Python build installs its framework under /Library/Frameworks and leaves only links in
@@ -106,7 +170,7 @@ export function javaVersion(text, requested) {
 
 function measure(name, environment, executable) {
   if (name === "flutter") {
-    const result = spawnSync("flutter", ["--version", "--machine"], {
+    const result = spawnSync(executable ?? "flutter", ["--version", "--machine"], {
       env: environment, encoding: "utf8", timeout: 300000, maxBuffer: 1048576,
       windowsHide: true, shell: process.platform === "win32",
     });
@@ -136,18 +200,29 @@ function measure(name, environment, executable) {
   return {[name]: text.match(expression)?.[1]};
 }
 
-// Node and Bun select their requested line from the managed tool cache. Older runner
-// images may supply Bun on PATH, which must still pass the same version check.
+// Managed toolchains select their requested line from the managed tool cache when installed there.
+// Node always requires its exact tool-cache entry; other runtimes fall back to verified PATH entries.
 function managedRuntime(environment, name, version) {
   if (!version || !managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) return null;
   const root = environment.RUNNER_TOOL_CACHE ?? "";
+  if (!root && !["node", "bun"].includes(name)) return null;
   if (!path.isAbsolute(root) || /[\r\n\0]/.test(root))
     throw new ActionError("The managed RUNNER_TOOL_CACHE must be an absolute path.");
-  const folder = path.join(root, name, version, process.arch);
-  const bin = name === "node" ? path.join(folder, "bin") : folder;
-  const executable = path.join(bin, process.platform === "win32" ? name + ".exe" : name);
-  if (name === "bun" && !existsSync(executable)) return null;
-  return {bin, executable};
+  const cacheName = name === "java" ? "jdk" : name;
+  const folder = path.join(root, cacheName, version, process.arch);
+  const exeName = process.platform === "win32" ? `${name}.exe` : name;
+  if (name === "node") {
+    const bin = path.join(folder, "bin");
+    return { bin, executable: path.join(bin, exeName) };
+  }
+  const candidates = name === "bun"
+    ? [folder]
+    : [path.join(folder, "bin"), folder];
+  for (const bin of candidates) {
+    const executable = path.join(bin, exeName);
+    if (existsSync(executable)) return { bin, executable };
+  }
+  return null;
 }
 
 // A managed SDK keeps every Python line of the registry where uv finds its own installations,
@@ -219,23 +294,28 @@ function verifyRust(environment, toolchain) {
 function prependPath(environment, bin) {
   // Match Node's case-insensitive subprocess environment ordering on Windows.
   const name = process.platform === "win32"
-    ? Object.keys(environment).sort().find((key) => key.toUpperCase() === "PATH") ?? "PATH"
+    ? Object.keys(environment).sort().find((keyName) => keyName.toUpperCase() === "PATH") ?? "PATH"
     : "PATH";
   return {...environment, [name]: [bin, environment[name]].filter(Boolean).join(path.delimiter)};
 }
 
 function verifiedSelection(environment) {
-  const selected = selections(environment);
+  const { selected, resolvedEnv } = resolveSelectionEnvironment(environment);
+  environment = resolvedEnv;
   supported(selected);
-  const node = managedRuntime(environment, "node", selected.node);
-  if (node) environment = prependPath(environment, node.bin);
-  const bun = managedRuntime(environment, "bun", selected.bun);
-  if (bun) environment = prependPath(environment, bun.bin);
+  const runtimes = {};
+  for (const runtimeName of ["node", "bun", "uv", "go", "java", "dart", "flutter"]) {
+    const found = managedRuntime(environment, runtimeName, selected[runtimeName]);
+    if (found) {
+      runtimes[runtimeName] = found;
+      environment = prependPath(environment, found.bin);
+    }
+  }
   // Verification must not let rustup install a missing toolchain through a compiler proxy.
   if (selected.rust) environment = {...environment, RUSTUP_AUTO_INSTALL: "0"};
   const versions = {};
   for (const [name, expected] of Object.entries(selected)) {
-    const executable = name === "node" ? node?.executable : name === "bun" ? bun?.executable : undefined;
+    const executable = runtimes[name]?.executable;
     const measured = measure(name, environment, executable);
     if (measured[name] !== expected)
       throw new ActionError(`The selected ${name} executable does not provide version ${expected}.`);
@@ -255,7 +335,14 @@ function verifiedSelection(environment) {
       throw new ActionError(`The selected ${name} executable does not provide version ${expected}.`);
     tools[name] = measured;
   }
-  return {node, bun, folders, receipt: {schema_version: 1, platform: process.platform, architecture: process.arch, versions, tools}};
+  const runtimeBins = Object.values(runtimes).map((item) => item.bin);
+  return {
+    node: runtimes.node ?? null,
+    bun: runtimes.bun ?? null,
+    runtimeBins,
+    folders,
+    receipt: {schema_version: 1, platform: process.platform, architecture: process.arch, versions, tools},
+  };
 }
 
 export function verify(environment) {
@@ -291,23 +378,28 @@ function mergeSelection(environment) {
 
 export function main(mode, environment = process.env) {
   if (mode === "validate") {
-    supported(selections(environment));
-    const plan = cachePlan(environment);
-    const selection = JSON.stringify(selectionPayload(environment));
+    const { selected, resolvedEnv, tools } = resolveSelectionEnvironment(environment);
+    supported(selected);
+    const plan = cachePlan(resolvedEnv);
+    const selection = JSON.stringify(selectionPayload(resolvedEnv));
+    const versionOutputs = names
+      .map((name) => `${name}-version=${selected[name] ?? ""}`)
+      .join("\n");
     if (environment.GITHUB_OUTPUT)
       appendFileSync(environment.GITHUB_OUTPUT,
-        `bootstrap=${!managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)}\ncache-key=${plan.key}\nselection=${selection}\ncache-paths<<NDDEV_SDK_PATHS\n${plan.paths.join("\n")}\nNDDEV_SDK_PATHS\n`);
+        `bootstrap=${!managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)}\ncache-key=${plan.key}\nselection=${selection}\n${versionOutputs}\ntools=${tools}\ncache-paths<<NDDEV_SDK_PATHS\n${plan.paths.join("\n")}\nNDDEV_SDK_PATHS\n`);
     return;
   }
   if (mode !== "verify") throw new ActionError("Unknown hosted SDK command.");
   environment = mergeSelection(environment);
-  selections(environment);
+  const { resolvedEnv } = resolveSelectionEnvironment(environment);
+  environment = resolvedEnv;
   const python = managedPython(environment);
-  const {node, bun, folders, receipt} = verifiedSelection(python ? prependPath(environment, python.bin) : environment);
+  const { runtimeBins, folders, receipt } = verifiedSelection(python ? prependPath(environment, python.bin) : environment);
   const variables = {BUN_DO_NOT_TRACK: "1", DO_NOT_TRACK: "1"};
   if (python) variables.UV_PYTHON = python.executable;
   // GitHub prepends each entry. Keep the verified directories ahead of the default SDK bin.
-  const paths = [python?.bin, node?.bin, bun?.bin, ...folders].filter(Boolean);
+  const paths = [python?.bin, ...runtimeBins, ...folders].filter(Boolean);
   if (paths.length && environment.GITHUB_PATH)
     appendFileSync(environment.GITHUB_PATH, paths.join("\n") + "\n");
   if (receipt.versions.uv && !managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) {

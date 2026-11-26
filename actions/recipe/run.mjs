@@ -16,7 +16,14 @@ import { pathToFileURL } from "node:url";
 
 import { ActionError, downloadAsset } from "../../lib/release-asset.mjs";
 import { extract } from "../../lib/native-member.mjs";
+import { hostedJustPin } from "../../lib/hosted-compat-pins.mjs";
 import { runProjectCommand } from "../../lib/project-command.mjs";
+import {
+  findManagedTool,
+  loadRegistrySnapshot,
+  measureToolVersion,
+  resolveToolchain,
+} from "../../lib/registry-resolve.mjs";
 import { managedRunner } from "../../lib/runner-profile.mjs";
 import {
   buildReceiptSession,
@@ -34,9 +41,6 @@ import {
   writeActionOutputs,
   writeReceiptMetadata,
 } from "../../lib/step-receipts.mjs";
-const configuration = JSON.parse(
-  readFileSync(new URL("./just.json", import.meta.url), "utf8"),
-);
 const digest = (file) =>
   createHash("sha256").update(readFileSync(file)).digest("hex");
 
@@ -99,19 +103,31 @@ export function invocation({
 }
 
 async function executable(environment) {
+  const snapshot = loadRegistrySnapshot(environment);
+  const requested = (
+    environment["INPUT_JUST-VERSION"] ??
+    environment.NDDEV_CI_JUST_VERSION ??
+    ""
+  ).trim();
   if (managedRunner(environment.RUNNER_ENVIRONMENT, environment.INPUT_MANAGED)) {
-    const result = spawnSync("just", ["--version"], {
-      encoding: "utf8",
-      env: commandEnvironment(environment),
+    const found = findManagedTool("just", {
+      environment: commandEnvironment(environment),
+      snapshot,
+      requestedVersion: requested,
+      allowPathOutsideCache: true,
     });
-    if (
-      result.status !== 0 ||
-      result.stdout.trim() !== `just ${configuration.version}`
-    )
-      throw new ActionError(
-        "The prepared runner must provide the pinned managed just frontend.",
-      );
-    return "just";
+    if (found.source === "tool-cache" && environment.GITHUB_PATH) {
+      appendFileSync(environment.GITHUB_PATH, `${path.dirname(found.binary)}\n`);
+    }
+    return { binary: found.binary, expectedVersion: found.version };
+  }
+  const configuration = hostedJustPin(environment);
+  const targetVersion = requested || (snapshot ? resolveToolchain(snapshot, "just").version : configuration.version);
+  if (snapshot) resolveToolchain(snapshot, "just", targetVersion);
+  if (targetVersion !== configuration.version) {
+    throw new ActionError(
+      `Hosted just ${targetVersion} has no verified asset digest in this release; supply tool-assets or use a managed runner.`,
+    );
   }
   const target = `${process.platform}-${process.arch}`;
   const asset = configuration.targets[target];
@@ -125,7 +141,7 @@ async function executable(environment) {
     environment.RUNNER_TEMP,
     "nddev-ci",
     "just",
-    configuration.version,
+    targetVersion,
     target,
   );
   const binary = path.join(
@@ -138,7 +154,7 @@ async function executable(environment) {
     try {
       const archive = path.join(temporary, asset.name);
       await downloadAsset(
-        { ...asset, repository: configuration.repository, tag: configuration.version },
+        { ...asset, repository: configuration.repository, tag: targetVersion },
         archive,
         environment["INPUT_GITHUB-TOKEN"],
         environment.NDDEV_CI_ARTIFACT_REGISTRY,
@@ -163,7 +179,7 @@ async function executable(environment) {
   }
   if (environment.GITHUB_PATH)
     appendFileSync(environment.GITHUB_PATH, `${directory}\n`);
-  return binary;
+  return { binary, expectedVersion: targetVersion };
 }
 
 function commandEnvironment(environment) {
@@ -175,20 +191,14 @@ function commandEnvironment(environment) {
 }
 
 export async function prepareFrontend(environment = process.env) {
-  const just = await executable(environment);
-  const version = spawnSync(just, ["--version"], {
-    encoding: "utf8",
-    env: commandEnvironment(environment),
-  });
-  if (
-    version.status !== 0 ||
-    version.stdout.trim() !== `just ${configuration.version}`
-  )
-    throw new ActionError("Task runner version differs from its pin.");
+  const { binary: just, expectedVersion } = await executable(environment);
+  const measured = measureToolVersion(just, "just", commandEnvironment(environment));
+  if (!measured || measured !== expectedVersion)
+    throw new ActionError("Task runner version differs from its resolved version.");
   if (environment.GITHUB_OUTPUT)
     appendFileSync(
       environment.GITHUB_OUTPUT,
-      `just-version=${configuration.version}\n`,
+      `just-version=${measured}\n`,
     );
   return just;
 }

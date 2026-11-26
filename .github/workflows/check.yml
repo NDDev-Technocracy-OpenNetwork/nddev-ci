@@ -43,6 +43,26 @@ on:
         description: Exact commit of the protected registry input selected by the caller.
         type: string
         default: ''
+      toolchains:
+        description: Optional comma-separated registry toolchain names resolved from the protected registry snapshot.
+        type: string
+        default: ''
+      just-version:
+        description: Optional exact Just version for GitHub-hosted runners.
+        type: string
+        default: ''
+      tool-pins:
+        description: Optional JSON map of explicit version and per-arch sha256 merge-stop tool pins for GitHub-hosted runners.
+        type: string
+        default: ''
+      buildx-version:
+        description: Optional exact Buildx version for GitHub-hosted runners.
+        type: string
+        default: ''
+      buildkit-image:
+        description: Optional digest-pinned BuildKit image for GitHub-hosted runners.
+        type: string
+        default: ''
       artifact-registry:
         description: Optional tool-download registry; empty uses the runner setting or official upstream sources.
         type: string
@@ -267,6 +287,7 @@ jobs:
       ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || github.event.repository.private && (((inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '') != '' && (contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || ''))) || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '')))) && fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '')] || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '')] || 'ubuntu-24.04')
       || (github.event_name == 'pull_request' && github.event.sender.type == 'Bot' && github.event.pull_request.user.type == 'Bot' && github.actor == github.triggering_actor && !startsWith(github.head_ref, 'release/') && fromJSON('{"nddev-linux-bounded":"nddev-linux-bounded-maintenance","nddev-linux-light":"nddev-linux-light-maintenance","nddev-linux-small":"nddev-linux-small-maintenance","nddev-linux-standart":"nddev-linux-standart-maintenance","nddev-macos":"nddev-macos-maintenance","nddev-windows":"nddev-windows-maintenance"}')[((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64')) && 'nddev-linux-light' || inputs.runner)] || ((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64')) && 'nddev-linux-light' || inputs.runner))) || '' }}
     timeout-minutes: 10
+    environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
     # Inherit optional actions: read from the caller to verify the source PR's conclusion.
     outputs:
       split: ${{ steps.plan.outputs.split }}
@@ -294,10 +315,22 @@ jobs:
           sparse-checkout-cone-mode: ${{ inputs.sparse-checkout != '' && inputs.sparse-checkout-cone-mode || false }}
       - name: Outside telemetry off
         uses: $/actions/telemetry
+      - name: Receive the protected registry input
+        id: registry-input
+        if: inputs.registry-commit != ''
+        uses: $/actions/registry-input
+        with:
+          commit: ${{ inputs.registry-commit }}
+          first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
+          second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
+          third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
+          fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+          sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
       - name: Native task runner
         uses: $/actions/frontend
         with:
           managed: ${{ runner.environment == 'self-hosted' }}
+          just-version: ${{ inputs.just-version }}
       - name: Full tree fallback if the justfile imports other files
         if: inputs.sparse-checkout == ''
         run: |
@@ -366,7 +399,7 @@ jobs:
       - name: Receive the protected registry input
         id: registry-input
         uses: $/actions/registry-input
-        with: &registry-snapshot
+        with:
           commit: ${{ inputs.registry-commit }}
           first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
           second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
@@ -444,6 +477,16 @@ jobs:
           full-history: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && inputs.inline-merge-stops && inputs.sparse-checkout == '' && inputs.runner != 'nddev-macos' && inputs.runner != 'nddev-windows' && inputs['runner-profile'] != 'macos-arm64' && inputs['runner-profile'] != 'windows-x64' }}
           managed: ${{ runner.environment == 'self-hosted' }}
           artifact-registry: ${{ inputs.artifact-registry }}
+          registry-commit: ${{ inputs.registry-commit }}
+          registry-snapshot-sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
+          registry-snapshot-first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
+          registry-snapshot-second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
+          registry-snapshot-third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
+          registry-snapshot-fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+          toolchains: ${{ inputs.toolchains }}
+          just-version: ${{ inputs.just-version }}
+          buildx-version: ${{ inputs.buildx-version }}
+          buildkit-image: ${{ inputs.buildkit-image }}
           images: ${{ inputs.images && github.event_name != 'pull_request' && !(github.event_name == 'merge_group' && !inputs['merge-group-full-check']) }}
           diagnostics: ${{ inputs.diagnostics }}
           reports: ${{ inputs.reports }}
@@ -474,12 +517,6 @@ jobs:
           tool-assets: ${{ inputs.tool-assets }}
           # jscpd:ignore-end
 
-      - name: Receive the protected registry input
-        id: registry-input
-        if: inputs.registry-commit != ''
-        uses: $/actions/registry-input
-        with: *registry-snapshot
-
       - name: Inline merge stops
         id: inline-stops
         if: >-
@@ -493,6 +530,7 @@ jobs:
           isolated-worktree: 'true'
           new-clones: ${{ inputs.new-clones }}
           upstream-branch: ${{ inputs.upstream-branch }}
+          tool-pins: ${{ inputs.tool-pins }}
 
       - name: Check technology registry
         id: registry-check
@@ -542,7 +580,7 @@ jobs:
         with:
           status: ${{ job.status }}
           project-outcome: ${{ (steps.project.outcome == 'failure' || steps.registry-check.outputs.failure-layer == 'project' || steps.inline-stops.outputs.failure-layer == 'project') && 'failure' || steps.project.outcome }}
-          failure-reason: ${{ steps.inline-stops.outputs.failure-reason || steps.registry-check.outputs.failure-reason || steps.registry-input.outputs.failure-reason || (steps.project.outcome == 'failure' && 'project-command-failed') || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
+          failure-reason: ${{ steps.inline-stops.outputs.failure-reason || steps.registry-check.outputs.failure-reason || steps.setup.outputs.registry-failure-reason || (steps.project.outcome == 'failure' && 'project-command-failed') || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
           runner-reason: ${{ steps.setup.outputs.runner-reason || steps.project.outputs.runner-reason }}
           upstream-reason: ${{ steps.project.outputs.upstream-reason }}
           check-run-id: ${{ job.check_run_id }}
@@ -651,6 +689,8 @@ jobs:
     uses: $/.github/workflows/merge-stops.yml
     with:
       retain-runs: ${{ inputs.retain-runs }}
+      registry-commit: ${{ inputs.registry-commit }}
+      tool-pins: ${{ inputs.tool-pins }}
       runner: ${{ inputs.runner }}
       runner-profile: ${{ inputs.runner-profile }}
       artifact-registry: ${{ inputs.artifact-registry }}
@@ -658,5 +698,10 @@ jobs:
       sparse-checkout: ${{ inputs.sparse-merge-stops }}
       new-clones: ${{ inputs.new-clones }}
       upstream-branch: ${{ inputs.upstream-branch }}
+    secrets:
+      REGISTRY_SNAPSHOT_FIRST: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
+      REGISTRY_SNAPSHOT_SECOND: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
+      REGISTRY_SNAPSHOT_THIRD: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
+      REGISTRY_SNAPSHOT_FOURTH: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
     permissions:
       contents: read

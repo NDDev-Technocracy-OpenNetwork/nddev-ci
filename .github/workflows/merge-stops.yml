@@ -15,6 +15,14 @@ on:
         description: Give each run its own concurrency group and let it finish.
         type: boolean
         default: false
+      registry-commit:
+        description: Exact commit of the protected registry input selected by the caller.
+        type: string
+        default: ''
+      tool-pins:
+        description: Optional JSON map of explicit version and per-arch sha256 tool pins for GitHub-hosted runners.
+        type: string
+        default: ''
       new-clones:
         description: Reject new code clones using the pull request base's .jscpd.json.
         type: boolean
@@ -45,6 +53,19 @@ on:
         description: Optional branch in this repository that mirrors a fork's upstream; its commit ancestry is skipped by authorship.
         type: string
         default: ''
+    secrets:
+      REGISTRY_SNAPSHOT_FIRST:
+        description: Protected environment snapshot fragment.
+        required: false
+      REGISTRY_SNAPSHOT_SECOND:
+        description: Protected environment snapshot fragment.
+        required: false
+      REGISTRY_SNAPSHOT_THIRD:
+        description: Protected environment snapshot fragment.
+        required: false
+      REGISTRY_SNAPSHOT_FOURTH:
+        description: Protected environment snapshot fragment.
+        required: false
 
 permissions: {}
 
@@ -64,6 +85,7 @@ jobs:
       group: nddev-ci-merge-stops-${{ github.workflow }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || github.ref }}-${{ inputs.runner }}-${{ inputs.hosted-runner }}-${{ inputs.runner-profile }}
       cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
     timeout-minutes: 10
+    environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
     permissions:
       contents: read
     steps:
@@ -104,12 +126,25 @@ jobs:
         with:
           url: ${{ inputs.artifact-registry }}
 
+      - name: Receive the protected registry input
+        id: registry-input
+        if: inputs.registry-commit != ''
+        uses: $/actions/registry-input
+        with:
+          commit: ${{ inputs.registry-commit }}
+          sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
+          first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
+          second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
+          third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
+          fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+
       - name: Merge stops
         id: stops
         uses: $/actions/merge-stops
         with:
           new-clones: ${{ inputs.new-clones }}
           upstream-branch: ${{ inputs.upstream-branch }}
+          tool-pins: ${{ inputs.tool-pins }}
 
       - name: Job record
         if: always()
@@ -121,5 +156,5 @@ jobs:
           check-run-id: ${{ job.check_run_id }}
           # A stop that judged the change, or the steps around them (nddev_ci.failure.layer).
           failure-layer: ${{ job.status == 'failure' && (steps.stops.outputs.failure-layer || 'library') || '' }}
-          failure-reason: ${{ job.status == 'failure' && (steps.stops.outputs.failure-reason || 'merge-stops-setup-failed') || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.stops.outputs.failure-reason || steps.registry-input.outputs.failure-reason || 'merge-stops-setup-failed') || '' }}
           started-file: ${{ runner.temp }}/nddev-ci-started

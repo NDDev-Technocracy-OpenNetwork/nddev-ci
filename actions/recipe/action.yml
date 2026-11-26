@@ -4,6 +4,9 @@ inputs:
   managed:
     description: Optional explicit SDK ownership; empty follows runner.environment.
     default: ''
+  just-version:
+    description: Optional exact Just version; managed runners resolve from the registry snapshot or managed SDK.
+    default: ''
   recipe:
     description: The declared recipe name.
     required: true

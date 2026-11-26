@@ -1,0 +1,14 @@
+name: Prepare daily security scanners
+description: >-
+  Prepares TruffleHog, Kingfisher, OSV-Scanner, Syft, Grype and Trivy from the managed SDK and
+  registry snapshot on self-hosted runners, or from explicit/hosted pins on GitHub-hosted runners.
+inputs:
+  tool-pins:
+    description: Optional JSON map of explicit version and per-arch sha256 tool pins for GitHub-hosted runners.
+    default: ''
+  github-token:
+    description: Existing job token used for public GitHub release API reads (never sent to Trivy).
+    default: ${{ github.token }}
+runs:
+  using: node24
+  main: run.mjs

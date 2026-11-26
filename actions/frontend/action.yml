@@ -4,9 +4,15 @@ inputs:
   managed:
     description: Optional explicit SDK ownership; empty follows runner.environment.
     default: ''
+  just-version:
+    description: Optional exact Just version; managed runners resolve from the registry snapshot or managed SDK.
+    default: ''
   github-token:
     description: Job token used only for official public asset API reads.
     default: ${{ github.server_url == 'https://github.com' && github.token || '' }}
+outputs:
+  just-version:
+    description: The admitted task runner version.
 runs:
   using: node24
   main: run.mjs

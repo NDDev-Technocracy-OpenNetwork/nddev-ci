@@ -143,7 +143,8 @@ jobs:
           working-directory: tests/fixtures/image
       - name: Select a pinned public asset for this native runner
         run: >-
-          node -e "const fs=require('node:fs'),p=require('./actions/recipe/just.json'),a=p.targets[process.platform+'-'+process.arch];
+          node --input-type=module -e "import fs from 'node:fs'; import {hostedJustPin} from './lib/hosted-compat-pins.mjs';
+          const p=hostedJustPin({RUNNER_ENVIRONMENT:'github-hosted'}),a=p.targets[process.platform+'-'+process.arch];
           fs.writeFileSync('native-assets.json',JSON.stringify({schema_version:1,assets:[{repository:p.repository,asset:a.asset,size:a.size,sha256:a.sha256,file:a.name,members:[{path:process.platform==='win32'?'just.exe':'just',file:process.platform==='win32'?'prepared-just.exe':'prepared-just',size:a.binary_size,sha256:a.binary_sha256,executable:true}]}]}))"
       - name: Prepare the exact public asset bytes
         id: native-assets
@@ -156,7 +157,8 @@ jobs:
         env:
           NATIVE_ASSET_RECEIPT: ${{ steps.native-assets.outputs.receipt }}
         run: >-
-          node -e "const {execFileSync}=require('node:child_process'),p=require('./actions/recipe/just.json'),r=JSON.parse(process.env.NATIVE_ASSET_RECEIPT);
+          node --input-type=module -e "import {execFileSync} from 'node:child_process'; import {hostedJustPin} from './lib/hosted-compat-pins.mjs';
+          const p=hostedJustPin({RUNNER_ENVIRONMENT:'github-hosted'}),r=JSON.parse(process.env.NATIVE_ASSET_RECEIPT);
           if(r.assets[0].files.length!==2)throw Error('missing native receipt');
           if(execFileSync('prepared-just',['--version'],{encoding:'utf8'}).trim()!=='just '+p.version)throw Error('native tool version mismatch')"
       - name: Verify and reuse the warm public asset
@@ -174,7 +176,9 @@ jobs:
       - name: Require the action's admitted version receipt
         env:
           ACTUAL_VERSION: ${{ steps.probe.outputs.just-version }}
-        run: node -e "const p=require('./actions/recipe/just.json'); if(process.env.ACTUAL_VERSION!==p.version)process.exit(1)"
+        run: >-
+          node --input-type=module -e "import {hostedJustPin} from './lib/hosted-compat-pins.mjs';
+          if(process.env.ACTUAL_VERSION!==hostedJustPin({RUNNER_ENVIRONMENT:'github-hosted'}).version)process.exit(1)"
       - name: Check argument and workspace boundaries
         env:
           GH_TOKEN: ${{ github.token }}

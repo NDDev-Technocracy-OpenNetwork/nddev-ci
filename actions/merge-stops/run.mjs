@@ -1,9 +1,10 @@
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkedMergeBase } from "../../lib/dependency-source.mjs";
+import { checkWorkflowActions, loadRegistrySnapshot } from "../../lib/registry-resolve.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const actionsDir = path.resolve(here, "..");
@@ -210,6 +211,43 @@ async function runWorkflows({ cwd, env, binDir }) {
     chunks.push(`${level || "note"}: ${finding.rule_id} in ${meta.path}:${meta.line} ${meta.details || ""}`);
     if (level === "warning" || level === "error") stops += 1;
   }
+
+  const snapshot = loadRegistrySnapshot(env);
+  if (snapshot) {
+    const workflowFiles = [];
+    const wfDir = path.join(cwd, ".github", "workflows");
+    if (existsSync(wfDir)) {
+      for (const name of readdirSync(wfDir).sort()) {
+        if (!name.endsWith(".yml") && !name.endsWith(".yaml")) continue;
+        workflowFiles.push({
+          path: `.github/workflows/${name}`,
+          content: readFileSync(path.join(wfDir, name), "utf8"),
+        });
+      }
+    }
+    const actionCheck = checkWorkflowActions(snapshot, workflowFiles);
+    if (actionCheck.violations.length > 0) {
+      const baseRef = env.MERGE_STOPS_BASE || env.INPUT_BASE || "";
+      const baseViolations = new Set();
+      if (/^[0-9a-f]{40}$/.test(baseRef)) {
+        const baseFiles = [];
+        for (const wf of workflowFiles) {
+          const blob = spawnSync("git", ["cat-file", "blob", `${baseRef}:${wf.path}`], { cwd, env, encoding: "utf8" });
+          if (blob.status === 0) baseFiles.push({ path: wf.path, content: blob.stdout });
+        }
+        for (const item of checkWorkflowActions(snapshot, baseFiles).violations) {
+          baseViolations.add(`${item.path}:${item.uses}`);
+        }
+      }
+      for (const violation of actionCheck.violations) {
+        const isExisting = baseViolations.has(`${violation.path}:${violation.uses}`);
+        const level = isExisting ? "warning" : "error";
+        chunks.push(`::${level}::Registry action check (${violation.path}:${violation.line}): ${violation.reason}`);
+        if (!isExisting) stops += 1;
+      }
+    }
+  }
+
   return { status: stops > 0 ? 1 : 0, output: chunks.join("\n") + (chunks.length ? "\n" : "") };
 }
 
