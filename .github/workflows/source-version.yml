@@ -3,6 +3,10 @@ name: source version
 on:
   workflow_call:
     inputs:
+      retain-runs:
+        description: Isolate each source readiness check in its own concurrency group.
+        type: boolean
+        default: false
       context:
         description: The status context published by the source preparer.
         type: string
@@ -18,7 +22,7 @@ on:
       runner:
         description: Private runner label; public callers use a free hosted runner.
         type: string
-        default: nddev-linux-small
+        default: nddev-linux-light
     outputs:
       state:
         description: ready for full builds, or short-check for an ordinary pull request.
@@ -26,10 +30,14 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: nddev-ci-source-version-${{ github.workflow }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || github.ref }}-${{ inputs.context }}-${{ inputs.runner }}
+  cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
+
 jobs:
   ready:
     name: source version
-    runs-on: ${{ (!github.event.repository.private || contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github')) && 'ubuntu-24.04' || inputs.runner }}
+    runs-on: ${{ (!github.event.repository.private || contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github')) && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.sender.type == 'Bot' && github.event.pull_request.user.type == 'Bot' && github.actor == github.triggering_actor && fromJSON('{"nddev-linux-bounded":"nddev-linux-bounded-maintenance","nddev-linux-light":"nddev-linux-light-maintenance","nddev-linux-small":"nddev-linux-small-maintenance","nddev-linux-standart":"nddev-linux-standart-maintenance"}')[inputs.runner] || inputs.runner) }}
     timeout-minutes: 15
     permissions:
       statuses: read
@@ -56,5 +64,7 @@ jobs:
           task: source-version
           task-type: test
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && 'library' || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.ready.outcome == 'failure' && 'source-status-not-ready' || 'workflow-step-failed') || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

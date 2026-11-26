@@ -72,6 +72,33 @@ test("a new attempt invalidates an existing qualification receipt", async () => 
   await assert.rejects(recheck({json: async () => inventory([run({run_attempt: 2})])}, qualified), /newer run or attempt/);
 });
 
+test("branch fallback qualifies only the configured App and its exact passed full job", async () => {
+  const actor = {id: 7001};
+  const dispatch = run({id: 8, run_number: 13, event: "workflow_dispatch",
+    display_title: "Contour hosted fallback", actor, triggering_actor: actor});
+  const failedPush = run({conclusion: "cancelled"});
+  const full = {id: 9, name: "check / full check", run_id: 8, run_attempt: 1, head_sha: where.sha,
+    status: "completed", conclusion: "success"};
+  const configured = {waitMinutes: 0, fallbackActorId: "7001"};
+  const api = (candidate = dispatch, job = full, push = failedPush) => ({
+    json: async (_, route) => route.includes("/jobs?") ? {total_count: 1, jobs: [job]}
+      : route.includes("event=workflow_dispatch") ? inventory([candidate]) : inventory([push]),
+  });
+  const result = await qualify(api(), where, configured);
+  assert.equal(result.event, "workflow_dispatch");
+  assert.equal(result.run_id, 8);
+  await recheck(api(), result, configured);
+
+  await assert.rejects(qualify(api(), where, {waitMinutes: 0}), /No qualification/);
+  for (const change of [{display_title: "Normal dispatch"}, {actor: {id: 7002}}, {triggering_actor: {id: 7002}}])
+    await assert.rejects(qualify(api({...dispatch, ...change}), where, configured), /No qualification/);
+  for (const change of [{name: "check / short check"}, {run_attempt: 2}, {head_sha: "b".repeat(40)}, {conclusion: "skipped"}])
+    await assert.rejects(qualify(api(dispatch, {...full, ...change}), where, configured), /exact hosted fallback full job/);
+  await assert.rejects(recheck(api({...dispatch, triggering_actor: {id: 7002}}), result, configured), /No qualification/);
+  const newerPush = run({id: 12, run_number: 14});
+  await assert.rejects(recheck(api(dispatch, full, newerPush), result, configured), /newer run or attempt/);
+});
+
 test("artifacts require exact ownership, attempt freshness, expiration and mandatory digests", () => {
   assert.equal(selectArtifacts(artifacts(artifact()), qualified, ["build"])[0].id, 9);
   const old = artifact({id: 8, created_at: new Date(Date.parse(started) - 1000).toISOString()});
@@ -92,6 +119,20 @@ async function listen(handler) {
 async function close(server) {
   server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));
+}
+// Runs the actual release entrypoint as the runner does and returns its exit code and output.
+async function runRelease(env) {
+  const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
+    stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...process.env, ...env}});
+  let output = "";
+  child.stdout.on("data", (bytes) => {output += bytes;}); child.stderr.on("data", (bytes) => {output += bytes;});
+  const [code] = await once(child, "close");
+  return {code, output};
+}
+async function refuseRelease(env, reason) {
+  const {code, output} = await runRelease(env);
+  assert.equal(code, 1, output); assert.match(output, reason);
+  assert.equal(existsSync(env.GITHUB_OUTPUT), false, "a refused release emits no outputs");
 }
 
 test("mutable status reads revalidate a cached success after a newer failure", async () => {
@@ -225,23 +266,18 @@ test("the actual release entrypoint never prints unexpected error details", asyn
     reads++; res.setHeader("content-type", "application/json"); res.end(JSON.stringify(inventory()));
   });
   try {
-    const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
-      stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...process.env,
-        GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: privatePath,
-        GITHUB_API_URL: api.url, GITHUB_SERVER_URL: "https://github.com", "INPUT_API-URL": api.url,
-        "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", "INPUT_WAIT-MINUTES": "0", INPUT_ARTIFACTS: "",
-        "INPUT_CHECK-WORKFLOW": "ci.yml"},
-    });
-    let output = "";
-    child.stdout.on("data", (bytes) => {output += bytes;}); child.stderr.on("data", (bytes) => {output += bytes;});
-    const [code] = await once(child, "close");
+    const {code, output} = await runRelease({
+      GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: privatePath,
+      GITHUB_API_URL: api.url, GITHUB_SERVER_URL: "https://github.com", "INPUT_API-URL": api.url,
+      "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", "INPUT_WAIT-MINUTES": "0", INPUT_ARTIFACTS: "",
+      "INPUT_CHECK-WORKFLOW": "ci.yml"});
     assert.equal(code, 1); assert.equal(reads, 1);
     assert.match(output, /Release failed before completion\./);
     assert.doesNotMatch(output, /private-credential-fixture|opaque-credential-fixture/);
   } finally { await close(api.server); rmSync(root, {recursive: true, force: true}); }
 });
 
-test("the release entrypoint publishes qualified files and checksums and reconciles a rerun", async () => {
+test("the release entrypoint publishes qualified files and checksums after transient read failures and reconciles a rerun", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "release-publish-"));
   const zip = path.join(root, "build.zip"), binary = Buffer.from("checked native binary");
   execFileSync("python3", ["-I", "-c", "import sys,stat,zipfile; z=zipfile.ZipFile(sys.argv[1],'w'); i=zipfile.ZipInfo('program.bin'); i.external_attr=(stat.S_IFREG|0o755)<<16; z.writestr(i,b'checked native binary'); z.close()", zip]);
@@ -249,10 +285,19 @@ test("the release entrypoint publishes qualified files and checksums and reconci
   const digest = (value) => createHash("sha256").update(value).digest("hex");
   const tags = [{ref: "refs/tags/v1.0.0", object: {type: "commit", sha: "b".repeat(40)}}];
   let release = null, mutations = 0, checks = 0;
+  // Each read fails once the way a GitHub outage does: a gateway error or a dropped connection.
+  const faults = new Map([["/workflows/ci.yml/", 502], ["/matching-refs/tags/v", "drop"], ["/artifacts/9/zip", "drop"],
+    ["/releases/tags/v1.0.1", 503]]);
   const api = await listen(async (req, res) => {
     const chunks = []; for await (const chunk of req) chunks.push(chunk);
     const body = Buffer.concat(chunks), route = req.url;
     const json = (value, status = 200) => { res.writeHead(status, {"content-type": "application/json"}); res.end(JSON.stringify(value)); };
+    const fault = req.method === "GET" && [...faults.keys()].find((part) => route.includes(part));
+    if (fault) {
+      const failure = faults.get(fault); faults.delete(fault);
+      if (failure === "drop") req.socket.destroy(); else res.writeHead(failure).end();
+      return;
+    }
     if (req.method !== "GET") mutations++;
     if (route.includes("/workflows/")) {
       checks++;
@@ -287,24 +332,92 @@ test("the release entrypoint publishes qualified files and checksums and reconci
   try {
     for (let attempt = 0; attempt < 2; attempt++) {
       const temp = mkdtempSync(path.join(root, "attempt-"));
-      const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
-        stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...process.env,
-          GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: temp,
-          GITHUB_API_URL: api.url, GITHUB_SERVER_URL: "https://github.com", "INPUT_API-URL": api.url,
-          "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", "INPUT_REQUIRED-WORKFLOWS": "portable.yml\nartifact.yml", "INPUT_WAIT-MINUTES": "0", INPUT_ARTIFACTS: "build",
-          GITHUB_OUTPUT: path.join(temp, "outputs"), GITHUB_STEP_SUMMARY: path.join(temp, "summary")},
-      });
-      let output = "";
-      child.stdout.on("data", (chunk) => {output += chunk;}); child.stderr.on("data", (chunk) => {output += chunk;});
-      const before = mutations, [code] = await once(child, "close");
+      const before = mutations, {code, output} = await runRelease({
+        GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: temp,
+        GITHUB_API_URL: api.url, GITHUB_SERVER_URL: "https://github.com", "INPUT_API-URL": api.url,
+        "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", "INPUT_REQUIRED-WORKFLOWS": "portable.yml\nartifact.yml", "INPUT_WAIT-MINUTES": "0", INPUT_ARTIFACTS: "build",
+        GITHUB_OUTPUT: path.join(temp, "outputs"), GITHUB_STEP_SUMMARY: path.join(temp, "summary")});
       assert.equal(code, 0, output); assert.equal(release.draft, false);
       assert.match(readFileSync(path.join(temp, "outputs"), "utf8"), /version=1\.0\.1\ntag=v1\.0\.1/);
       if (attempt) assert.equal(mutations, before, "a published exact release needs no second mutation");
     }
+    assert.equal(faults.size, 0, "every transient read failure was met and recovered");
+    assert.equal(mutations, 6, "tag, notes, draft, two uploads and publication each ran once");
     assert.deepEqual([...uploads.keys()], ["program.bin", "SHA256SUMS"]);
     assert.deepEqual(uploads.get("program.bin"), binary);
     assert.equal(uploads.get("SHA256SUMS").toString(), `${digest(binary)}  program.bin\n`);
     assert.ok(checks >= 8, "each attempt rechecks qualification around transfer and publication");
+  } finally { await close(api.server); rmSync(root, {recursive: true, force: true}); }
+});
+
+test("a permanent API error fails the release at once with its cause", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "release-permanent-"));
+  let requests = 0;
+  const api = await listen((req, res) => { requests++; res.writeHead(404).end(); });
+  try {
+    await refuseRelease({
+      GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: root,
+      GITHUB_API_URL: api.url, "INPUT_API-URL": api.url, "INPUT_GITHUB-TOKEN": "opaque-credential-fixture",
+      "INPUT_WAIT-MINUTES": "0", GITHUB_OUTPUT: path.join(root, "outputs")}, /HTTP 404/);
+    assert.equal(requests, 1);
+  } finally { await close(api.server); rmSync(root, {recursive: true, force: true}); }
+});
+
+test("a connect timeout repeats a read and never repeats a write", async () => {
+  const api = await listen((req, res) => { res.setHeader("content-type", "application/json"); res.end('{"answered":true}'); });
+  const fetchOnce = globalThis.fetch;
+  let calls = 0;
+  // undici reports a connect timeout as a TypeError whose cause carries the code.
+  globalThis.fetch = async (url, options) => {
+    if (++calls === 1) throw new TypeError("fetch failed", {cause: Object.assign(new Error("Connect Timeout Error"), {code: "UND_ERR_CONNECT_TIMEOUT"})});
+    return fetchOnce(url, options);
+  };
+  try {
+    const github = client("fixture", api.url, {retryReads: true});
+    assert.deepEqual(await github.json("GET", "/read"), {answered: true});
+    assert.equal(calls, 2);
+    calls = 0;
+    await assert.rejects(github.json("POST", "/write", {body: {}}), /transport did not complete \(UND_ERR_CONNECT_TIMEOUT\)/);
+    assert.equal(calls, 1);
+  } finally { globalThis.fetch = fetchOnce; await close(api.server); }
+});
+
+test("read-only actions recover from transient GitHub read failures", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "read-actions-"));
+  const zip = path.join(root, "build.zip");
+  execFileSync("python3", ["-I", "-c", "import sys,stat,zipfile; z=zipfile.ZipFile(sys.argv[1],'w'); i=zipfile.ZipInfo('program.bin'); i.external_attr=(stat.S_IFREG|0o644)<<16; z.writestr(i,b'checked bytes'); z.close()", zip]);
+  const bytes = readFileSync(zip);
+  const metadata = artifact({size_in_bytes: bytes.length, digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`});
+  const status = {id: 11, context: "source/ready", creator: {id: 7}, state: "success",
+    url: `https://api.github.com/repos/${where.repository}/statuses/${where.sha}`};
+  const failed = new Set();
+  const api = await listen((req, res) => {
+    assert.equal(req.method, "GET");
+    if (!failed.has(req.url)) { failed.add(req.url); if (failed.size % 2) res.writeHead(502).end(); else req.socket.destroy(); return; }
+    res.setHeader("content-type", "application/json");
+    if (req.url.includes("/actions/workflows/")) res.end(JSON.stringify(inventory()));
+    else if (req.url.includes("/statuses?")) res.end(JSON.stringify(req.url.endsWith("page=1") ? [status] : []));
+    else if (req.url.endsWith("/artifacts?per_page=100")) res.end(JSON.stringify(artifacts(metadata)));
+    else if (req.url.endsWith("/artifacts/9/zip")) res.end(bytes);
+    else res.writeHead(404).end();
+  });
+  try {
+    const env = {GITHUB_API_URL: api.url, GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, RUNNER_TEMP: root,
+      "INPUT_GITHUB-TOKEN": "fixture-read-token", "INPUT_WAIT-MINUTES": "0"};
+    const {main: qualifyAction} = await import("../actions/qualify/run.mjs");
+    assert.equal((await qualifyAction({...env, GITHUB_OUTPUT: path.join(root, "qualify")})).run_id, 7);
+    assert.equal(failed.size, 1);
+    failed.clear();
+    const {main: statusAction} = await import("../actions/require-status/run.mjs");
+    assert.equal((await statusAction({...env, GITHUB_OUTPUT: path.join(root, "status"), INPUT_SHA: where.sha,
+      INPUT_CONTEXT: status.context, "INPUT_CREATOR-ID": "7", "INPUT_MAXIMUM-STATUSES": "150"})).state, "ready");
+    assert.equal(failed.size, 1);
+    failed.clear();
+    const {main: checkedAction} = await import("../actions/checked-artifacts/run.mjs");
+    await checkedAction({...env, GITHUB_OUTPUT: path.join(root, "checked"), INPUT_RECEIPT: JSON.stringify(qualified),
+      INPUT_ARTIFACTS: "build", INPUT_DIRECTORY: "checked-files"});
+    assert.equal(readFileSync(path.join(root, "checked-files", "program.bin"), "utf8"), "checked bytes");
+    assert.equal(failed.size, 3, "the recheck, artifact listing and download each failed once");
   } finally { await close(api.server); rmSync(root, {recursive: true, force: true}); }
 });
 
@@ -368,13 +481,9 @@ test("product promotion and publication refuse false checked metadata before any
       assert.ok(readdirSync(temp).every((name) => !name.startsWith("nddev-ci-promotion-")));
       for (let attempt = 0; attempt < (variant === "valid" ? 2 : 1); attempt++) {
         const work = mkdtempSync(path.join(root, "release-"));
-        const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
-          stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...env,
-            RUNNER_TEMP: work, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", "INPUT_API-URL": api.url,
-            "INPUT_WAIT-MINUTES": "0", GITHUB_OUTPUT: path.join(work, "outputs"), GITHUB_STEP_SUMMARY: path.join(work, "summary")},
-        });
-        let output = "";child.stdout.on("data", (x) => {output += x;});child.stderr.on("data", (x) => {output += x;});
-        const before = writes, [code] = await once(child, "close");
+        const before = writes, {code, output} = await runRelease({...env,
+          RUNNER_TEMP: work, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", "INPUT_API-URL": api.url,
+          "INPUT_WAIT-MINUTES": "0", GITHUB_OUTPUT: path.join(work, "outputs"), GITHUB_STEP_SUMMARY: path.join(work, "summary")});
         assert.equal(code, variant === "valid" ? 0 : 1, `${variant}: ${output}`);
         if (variant !== "valid" || attempt) assert.equal(writes, before, "refusal/rerun creates no tag or release");
         if (variant === "valid") assert.match(readFileSync(path.join(work, "outputs"), "utf8"), /version=2\.6\.0/);
@@ -430,14 +539,8 @@ for (const variant of ["failed", "replaced", "foreign", "duplicate"])
       assert.ok(secondaryReads > 0, "the negative case must reach required workflow qualification");
       if (variant === "replaced") assert.ok(secondaryReads > 1, "the newer attempt must be rechecked");
       secondaryReads = 0;
-      const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
-        stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...env, GITHUB_OUTPUT: path.join(root, "outputs")},
-      });
-      let output = "";child.stdout.on("data", (bytes) => {output += bytes;});child.stderr.on("data", (bytes) => {output += bytes;});
-      const [code] = await once(child, "close");
+      await refuseRelease({...env, GITHUB_OUTPUT: path.join(root, "outputs")}, /No qualification|same run identity/);
       assert.equal(writes, 0, "required workflows must stop the first publication mutation");
-      assert.equal(code, 1, output);assert.match(output, /No qualification|same run identity/);
-      assert.equal(existsSync(path.join(root, "outputs")), false);
     } finally {await close(api.server);rmSync(root, {recursive: true, force: true});}
   });
 

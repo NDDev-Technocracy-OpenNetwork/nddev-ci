@@ -147,6 +147,33 @@ test("a managed runner puts the declared line of a tool first when two lines sta
   } finally { rmSync(root, {recursive: true, force: true}); }
 });
 
+test("a managed runner selects the declared Bun line when two lines stand side by side", {skip: process.platform === "win32"}, () => {
+  const root = mkdtempSync(path.join(tmpdir(), "managed-bun-sdk-"));
+  try {
+    const cache = path.join(root, "prepared SDK");
+    const bunFolder = (version) => {
+      const folder = path.join(cache, "bun", version, process.arch);
+      mkdirSync(folder, {recursive: true});
+      writeFileSync(path.join(folder, "bun"), `#!/bin/sh\nprintf '${version}\\n'\n`, {mode: 0o755});
+      return folder;
+    };
+    const older = bunFolder("1.4.4");
+    const newer = bunFolder("1.4.5");
+    const managed = {SDK_RUNNER_ENVIRONMENT: "self-hosted", RUNNER_TOOL_CACHE: cache,
+      PATH: `${newer}:${process.env.PATH}`, GITHUB_PATH: path.join(root, "path"),
+      GITHUB_OUTPUT: path.join(root, "output")};
+    assert.deepEqual(verify({...managed, SDK_BUN_VERSION: "1.4.4"}).versions, {bun: "1.4.4"});
+    assert.deepEqual(verify({...managed, SDK_BUN_VERSION: "1.4.5"}).versions, {bun: "1.4.5"});
+    main("verify", {...managed, SDK_BUN_VERSION: "1.4.4"});
+    assert.equal(readFileSync(managed.GITHUB_PATH, "utf8"), older + "\n");
+    const receipt = JSON.parse(readFileSync(managed.GITHUB_OUTPUT, "utf8").trim().slice("receipt=".length));
+    assert.deepEqual(receipt.versions, {bun: "1.4.4"});
+    assert.throws(() => verify({...managed, SDK_BUN_VERSION: "1.4.6"}), /selected bun executable/);
+    assert.throws(() => verify({...managed, RUNNER_TOOL_CACHE: "relative", SDK_BUN_VERSION: "1.4.4"}), /RUNNER_TOOL_CACHE/);
+    assert.deepEqual(verify({...managed, ...hosted, SDK_BUN_VERSION: "1.4.5"}).versions, {bun: "1.4.5"});
+  } finally { rmSync(root, {recursive: true, force: true}); }
+});
+
 test("the actual executable is measured and a mismatched version refuses a receipt", () => {
   const environment = {...process.env, ...hosted, SDK_NODE_VERSION: process.versions.node};
   const receipt = verify(environment);
@@ -369,4 +396,38 @@ test("Java VM omission of zero release fields preserves the exact selected SDK t
   assert.equal(javaVersion(ga.replace(/\+36/g, "+37"), "25.0.0+36"), "25.0.0+37");
   assert.notEqual(javaVersion(ga.replace(/\+36/g, "+36+extra"), "25.0.0+36"), "25.0.0+36");
   assert.notEqual(javaVersion(ga.replace(/25/g, "25.0.1"), "25.0.0+36"), "25.0.0+36");
+});
+
+test("validate emits a selection payload that verify consumes without repeating SDK env vars", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "hosted-sdk-selection-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const output = path.join(root, "github-output");
+  const envFile = path.join(root, "github-env");
+  writeFileSync(output, "");
+  writeFileSync(envFile, "");
+  main("validate", {
+    ...process.env,
+    SDK_RUNNER_ENVIRONMENT: "self-hosted",
+    SDK_MANAGED: "true",
+    GITHUB_OUTPUT: output,
+  });
+  const lines = readFileSync(output, "utf8").split("\n");
+  const selectionLine = lines.find((line) => line.startsWith("selection="));
+  assert.ok(selectionLine, "validate must emit selection output");
+  const payload = JSON.parse(selectionLine.slice("selection=".length));
+  assert.equal(payload.SDK_RUNNER_ENVIRONMENT, "self-hosted");
+  assert.equal(payload.SDK_MANAGED, "true");
+
+  const verifyOut = path.join(root, "verify-output");
+  writeFileSync(verifyOut, "");
+  main("verify", {
+    PATH: process.env.PATH,
+    SDK_SELECTION: selectionLine.slice("selection=".length),
+    GITHUB_OUTPUT: verifyOut,
+    GITHUB_ENV: envFile,
+  });
+  const receiptLine = readFileSync(verifyOut, "utf8").split("\n").find((line) => line.startsWith("receipt="));
+  assert.ok(receiptLine, "verify must emit receipt from SDK_SELECTION");
+  const receipt = JSON.parse(receiptLine.slice("receipt=".length));
+  assert.equal(receipt.schema_version, 1);
 });

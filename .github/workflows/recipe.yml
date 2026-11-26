@@ -166,6 +166,25 @@ on:
       timeout-minutes:
         type: number
         default: 30
+      retain-runs:
+        description: Keep a separate concurrency group per run instead of cancelling or replacing earlier runs.
+        type: boolean
+        default: false
+      # jscpd:ignore-start -- shared workflow_call receipt inputs contract with check.yml
+      reuse-receipts:
+        description: Reuse verified step receipts when the exact tree, recipe, lockfiles, toolchain, workflow and epoch match.
+        type: boolean
+        default: true
+      cache-epoch:
+        description: Salt mixed into every step-receipt key; bump to invalidate cached receipts cleanly.
+        type: string
+        default: ''
+      canary-percent:
+        description: Percentage (0-100) of eligible dev push runs re-executed fresh to compare against cached receipts.
+        type: number
+        default: 5
+      # jscpd:ignore-end
+    # jscpd:ignore-start -- shared workflow_call secrets contract enforced with check.yml by tests/read-access.test.mjs
     secrets:
       REGISTRY_SNAPSHOT_FIRST:
         description: Protected environment snapshot fragment.
@@ -189,25 +208,23 @@ on:
           private key.
         required: false
 
-permissions: {}
+# jscpd:ignore-end
+# Callers declare permissions on their calling job: `contents: read`, plus `packages: write`
+# when a private repository retains a deployment artifact via GHCR.
+# Pull requests cancel superseded recipe runs; branch runs queue one waiting push per recipe target.
+concurrency:
+  group: nddev-ci-recipe-${{ github.workflow }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || github.ref }}-${{ inputs.runner }}-${{ inputs.hosted-runner }}-${{ inputs.runner-profile }}-${{ inputs.working-directory }}-${{ inputs.justfile }}-${{ inputs.recipe }}-${{ inputs.arguments }}
+  cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
 
 jobs:
   recipe:
     # Hosted fallback selects the declared platform while keeping the same recipe.
     # runner-profile:recipe
     runs-on: >-
-      ${{
-      !github.event.repository.private && (inputs.hosted-runner == '' && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || 'ubuntu-24.04') || contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm","macos-15","macos-26","windows-2025","windows-11-arm"]'), inputs.hosted-runner) && inputs.hosted-runner)
-      || github.event.repository.private && (
-        (inputs.runner-profile != '' && (contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', inputs.runner-profile)) || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == inputs.runner-profile))) && fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile]
-        || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || (inputs.hosted-runner == '' && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || 'ubuntu-24.04') || contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm","macos-15","macos-26","windows-2025","windows-11-arm"]'), inputs.hosted-runner) && inputs.hosted-runner))
-        || !(contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && inputs.runner
-      ) || ''
-      }}
-    timeout-minutes: ${{ inputs.timeout-minutes }}
+      ${{ !github.event.repository.private && (inputs.hosted-runner == '' && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || 'ubuntu-24.04') || contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm","macos-15","macos-26","windows-2025","windows-11-arm"]'), inputs.hosted-runner) && inputs.hosted-runner) || github.event.repository.private && ((inputs.runner-profile != '' && (contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', inputs.runner-profile)) || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == inputs.runner-profile))) && fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || (inputs.hosted-runner == '' && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || 'ubuntu-24.04') || contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm","macos-15","macos-26","windows-2025","windows-11-arm"]'), inputs.hosted-runner) && inputs.hosted-runner))
+      || !(contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (github.event_name == 'pull_request' && github.event.sender.type == 'Bot' && github.event.pull_request.user.type == 'Bot' && github.actor == github.triggering_actor && fromJSON('{"nddev-linux-bounded":"nddev-linux-bounded-maintenance","nddev-linux-light":"nddev-linux-light-maintenance","nddev-linux-small":"nddev-linux-small-maintenance","nddev-linux-standart":"nddev-linux-standart-maintenance","nddev-macos":"nddev-macos-maintenance","nddev-windows":"nddev-windows-maintenance"}')[inputs.runner] || inputs.runner)) || '' }}
     environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
-    permissions:
-      contents: read
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     steps:
       - name: Prepare the job
         id: setup
@@ -244,6 +261,7 @@ jobs:
           tool-assets: ${{ inputs.tool-assets }}
 
       - name: Receive the protected registry input
+        id: registry-input
         if: inputs.registry-commit != ''
         uses: $/actions/registry-input
         with:
@@ -267,12 +285,16 @@ jobs:
       - name: Run the project command
         id: project
         uses: $/actions/recipe
+        env:
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
         with:
           managed: ${{ runner.environment == 'self-hosted' }}
           recipe: ${{ inputs.recipe }}
           arguments: ${{ inputs.arguments }}
           working-directory: ${{ inputs.working-directory }}
           justfile: ${{ inputs.justfile }}
+          receipt-inputs: ${{ toJSON(inputs) }}
+          github-token: ${{ github.token }}
 
       - name: Complete the job
         if: always()
@@ -281,6 +303,7 @@ jobs:
           status: ${{ job.status }}
           check-run-id: ${{ job.check_run_id }}
           project-outcome: ${{ (steps.dependencies.outcome == 'failure' || steps.project.outcome == 'failure') && 'failure' || 'success' }}
+          failure-reason: ${{ steps.registry-input.outputs.failure-reason || (steps.dependencies.outcome == 'failure' && 'dependency-setup-failed') || (steps.project.outcome == 'failure' && 'recipe-failed') || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
           runner-reason: ${{ steps.setup.outputs.runner-reason || steps.dependencies.outputs.runner-reason || steps.project.outputs.runner-reason }}
           task: just ${{ inputs.recipe }}
           task-type: ${{ inputs.artifact != '' && 'build' || 'test' }}

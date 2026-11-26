@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
   ReleaseError,
@@ -17,15 +18,12 @@ import {
   checkFiles,
   checksums,
 } from "../../lib/release.mjs";
-import { releaseVersion, tagCommit } from "../../lib/release-version.mjs";
+import { resolveRelease, tagCommit } from "../../lib/release-version.mjs";
 import { client, qualifyWorkflows, recheck, transferArtifacts } from "../../lib/qualification.mjs";
 
 const refuse = (message) => {
   throw new ReleaseError(message);
 };
-const input = (name) => (process.env[`INPUT_${name.toUpperCase()}`] ?? "").trim();
-const environment = (name) =>
-  process.env[name] || refuse(`The runner did not provide ${name}.`);
 
 async function sha256(file) {
   const hash = createHash("sha256");
@@ -33,13 +31,15 @@ async function sha256(file) {
   return hash.digest("hex");
 }
 
-async function main() {
+export async function main(env = process.env) {
+  const input = (name) => (env[`INPUT_${name.toUpperCase()}`] ?? "").trim();
+  const environment = (name) =>
+    env[name] || refuse(`The runner did not provide ${name}.`);
   const repository = environment("GITHUB_REPOSITORY");
   const sha = environment("GITHUB_SHA");
   const ref = environment("GITHUB_REF");
   const temp = environment("RUNNER_TEMP");
   const workflow = input("check-workflow") || "ci.yml";
-  const fallbackActorId = process.env.NDDEV_BRANCH_FALLBACK_ACTOR_ID || "";
   const waitMinutes = Number(input("wait-minutes") || "30");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*\.ya?ml$/.test(workflow))
     refuse("check-workflow must be a workflow file name in .github/workflows.");
@@ -47,15 +47,18 @@ async function main() {
     refuse("wait-minutes must be a whole number from 0 to 120.");
   if (ref !== "refs/heads/main")
     refuse("A release publishes only commits of main.");
-  const github = client(input("github-token") || refuse("A token is required."), input("api-url") || environment("GITHUB_API_URL"));
+  const github = client(input("github-token") || refuse("A token is required."), input("api-url") || environment("GITHUB_API_URL"),
+    {retryReads: true});
 
+  const fallbackActorId = env.NDDEV_BRANCH_FALLBACK_ACTOR_ID;
   // 1. The newest full check of this exact commit on the integration branch.
   const qualifications = await qualifyWorkflows(github, {sha, repository, workflowPath: `.github/workflows/${workflow}`, branch: "dev"},
     input("required-workflows"), {waitMinutes, fallbackActorId});
   const qualified = qualifications[0];
-  const recheckAll = () => Promise.all(qualifications.map((proof) => recheck(github, proof, {fallbackActorId})));
+  const recheckAll = () => Promise.all(qualifications.map((proof, index) =>
+    recheck(github, proof, {fallbackActorId: index === 0 ? fallbackActorId : undefined})));
   const run = {id: qualified.run_id, run_attempt: qualified.run_attempt,
-    html_url: `${process.env.GITHUB_SERVER_URL || "https://github.com"}/${repository}/actions/runs/${qualified.run_id}`};
+    html_url: `${env.GITHUB_SERVER_URL || "https://github.com"}/${repository}/actions/runs/${qualified.run_id}`};
   console.log(`Qualified by ${run.html_url} (attempt ${run.run_attempt}).`);
 
   // 2. The verified artifacts of that attempt, without a new build.
@@ -65,8 +68,15 @@ async function main() {
   const folder = path.join(parent, sha);
   let files = [];
   if (names.length) {
-    const transferred = await transferArtifacts(github, qualified, names.join("\n"), folder,
-      {apiUrl: input("artifact-api-url"), token: input("artifact-token"), fallbackActorId});
+    const transferred = await transferArtifacts(github, qualified, names.join("\n"), folder, {
+      apiUrl: input("artifact-api-url"),
+      token: input("artifact-token"),
+      githubToken: input("github-token"),
+      actor: env.GITHUB_ACTOR || "x-access-token",
+      registryUrl: env.NDDEV_CI_OCI_REGISTRY_URL || undefined,
+      env,
+      fallbackActorId,
+    });
     files = transferred.files;
   } else mkdirSync(folder, {recursive: true, mode: 0o700});
   const planned = checkFiles(files);
@@ -77,10 +87,16 @@ async function main() {
     planned.push({ name: "SHA256SUMS", path: sums, size: stat.size, sha256: await sha256(sums) });
   }
 
-  // Product metadata is checked before a tag or release can be created.
-  const version = await releaseVersion(github, {repository, sha, files,
-    metadata: input("release-metadata"), explicit: input("version"),
-    initial: input("initial-version") || "0.1.0"});
+  // Product metadata and any declared pre-release stage are checked before a tag or release can be created.
+  const { version, prerelease, previousTag } = await resolveRelease(github, {
+    repository,
+    sha,
+    files,
+    metadata: input("release-metadata"),
+    explicit: input("version"),
+    initial: input("initial-version") || "0.1.0",
+    prereleaseFile: input("prerelease-file"),
+  });
   await recheckAll();
   const tag = `v${version}`;
 
@@ -104,14 +120,17 @@ async function main() {
     release = listed.find((item) => item.tag_name === tag) ?? null;
   }
   if (!release) {
+    const notesBody = { tag_name: tag, target_commitish: sha };
+    if (prerelease && previousTag) notesBody.previous_tag_name = previousTag;
     const notes = await github.json("POST", `/repos/${repository}/releases/generate-notes`, {
-      body: { tag_name: tag, target_commitish: sha },
+      body: notesBody,
     });
     release = await github.json("POST", `/repos/${repository}/releases`, {
       body: {
         tag_name: tag,
         target_commitish: sha,
         draft: true,
+        prerelease,
         name: `${repository.split("/")[1]} ${version}`,
         body: `${notes.body}\n\nVerified by ${run.html_url}.\n`,
       },
@@ -142,23 +161,27 @@ async function main() {
   await recheckAll();
   if (release.draft)
     release = await github.json("PATCH", `/repos/${repository}/releases/${release.id}`, {
-      body: { draft: false, make_latest: "true" },
+      body: { draft: false, prerelease, make_latest: prerelease ? "false" : "true" },
     });
+  if (Boolean(release.prerelease) !== prerelease)
+    refuse(`Published release ${tag} disagrees on prerelease status.`);
 
   const output = environment("GITHUB_OUTPUT");
   appendFileSync(
     output,
-    `state=published\nversion=${version}\ntag=${tag}\nurl=${release.html_url}\n`,
+    `state=published\nversion=${version}\ntag=${tag}\nprerelease=${prerelease}\nurl=${release.html_url}\n`,
   );
   appendFileSync(
     environment("GITHUB_STEP_SUMMARY"),
-    `### Release ${tag}\n\n${release.html_url}\n\nCommit \`${sha}\`, verified by ${run.html_url}; ${planned.length} files.\n`,
+    `### ${prerelease ? "Pre-release" : "Release"} ${tag}\n\n${release.html_url}\n\nCommit \`${sha}\`, verified by ${run.html_url}; ${planned.length} files.\n`,
   );
   console.log(`Published ${release.html_url}.`);
+  return { state: "published", version, tag, prerelease, url: release.html_url };
 }
 
-main().catch((error) => {
-  const message = error instanceof ReleaseError ? error.message : "Release failed before completion.";
-  console.log(`::error::${message.replace(/[\r\n%]/g, " ")}`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  main().catch((error) => {
+    const message = error instanceof ReleaseError ? error.message : "Release failed before completion.";
+    console.log(`::error::${message.replace(/[\r\n%]/g, " ")}`);
+    process.exitCode = 1;
+  });

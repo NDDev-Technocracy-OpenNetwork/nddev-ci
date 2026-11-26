@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 
@@ -31,6 +34,7 @@ function declared(source, indent) {
 function calls(path) {
   const lines = read(path).split("\n");
   const found = [];
+  const anchors = new Map();
   lines.forEach((line, index) => {
     const call = line.match(/^(\s*)(?:- )?uses: \$\/(\S+)$/);
     if (!call) return;
@@ -41,8 +45,17 @@ function calls(path) {
       if (next.trim() === "" || next.trimStart().startsWith("#")) continue;
       const depth = next.length - next.trimStart().length;
       if (depth < indent || (depth === indent && next.trimStart().startsWith("- "))) break;
-      if (depth === indent) inWith = next.trim() === "with:";
-      else if (inWith && depth === indent + 2) keys.push(next.trim().split(":")[0]);
+      if (depth === indent) {
+        const withBlock = next.trim().match(/^with:(?: ([&*])([a-z0-9-]+))?$/);
+        inWith = Boolean(withBlock && withBlock[1] !== "*");
+        if (withBlock?.[1] === "&") anchors.set(withBlock[2], keys);
+        if (withBlock?.[1] === "*") {
+          assert.ok(anchors.has(withBlock[2]), `${path} uses an unknown input anchor ${withBlock[2]}`);
+          keys.push(...anchors.get(withBlock[2]));
+        }
+      } else if (inWith && depth === indent + 2) {
+        keys.push(next.trim().split(":")[0]);
+      }
     }
     found.push({ path, line: index + 1, target: call[2], keys });
   });
@@ -75,6 +88,23 @@ function lines(workflow, id) {
   return [start + 1, end === -1 ? source.length : end];
 }
 
+test("every reusable workflow job record carries failure-layer and failure-reason", () => {
+  const smokeWorkflows = new Set([
+    ".github/workflows/qualification-smoke.yml",
+    ".github/workflows/recipe-smoke.yml",
+  ]);
+  for (const call of all) {
+    if (!call.path.startsWith(".github/workflows/") || smokeWorkflows.has(call.path)) continue;
+    if (call.target === "actions/job-record") {
+      assert.ok(call.keys.includes("failure-layer"), `${call.path}:${call.line} omits failure-layer`);
+      assert.ok(call.keys.includes("failure-reason"), `${call.path}:${call.line} omits failure-reason`);
+    }
+    if (call.target === "actions/complete") {
+      assert.ok(call.keys.includes("failure-reason"), `${call.path}:${call.line} omits failure-reason`);
+    }
+  }
+});
+
 test("the project's command jobs begin with prepare and end with complete", () => {
   for (const [workflow, id] of [["check.yml", "check"], ["recipe.yml", "recipe"]]) {
     const [start, end] = lines(workflow, id);
@@ -94,21 +124,59 @@ function jobContract(workflow, id) {
   const source = read(`.github/workflows/${workflow}`);
   const block = source.split(`\n  ${id}:\n`)[1]?.split(/\n  [a-z][a-z0-9-]*:\n/)[0];
   assert.ok(block, `${workflow}:${id} exists`);
-  const value = (name) => block.match(new RegExp(`^    ${name}: (.+)$`, "m"))?.[1];
-  const concurrency = block.match(/\n    concurrency:\n      group: (.+)\n      cancel-in-progress: (.+)/);
+  const value = (name) => {
+    const match = block.match(new RegExp(`^    ${name}: (>-(?:\\n      .+)+|.+)$`, "m"));
+    if (!match) return undefined;
+    return match[1].startsWith(">-")
+      ? match[1].slice(2).split("\n").map((line) => line.trim()).filter(Boolean).join(" ")
+      : match[1];
+  };
+  const concurrency = block.match(/\n    concurrency:\n(?:      #.*\n)*      group: (.+)\n      cancel-in-progress: (.+)/);
   return {name: value("name"), condition: value("if"), concurrency, matrix: block.match(/\n        part: ([^\n]+(?:\n {10}[^\n]+)*)/)?.[1]};
 }
 
-// A job's name, condition or matrix as GitHub evaluates it, for an event and the plan's outputs.
-function evaluateJob(expression, github, needs = {plan: {result: "skipped", outputs: {}}}, whole = false) {
-  if (expression === undefined) return true;
-  const context = {github, needs, inputs: {whole}, cancelled: () => false, fromJSON: JSON.parse};
-  const source = expression.startsWith("$") ? expression.slice(3, -2) : expression;
-  return runInNewContext(source.replaceAll("inputs.whole-full-check", "inputs.whole"), context);
+function workflowConcurrency(path) {
+  const match = read(path).match(/\nconcurrency:\n(?:  #.*\n)*  group: (.+)\n  cancel-in-progress: (.+)/);
+  assert.ok(match, `${path} workflow concurrency exists`);
+  return match;
 }
-function checkName(github, needs, whole) {
+
+// A job's name, condition or matrix as GitHub evaluates it, for an event and the plan's outputs.
+function evaluateJob(expression, github, needs = {plan: {result: "skipped", outputs: {}}}, opts = {}) {
+  if (expression === undefined) return true;
+  const options = typeof opts === "boolean" ? {whole: opts} : opts;
+  const inputs = {
+    "whole-full-check": Boolean(options.whole),
+    "split-full-check": Boolean(options.split),
+    "part-runners": options.partRunners ?? "{}",
+    "inline-merge-stops": options.inlineStops ?? true,
+    "retain-separate-merge-stops": Boolean(options.retainSeparateStops),
+    "merge-group-full-check": Boolean(options.mergeGroupFull),
+    "registry-commit": options.registryCommit ?? "",
+    "sparse-checkout": options.sparseCheckout ?? "",
+    "runner-profile": options.runnerProfile ?? "",
+    runner: options.runner ?? "nddev-linux-standart",
+  };
+  const context = {
+    github, needs, inputs, cancelled: () => false, fromJSON: JSON.parse,
+    contains: (values, value) => Array.isArray(values) && values.includes(value),
+    format: (template, arg) => template.replace("{0}", arg),
+  };
+  const source = (expression.startsWith("$") ? expression.slice(3, -2) : expression)
+    .replaceAll("github.event.pull_request.labels.*.name", "(github.event?.pull_request?.labels || []).map((l) => l.name ?? l)")
+    .replaceAll("inputs.whole-full-check", "inputs['whole-full-check']")
+    .replaceAll("inputs.split-full-check", "inputs['split-full-check']")
+    .replaceAll("inputs.inline-merge-stops", "inputs['inline-merge-stops']")
+    .replaceAll("inputs.retain-separate-merge-stops", "inputs['retain-separate-merge-stops']")
+    .replaceAll("inputs.merge-group-full-check", "inputs['merge-group-full-check']")
+    .replaceAll("inputs.registry-commit", "inputs['registry-commit']")
+    .replaceAll("inputs.sparse-checkout", "inputs['sparse-checkout']")
+    .replaceAll("inputs.runner-profile", "inputs['runner-profile']");
+  return runInNewContext(source, context);
+}
+function checkName(github, needs, opts) {
   const contract = jobContract("check.yml", "check");
-  const [part] = evaluateJob(contract.matrix, github, needs, whole);
+  const [part] = evaluateJob(contract.matrix, github, needs, opts);
   return runInNewContext(contract.name.slice(3, -2), {matrix: {part}});
 }
 
@@ -118,81 +186,249 @@ test("subscribed pull-request labels run the actual required workflows with stab
     for (const label of ["merge-on-green", "runner:github", "runner:github:linux-arm64", "documentation"]) {
       const github = {event_name: "pull_request", event: {action, label: {name: label}}};
       for (const [workflow, id] of [
-        ["check.yml", "check"], ["check.yml", "merge-stops"],
+        ["check.yml", "check"],
         ["merge-stops.yml", "merge-stops"], ["recipe.yml", "recipe"], ["image.yml", "image"],
       ]) assert.equal(execute(jobContract(workflow, id).condition, github), true, workflow + ":" + action + ":" + label);
+      assert.equal(execute(jobContract("check.yml", "merge-stops").condition, github), false, "check.yml:inline:" + action + ":" + label);
+      assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, github, undefined, {inlineStops: false}), true, "check.yml:separate:" + action + ":" + label);
       assert.equal(checkName(github), "short check");
       assert.equal(execute(jobContract("merge-stops.yml", "merge-stops").name, github), "merge stops");
     }
   }
   const push = {event_name: "push", event: {}};
   const whole = {plan: {result: "success", outputs: {matrix: '[{"label":"full check","group":"verify","argv":["verify"]}]'}}};
-  assert.equal(evaluateJob(jobContract("check.yml", "check").condition, push, whole), true);
-  assert.equal(checkName(push, whole), "full check");
-  assert.equal(evaluateJob(jobContract("check.yml", "check").condition, push, {plan: {result: "failure", outputs: {}}}), false);
+  assert.equal(evaluateJob(jobContract("check.yml", "check").condition, push, whole, {split: true}), true);
+  assert.equal(evaluateJob(jobContract("check.yml", "check").condition, push, {plan: {result: "success", outputs: {matrix: "[]"}}}, {split: true}), false);
+  assert.equal(checkName(push, whole, {split: true}), "full check");
+  assert.equal(evaluateJob(jobContract("check.yml", "check").condition, push, {plan: {result: "failure", outputs: {}}}, {split: true}), false);
   for (const workflow of ["check.yml", "merge-stops.yml"])
     assert.equal(execute(jobContract(workflow, "merge-stops").condition, push), false);
   assert.equal(execute(jobContract("merge-stops.yml", "merge-stops").name, push), "ignored merge stops");
 });
 
-test("a declared whole full check runs verify without planning or joining jobs", () => {
+test("full check runs in one job by default and splits only on split-full-check or part-runners", () => {
   const plan = jobContract("check.yml", "plan");
   const check = jobContract("check.yml", "check");
   const join = jobContract("check.yml", "full-check");
   const needs = {plan: {result: "skipped", outputs: {}}, check: {result: "success"}};
-  const push = {event_name: "push"};
-  assert.equal(evaluateJob(plan.condition, push, needs), true);
-  assert.equal(evaluateJob(check.condition, push, needs), false);
   for (const event_name of ["push", "workflow_dispatch"]) {
     const github = {event_name};
-    assert.equal(evaluateJob(plan.condition, github, needs, true), false);
-    assert.equal(evaluateJob(check.condition, github, needs, true), true);
-    assert.equal(checkName(github, needs, true), "full check");
-    assert.deepEqual(evaluateJob(check.matrix, github, needs, true), [
+    // Default single-host full check skips plan and join jobs while keeping the full check name.
+    assert.equal(evaluateJob(plan.condition, github, needs), false);
+    assert.equal(evaluateJob(check.condition, github, needs), true);
+    assert.equal(checkName(github, needs), "full check");
+    assert.deepEqual(evaluateJob(check.matrix, github, needs), [
       {label: "full check", group: "verify", argv: ["verify"]},
     ]);
-    assert.equal(evaluateJob(join.condition, github, needs, true), false);
+    assert.equal(evaluateJob(join.condition, github, needs), false);
+
+    // Explicit whole-full-check stays single-job even with split-full-check or part-runners.
+    assert.equal(evaluateJob(plan.condition, github, needs, {whole: true, split: true}), false);
+    assert.equal(evaluateJob(check.condition, github, needs, {whole: true, split: true}), true);
+
+    // Opt-in split-full-check or non-empty part-runners activates plan -> matrix -> join.
+    for (const opts of [{split: true}, {partRunners: '{"check":"nddev-linux-light"}'}]) {
+      assert.equal(evaluateJob(plan.condition, github, needs, opts), true);
+      assert.equal(evaluateJob(check.condition, github, needs, opts), false);
+    }
   }
-  assert.equal(checkName({event_name: "pull_request"}, needs, true), "short check");
+  assert.equal(checkName({event_name: "pull_request"}, needs), "short check");
+  assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs), false);
+  assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs, {inlineStops: true}), false);
+  assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs, {inlineStops: false}), true);
+  assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs, {inlineStops: true, retainSeparateStops: true}), true);
+  for (const fallback of [{sparseCheckout: ".github"}, {runner: "nddev-macos"}, {runner: "nddev-windows"}, {runnerProfile: "macos-arm64"}, {runnerProfile: "windows-x64"}]) {
+    assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, {event_name: "pull_request"}, needs, fallback), true);
+  }
+
+  // merge_group defaults to short check with inline merge-stops and can opt into full check without cancelling.
+  const mg = {event_name: "merge_group", event: {merge_group: {base_sha: "a".repeat(40), head_sha: "b".repeat(40)}}};
+  assert.equal(evaluateJob(plan.condition, mg, needs, {split: true}), false);
+  assert.equal(evaluateJob(check.condition, mg, needs), true);
+  assert.equal(checkName(mg, needs), "short check");
+  assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, mg, needs), false);
+  assert.equal(evaluateJob(jobContract("check.yml", "merge-stops").condition, mg, needs, {inlineStops: false}), true);
+  assert.equal(evaluateJob(jobContract("merge-stops.yml", "merge-stops").condition, mg, needs), true);
+  assert.equal(evaluateJob(jobContract("merge-stops.yml", "merge-stops").name, mg, needs), "merge stops");
+  assert.equal(evaluateJob(plan.condition, mg, needs, {split: true, mergeGroupFull: true}), false);
+  assert.deepEqual(evaluateJob(check.matrix, mg, needs, {mergeGroupFull: true}), [
+    {label: "short check", group: "short", argv: ["verify"]},
+  ]);
 });
 
-test("retained checks and merge stops keep separate groups for every run", () => {
-  function evaluate(value, github, retain, group = "short", profile = "linux-x64") {
-    const inputs = { retain, hosted: "ubuntu-24.04", profile };
-    const format = (template, value) => template.replace("{0}", value);
+test("registry-project folds into check on private single-job Linux x64 managed runs and stays separate otherwise", () => {
+  const reg = jobContract("check.yml", "registry-project");
+  const pr = {
+    event_name: "pull_request", repository: "o/r", ref: "refs/pull/1/merge",
+    event: {repository: {private: true}, pull_request: {head: {repo: {full_name: "o/r"}}, labels: []}},
+  };
+  const devPush = {
+    event_name: "push", repository: "o/r", ref: "refs/heads/dev",
+    event: {repository: {private: true}},
+  };
+  const base = {registryCommit: "a".repeat(40), runner: "nddev-linux-standart", runnerProfile: "linux-x64"};
+  // Folded into check (separate registry-project job skipped):
+  assert.equal(evaluateJob(reg.condition, pr, {}, base), false);
+  assert.equal(evaluateJob(reg.condition, devPush, {}, base), false);
+  assert.equal(evaluateJob(reg.condition, pr, {}, {...base, runnerProfile: "", runner: "nddev-linux-small"}), false);
+  // Stays a separate managed Linux x64 job when check is not guaranteed managed Linux x64 full checkout:
+  assert.equal(evaluateJob(reg.condition, pr, {}, {...base, runner: "nddev-macos", runnerProfile: "macos-arm64"}), true);
+  assert.equal(evaluateJob(reg.condition, pr, {}, {...base, runner: "nddev-linux-arm64", runnerProfile: "linux-arm64"}), true);
+  assert.equal(evaluateJob(reg.condition, pr, {}, {...base, runner: "nddev-linux-light", runnerProfile: ""}), true);
+  assert.equal(evaluateJob(reg.condition, pr, {}, {...base, sparseCheckout: "docs/"}), true);
+  assert.equal(evaluateJob(reg.condition, devPush, {}, {...base, split: true}), true);
+  assert.equal(evaluateJob(reg.condition, pr, {}, {...base, partRunners: '{"short":"nddev-linux-light"}'}), true);
+  const hostedPr = {
+    ...pr,
+    event: {...pr.event, pull_request: {...pr.event.pull_request, labels: [{name: "runner:github"}]}},
+  };
+  assert.equal(evaluateJob(reg.condition, hostedPr, {}, base), true);
+  const scopedHostedPr = {
+    ...pr,
+    event: {...pr.event, pull_request: {...pr.event.pull_request, labels: [{name: "runner:github:linux-x64"}]}},
+  };
+  assert.equal(evaluateJob(reg.condition, scopedHostedPr, {}, base), true);
+});
+
+test("workflow concurrency cancels superseded pull requests, queues branch pushes and honors retain-runs", () => {
+  function evaluate(value, github, extra = {}) {
+    const inputs = {
+      retain: false, runner: "nddev-linux-standart", hosted: "ubuntu-24.04", profile: "linux-x64",
+      workdir: ".", justfile: "justfile", recipe: "verify", arguments: "[]",
+      image: "app", target: "", lock: "lock.json", context: "contour/source", ...extra,
+    };
+    const format = (template, arg) => template.replace("{0}", arg);
     return value.replace(/\$\{\{ (.*?) \}\}/g, (_, expression) =>
       String(runInNewContext(expression
         .replaceAll("inputs.retain-runs", "inputs.retain")
         .replaceAll("inputs.hosted-runner", "inputs.hosted")
-        .replaceAll("inputs.runner-profile", "inputs.profile"), { github, inputs, format, matrix: { part: { group } } })),
+        .replaceAll("inputs.runner-profile", "inputs.profile")
+        .replaceAll("inputs.working-directory", "inputs.workdir")
+        .replaceAll("inputs.lock-file", "inputs.lock"), {
+          github, inputs, format, vars: { NDDEV_BRANCH_FALLBACK_ACTOR_ID: "42" },
+        })),
     );
   }
 
-  const github = {
-    workflow: "ci", ref: "refs/pull/8/merge", event_name: "pull_request",
-    event: { pull_request: { number: 8 } },
+  const event = { repository: { private: true } };
+  const prBase = { workflow: "ci", ref: "refs/pull/8/merge", event_name: "pull_request", event };
+  const prFirst = { ...prBase, run_id: "101" };
+  const prSecond = { ...prBase, run_id: "102" };
+  const prOther = { ...prBase, ref: "refs/pull/9/merge", run_id: "103" };
+  const devFirst = { workflow: "ci", ref: "refs/heads/dev", event_name: "push", run_id: "104", sha: "aaa", event };
+  const devSecond = { workflow: "ci", ref: "refs/heads/dev", event_name: "push", run_id: "105", sha: "bbb", event };
+
+  // check.yml uses workflow-level concurrency so plan, registry-project, split check parts and join share one lease.
+  assert.equal(jobContract("check.yml", "check").concurrency, null);
+  const caller = workflowConcurrency("examples/ci.yml");
+  const groupsSeen = new Set([evaluate(caller[1], prFirst)]);
+  assert.equal(evaluate(caller[1], prFirst), evaluate(caller[1], prSecond));
+  assert.equal(evaluate(caller[2], prFirst), "true");
+  assert.equal(evaluate(caller[1], devFirst), evaluate(caller[1], devSecond));
+  assert.equal(evaluate(caller[2], devFirst), "false");
+
+  const hosted = {
+    ...devSecond, event_name: "workflow_dispatch", actor_id: "42", actor: "scheduler[bot]",
+    triggering_actor: "scheduler[bot]",
+    event: { repository: { private: true }, inputs: { runner: "github", "runner-profile": "linux-x64" } },
   };
-  for (const [workflow, job] of [["check.yml", "check"], ["merge-stops.yml", "merge-stops"]]) {
-    const [, group, cancel] = jobContract(workflow, job).concurrency;
-    const first = { ...github, run_id: "101" };
-    const second = { ...github, run_id: "102" };
-    assert.equal(evaluate(group, first, false), evaluate(group, second, false), workflow);
-    assert.notEqual(evaluate(group, first, false), evaluate(group, first, false, "short", "linux-arm64"), workflow);
-    assert.equal(evaluate(cancel, first, false), "true", workflow);
-    assert.notEqual(evaluate(group, first, true), evaluate(group, second, true), workflow);
-    assert.equal(evaluate(cancel, first, true), "false", workflow);
+  for (const [, group, cancel] of [caller, workflowConcurrency(".github/workflows/check.yml")]) {
+    assert.notEqual(evaluate(group, hosted), evaluate(group, devSecond));
+    assert.notEqual(evaluate(group, hosted), evaluate(group, { ...hosted, sha: devFirst.sha }));
+    assert.equal(evaluate(cancel, hosted), "false");
+    assert.equal(evaluate(group, { ...hosted, actor_id: "13" }), evaluate(group, devSecond));
+    assert.equal(evaluate(group, { ...hosted, triggering_actor: "operator" }), evaluate(group, devSecond));
   }
 
-  const [, group, cancel] = jobContract("check.yml", "check").concurrency;
-  const firstPush = { ...github, ref: "refs/heads/dev", event_name: "push", run_id: "103" };
-  const nextPush = { ...firstPush, run_id: "104" };
-  assert.equal(evaluate(group, firstPush, false), evaluate(group, nextPush, false));
-  assert.equal(evaluate(cancel, firstPush, false), "false");
-  assert.notEqual(evaluate(group, firstPush, true), evaluate(group, nextPush, true));
-  assert.equal(evaluate(cancel, firstPush, true), "false");
-  // Each part of a full check queues behind the same part of the run before it, not behind others.
-  assert.notEqual(evaluate(group, firstPush, false, "test"), evaluate(group, firstPush, false, "image"));
-  assert.equal(evaluate(group, firstPush, false, "test"), evaluate(group, nextPush, false, "test"));
+  const specs = [
+    ["check.yml", workflowConcurrency(".github/workflows/check.yml"), { profile: "linux-arm64" }, true],
+    ["recipe.yml", workflowConcurrency(".github/workflows/recipe.yml"), { arguments: '["backend"]' }, true],
+    ["merge-stops.yml", jobContract("merge-stops.yml", "merge-stops").concurrency, { profile: "linux-arm64" }, false],
+    ["image.yml", jobContract("image.yml", "image").concurrency, { target: "lab" }, true],
+    ["select-registry-input.yml", workflowConcurrency(".github/workflows/select-registry-input.yml"), { lock: "other.json" }, true],
+    ["source-version.yml", workflowConcurrency(".github/workflows/source-version.yml"), { context: "other/source" }, true],
+  ];
+
+  for (const [name, [, group, cancel], distinctInput, testsPush] of specs) {
+    const g1 = evaluate(group, prFirst);
+    assert.ok(!groupsSeen.has(g1), `${name} group must not collide with caller or sibling workflows`);
+    groupsSeen.add(g1);
+    assert.equal(g1, evaluate(group, prSecond), name);
+    assert.notEqual(g1, evaluate(group, prOther), name);
+    assert.notEqual(g1, evaluate(group, prFirst, distinctInput), name);
+    assert.equal(evaluate(cancel, prFirst), "true", name);
+    assert.notEqual(evaluate(group, prFirst, { retain: true }), evaluate(group, prSecond, { retain: true }), name);
+    assert.equal(evaluate(cancel, prFirst, { retain: true }), "false", name);
+    if (testsPush) {
+      assert.equal(evaluate(group, devFirst), evaluate(group, devSecond), `${name} push queues on branch ref`);
+      assert.equal(evaluate(cancel, devFirst), "false", `${name} push never cancels in-progress`);
+      assert.notEqual(evaluate(group, devFirst, { retain: true }), evaluate(group, devSecond, { retain: true }), name);
+      assert.equal(evaluate(cancel, devFirst, { retain: true }), "false", name);
+    }
+  }
+
+  // Sibling recipe calls differing by recipe, working directory, runner or hosted runner stay distinct.
+  const [, recipeGroup] = workflowConcurrency(".github/workflows/recipe.yml");
+  for (const variant of [{ recipe: "other" }, { workdir: "sub" }, { justfile: "other.just" }, { runner: "nddev-macos" }, { hosted: "ubuntu-26.04-arm" }]) {
+    assert.notEqual(evaluate(recipeGroup, prFirst), evaluate(recipeGroup, prFirst, variant));
+  }
+
+  // Security, release, promotion, registry and merge-on-green never cancel in-progress runs.
+  const [, securityGroup, securityCancel] = workflowConcurrency(".github/workflows/security.yml");
+  assert.equal(evaluate(securityGroup, devFirst), evaluate(securityGroup, devSecond));
+  assert.equal(securityCancel, "false");
+  for (const [workflow, job] of [["release.yml", "release"], ["promote.yml", "promote"], ["registry.yml", "publish"], ["merge-on-green.yml", "merge"]]) {
+    assert.equal(jobContract(workflow, job).concurrency[2], "false", `${workflow}:${job} never cancels`);
+  }
+  assert.match(read(".github/workflows/promote.yml"),
+    /if: github\.event_name != 'workflow_run' \|\| github\.event\.workflow_run\.conclusion != 'cancelled'/);
+
   assert.match(read(".github/workflows/check.yml"),
     /uses: \$\/\.github\/workflows\/merge-stops\.yml\n    with:\n      retain-runs: \$\{\{ inputs\.retain-runs \}\}/);
+});
+
+test("the split check identifies a deployment artifact from multiple paths or a glob", () => {
+  const source = read(".github/workflows/check.yml");
+  const [, afterStepName] = source.split("      - name: Deployment artifact of a part\n");
+  const [step] = afterStepName.split("\n      - name:");
+  const [, run] = step.split("        run: |\n");
+  const script = run.split("\n").map((line) => line.slice(10)).join("\n");
+  const work = mkdtempSync(join(tmpdir(), "nddev-ci-artifact-paths-"));
+  const output = join(work, "output");
+  try {
+    mkdirSync(join(work, "dist"));
+    writeFileSync(join(work, "dist", "release.json"), "{}");
+    for (const artifact of ["dist", "absent\n dist\r\n", "absent\n dist/**/*.json"]) {
+      const result = spawnSync("bash", ["-c", script], {
+        cwd: work, env: { ...process.env, ARTIFACT: artifact, GITHUB_OUTPUT: output }, encoding: "utf8",
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(readFileSync(output, "utf8"), "left=true\n");
+      rmSync(output);
+    }
+    const absent = spawnSync("bash", ["-c", script], {
+      cwd: work, env: { ...process.env, ARTIFACT: "missing\n*.tgz", GITHUB_OUTPUT: output }, encoding: "utf8",
+    });
+    assert.equal(absent.status, 0, absent.stderr);
+    assert.equal(existsSync(output), false);
+  } finally {
+    rmSync(work, {recursive: true, force: true});
+  }
+});
+
+test("prepare full-history keeps complete blobs when fetch-depth is already 0", () => {
+  const source = read("actions/prepare/action.yml");
+  const filterMatch = source.match(/^\s+filter: \$\{\{ (.+) \}\}$/m);
+  const depthMatch = source.match(/^\s+fetch-depth: \$\{\{ (.+) \}\}$/m);
+  assert.ok(filterMatch && depthMatch, "checkout filter and fetch-depth expressions exist");
+  const evalExpr = (expr, inputs) =>
+    runInNewContext(expr.replaceAll("inputs.full-history", "inputs.fullHistory").replaceAll("inputs.fetch-depth", "inputs.fetchDepth"), { inputs });
+  // Inline merge stops on default shallow checkout upgrades to blobless full history.
+  assert.equal(evalExpr(depthMatch[1], { fullHistory: "true", fetchDepth: "1", filter: "" }), "0");
+  assert.equal(evalExpr(filterMatch[1], { fullHistory: "true", fetchDepth: "1", filter: "" }), "blob:none");
+  // Callers requesting fetch-depth: 0 keep full blobs unless they explicitly pass a filter.
+  assert.equal(evalExpr(depthMatch[1], { fullHistory: "true", fetchDepth: "0", filter: "" }), "0");
+  assert.equal(evalExpr(filterMatch[1], { fullHistory: "true", fetchDepth: "0", filter: "" }), "");
+  assert.equal(evalExpr(filterMatch[1], { fullHistory: "true", fetchDepth: "0", filter: "blob:none" }), "blob:none");
+  assert.equal(evalExpr(filterMatch[1], { fullHistory: "false", fetchDepth: "1", filter: "" }), "");
 });

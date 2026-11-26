@@ -46,6 +46,9 @@ check: (_tools "check") scan-source-secrets
     node --check actions/recipe/run.mjs
     node --check lib/project-command.mjs
     node --check actions/hosted-sdk/run.mjs
+    node --check actions/hosted-sdk-step/run.mjs
+    node --check actions/revoke-token/run.mjs
+    node --check tests/revoke-token.test.mjs
     node --check actions/hosted-sdk/bun.mjs
     node --check actions/hosted-sdk/flutter.mjs
     node --check actions/hosted-sdk/archive.mjs
@@ -54,6 +57,9 @@ check: (_tools "check") scan-source-secrets
     node --check tests/hosted-sdk.test.mjs
     node --check tests/sdk-runtime.test.mjs
     node --check tests/image-builder.test.mjs
+    node --check lib/uv-cache.mjs
+    node --check actions/uv-cache/run.mjs
+    node --check tests/uv-cache.test.mjs
     node --check actions/release-assets/run.mjs
     node --check lib/release-asset.mjs
     node --check lib/native-member.mjs
@@ -69,6 +75,10 @@ check: (_tools "check") scan-source-secrets
     node --check lib/read-token.mjs
     node --check actions/read-token/run.mjs
     node --check tests/read-token.test.mjs
+    node --check lib/artifact-traces.mjs
+    node --check actions/artifact-traces/run.mjs
+    node --check tests/artifact-traces.test.mjs
+    node -e 'import("./lib/artifact-traces.mjs").then((m) => m.loadPolicy())'
     node --check lib/authorship.mjs
     node --check actions/authorship/run.mjs
     node --check tests/authorship.test.mjs
@@ -88,8 +98,13 @@ check: (_tools "check") scan-source-secrets
     node --check actions/secret-scan/run.mjs
     node --check tools/scan-before-push.mjs
     node --check tools/scan-source-secrets.mjs
+    node --check tools/prepare-source-secrets.mjs
     node --check tools/verify-before-push.mjs
     node --check lib/pre-push-executor.mjs
+    node --check lib/pre-push-registry-input.mjs
+    node --check lib/registry-snapshot.mjs
+    node --check tests/pre-push-registry-input.test.mjs
+    node --check tests/pre-push-executor.test.mjs
     node --check lib/security-policy.mjs
     node --check tests/license-policy.test.mjs
     node --check tests/security-report.test.mjs
@@ -114,10 +129,27 @@ check: (_tools "check") scan-source-secrets
     node --check tools/security-schedule.mjs
     node --check tests/security-schedule.test.mjs
     node --check lib/verify-parts.mjs
+    node --check lib/part-paths.mjs
+    node --check lib/nextest-shards.mjs
+    node --check lib/step-receipts.mjs
+    node --check actions/step-receipt/run.mjs
+    node --check actions/nextest-shards/run.mjs
+    node --check actions/project-check/receipts.mjs
+    node --check actions/project-check/run-steps.mjs
+    node --check actions/merge-stops/run.mjs
+    node --check tests/merge-stops.test.mjs
+    node --check tests/part-paths.test.mjs
+    node --check tests/nextest-shards.test.mjs
+    node --check tests/step-receipts.test.mjs
+    node --check actions/planner-speed/run.mjs
+    node --check tests/planner-speed.test.mjs
     node --check actions/plan/run.mjs
     node --check tests/verify-parts.test.mjs
     node --check tests/ci-times.test.mjs
     node --check lib/qualification.mjs
+    node --check lib/oci-artifacts.mjs
+    node --check actions/oci-artifact/run.mjs
+    node --check tests/oci-artifacts.test.mjs
     node --check lib/commit-status.mjs
     node --check actions/require-status/run.mjs
     node --check tests/commit-status.test.mjs
@@ -133,6 +165,8 @@ check: (_tools "check") scan-source-secrets
     node --check lib/promotion.mjs
     node --check actions/promote/run.mjs
     node --check tests/promotion.test.mjs
+    node --check tools/hosted-fallback.mjs
+    node --check tests/hosted-fallback.test.mjs
     PATH="{{ shellcheck }}:$PATH" "{{ actionlint }}" .github/workflows/*.yml
     "{{ zizmor }}" --strict-collection --min-severity medium .github actions
 
@@ -156,8 +190,9 @@ test:
 # Package the checked source for services running outside GitHub Actions.
 package-tools:
     mkdir -p dist
-    git archive --format=zip --prefix=nddev-ci/ --output=dist/qualify-merge.zip HEAD tools/qualify-merge.mjs lib/merge-on-green.mjs lib/qualification.mjs lib/release.mjs
-    git archive --format=zip --prefix=nddev-ci/ --output=dist/scan-before-push.zip HEAD tools/scan-before-push.mjs tools/scan-source-secrets.mjs lib/secret-scan.mjs lib/secret-policy.mjs lib/security-policy.mjs tools/verify-before-push.mjs lib/pre-push-executor.mjs lib/verify-parts.mjs
+    git archive --format=zip --prefix=nddev-ci/ --output=dist/qualify-merge.zip HEAD tools/qualify-merge.mjs lib/merge-on-green.mjs lib/qualification.mjs lib/oci-artifacts.mjs lib/release.mjs
+    git archive --format=zip --prefix=nddev-ci/ --output=dist/scan-before-push.zip HEAD tools/scan-before-push.mjs tools/scan-source-secrets.mjs lib/secret-scan.mjs lib/secret-policy.mjs lib/security-policy.mjs tools/verify-before-push.mjs lib/pre-push-executor.mjs lib/verify-parts.mjs lib/pre-push-registry-input.mjs lib/registry-snapshot.mjs
+    git show HEAD:tools/prepare-source-secrets.mjs > dist/prepare-source-secrets.mjs
 
 # Everything the full check on dev runs.
 verify: check test package-tools

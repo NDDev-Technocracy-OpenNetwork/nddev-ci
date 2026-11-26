@@ -1,0 +1,217 @@
+name: Run pull request merge stops
+description: >-
+  Prepares pinned merge-stop tools and runs authorship, secret, dependency, workflow, optional code
+  clone, planner-speed and hint checks concurrently on one Linux runner.
+inputs:
+  base:
+    description: Exact pull request base commit (defaults to the pull request base).
+    default: ''
+  head:
+    description: Exact pull request head commit (defaults to the pull request head).
+    default: ''
+  merge:
+    description: Exact checked merge commit (defaults to github.sha).
+    default: ''
+  head-ref:
+    description: Pull request head branch name (defaults to github.head_ref).
+    default: ''
+  isolated-worktree:
+    description: Read the exact merge in a temporary worktree, away from the project workspace.
+    default: 'false'
+  new-clones:
+    description: Reject new code clones using the pull request base's .jscpd.json.
+    default: 'false'
+  upstream-branch:
+    description: Optional branch in this repository that mirrors a fork's upstream.
+    default: ''
+  github-token:
+    description: Existing job token for GitHub release and object reads.
+    default: ${{ github.token }}
+outputs:
+  failure-layer:
+    description: "'project' when a merge stop judged the change; empty otherwise."
+    value: ${{ steps.run.outputs.failure-layer }}
+  failure-reason:
+    description: Short plain reason code for the failing merge stop, if any.
+    value: ${{ steps.run.outputs.failure-reason }}
+runs:
+  using: composite
+  steps:
+    - name: File contents of the change
+      uses: $/actions/change-objects
+      with:
+        base: ${{ inputs.base || github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        head: ${{ inputs.head || github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+        merge: ${{ inputs.merge || github.sha }}
+
+    - name: Tools
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        NEW_CLONES: ${{ inputs.new-clones }}
+        JSCPD_VERSION: "5.4.3"
+        JSCPD_SHA256_X64: "291452d6005e3fa17b531552bf76f87ff85bc4ae31533e0c17a7997f84079868"
+        JSCPD_SHA256_ARM64: "f363875348817f8e999ca090266b1265ba29322d6b5d1f6280aa0d136ab1ca9e"
+        BETTERLEAKS_VERSION: "1.10.1"
+        BETTERLEAKS_SHA256_X64: "c174b42d7aa60caf58c0c3e555c0e4bed01fe6b0d99a412bce777b5af4ce913e"
+        BETTERLEAKS_SHA256_ARM64: "62a63199f9f61a6b5e5a6f58f048493db20fbc8c770014f4d903a4d97886e1bf"
+        POUTINE_VERSION: "1.1.6"
+        POUTINE_SHA256_X64: "abde716599a65608b023a69ed9316e5f083a7bca48612151c2720835883757ea"
+        POUTINE_SHA256_ARM64: "460c90300c6329106b551c150682d12e457365f6436a6cbbd08fe79eb9a98131"
+        ACTIONLINT_VERSION: "1.7.12"
+        ACTIONLINT_SHA256_X64: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        ACTIONLINT_SHA256_ARM64: "325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6"
+        ZIZMOR_VERSION: "1.32.0"
+        ZIZMOR_SHA256_X64: "84a6acb975accc13408786a2bd274b572537ca19c933ebbc13e78f3988562071"
+        ZIZMOR_SHA256_ARM64: "0cdd38fca6eb34ceb567548548d706332e3535ea66894b9168c048e03207b68c"
+        COMMITTED_VERSION: "1.1.12"
+        COMMITTED_SHA256_X64: "9a860b0a557bc842df663ce923213ff36f077ae2783f8db3123738823279387f"
+        COMMITTED_SHA256_ARM64: "2077f9fa0157f3e0bfa7273327aa26c793d05b16620e046e499a982dd6fd2e7c"
+        # actionlint checks run: scripts with the ShellCheck on PATH; the pinned one makes the stop
+        # independent of the runner image.
+        SHELLCHECK_VERSION: "0.11.0"
+        SHELLCHECK_SHA256_X64: "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6"
+        SHELLCHECK_SHA256_ARM64: "68a8133197a50beb8803f8d42f9908d1af1c5540d4bb05fdfca8c1fa47decefc"
+      run: |
+        set -euo pipefail
+        # The stops run natively on Linux x64 or ARM64; every archive has its own pinned digest.
+        [ "$RUNNER_OS" = Linux ] || { echo "::error::the merge stops run on Linux runners"; exit 1; }
+        case "$(uname -m)" in
+          x86_64) arch=X64 betterleaks=x64 poutine=x86_64 rust=x86_64 actionlint=amd64 wheel=manylinux_2_28_x86_64 ;;
+          aarch64 | arm64) arch=ARM64 betterleaks=arm64 poutine=arm64 rust=aarch64 actionlint=arm64 wheel=manylinux_2_24_aarch64 ;;
+          *) echo "::error::the merge stops support Linux x64 and ARM64"; exit 1 ;;
+        esac
+        digest() { local name="${1}_SHA256_$arch"; printf '%s' "${!name}"; }
+        bin="$RUNNER_TEMP/nddev-ci/bin"
+        staging="$RUNNER_TEMP/nddev-ci/tools-staging"
+        mkdir -p "$bin" "$staging"
+        # Reuse exact pinned tools already installed inside the runner's managed tool cache.
+        reuse_cached() {
+          local tool=$1 expected=$2 found="" resolved="" version=""
+          [ -n "${RUNNER_TOOL_CACHE:-}" ] || return 1
+          found=$(command -v "$tool" 2>/dev/null || true)
+          [ -n "$found" ] || return 1
+          case "$found" in
+            "$RUNNER_TOOL_CACHE"/*) ;;
+            *)
+              resolved=$(realpath "$found" 2>/dev/null || true)
+              case "$resolved" in
+                "$RUNNER_TOOL_CACHE"/*) ;;
+                *) return 1 ;;
+              esac
+              ;;
+          esac
+          case "$tool" in
+            betterleaks) version=$("$found" version 2>/dev/null || "$found" --version 2>/dev/null || true) ;;
+            poutine) version=$("$found" version 2>/dev/null || "$found" --version 2>/dev/null || true) ;;
+            *) version=$("$found" --version 2>/dev/null || true) ;;
+          esac
+          if grep -Fq "$expected" <<< "$version"; then
+            ln -sf "$found" "$bin/$tool"
+            printf 'Using preinstalled %s@%s from tool cache.\n' "$tool" "$expected"
+            return 0
+          fi
+          return 1
+        }
+        fetch() {
+          local tool=$1 url=$2 sha=$3 member=$4
+          local source repository release tag name archive dest
+          source=${url#https://github.com/}
+          repository=${source%%/releases/download/*}
+          release=${source#*/releases/download/}
+          tag=${release%%/*}
+          name=${release#*/}
+          archive="$staging/$tool.archive"
+          dest="$staging/$tool"
+          mkdir -p "$dest"
+          printf 'Fetching check tool %s@%s: %s\n' "$repository" "$tag" "$name"
+          local auth=()
+          if [ -n "${GH_TOKEN:-}" ]; then auth=(-H "Authorization: Bearer $GH_TOKEN"); fi
+          if [ -n "${NDDEV_CI_ARTIFACT_REGISTRY:-}" ]; then
+            printf 'Using the configured artifact registry.\n'
+            curl -fsSL -o "$archive" "${NDDEV_CI_ARTIFACT_REGISTRY%/}/github-releases/sha256/$sha/$repository/releases/download/$tag/$name"
+          else
+            local asset
+            asset=$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$repository/releases/tags/$tag" |
+              node -e 'const a=(JSON.parse(require("fs").readFileSync(0,"utf8")).assets||[]).filter(x=>x.name===process.argv[1]); if(a.length!==1||typeof a[0].id!=="number") throw new Error("release asset is missing or ambiguous"); console.log(a[0].id)' "$name")
+            curl -fsSL "${auth[@]}" -H 'Accept: application/octet-stream' -o "$archive" "https://api.github.com/repos/$repository/releases/assets/$asset"
+          fi
+          echo "$sha  $archive" | sha256sum --check --quiet
+          tar -xzf "$archive" -C "$dest" "$member"
+          mv "$dest/$member" "$bin/$tool"
+        }
+        fetch_zizmor() {
+          local archive="$staging/zizmor.whl"
+          local name="zizmor-$ZIZMOR_VERSION-py3-none-$wheel.whl"
+          local metadata origin url
+          if [ -n "${NDDEV_CI_ARTIFACT_REGISTRY:-}" ]; then
+            metadata="${NDDEV_CI_ARTIFACT_REGISTRY%/}/pypi/simple/zizmor/"
+            origin="${NDDEV_CI_ARTIFACT_REGISTRY%/}/pypi-files/"
+          else
+            metadata="https://pypi.org/simple/zizmor/"
+            origin="https://files.pythonhosted.org/"
+          fi
+          url=$(curl -fsSL -H 'Accept: application/vnd.pypi.simple.v1+json' "$metadata" |
+            node -e 'const f=(JSON.parse(require("fs").readFileSync(0,"utf8")).files||[]).filter(x=>x.filename===process.argv[1]); if(f.length!==1||typeof f[0].url!=="string") throw new Error("wheel is missing or ambiguous"); console.log(f[0].url)' "$name")
+          case "$url" in "$origin"*) ;; *) echo "Wheel origin differs from the configured registry" >&2; exit 1 ;; esac
+          curl -fsSL -o "$archive" "$url"
+          echo "$(digest ZIZMOR)  $archive" | sha256sum --check --quiet
+          python3 -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]))' "$archive" "zizmor-$ZIZMOR_VERSION.data/scripts/zizmor" > "$bin/zizmor"
+          chmod 0755 "$bin/zizmor"
+        }
+        pids=()
+        if [ "$NEW_CLONES" = true ] && ! reuse_cached jscpd "$JSCPD_VERSION"; then
+          fetch jscpd "https://github.com/kucherenko/jscpd/releases/download/v$JSCPD_VERSION/jscpd-linux-$betterleaks-musl.tar.gz" \
+            "$(digest JSCPD)" jscpd &
+          pids+=($!)
+        fi
+        if ! reuse_cached betterleaks "$BETTERLEAKS_VERSION"; then
+          fetch betterleaks "https://github.com/betterleaks/betterleaks/releases/download/v$BETTERLEAKS_VERSION/betterleaks_${BETTERLEAKS_VERSION}_linux_$betterleaks.tar.gz" \
+            "$(digest BETTERLEAKS)" betterleaks &
+          pids+=($!)
+        fi
+        if ! reuse_cached poutine "$POUTINE_VERSION"; then
+          fetch poutine "https://github.com/boostsecurityio/poutine/releases/download/v$POUTINE_VERSION/poutine_Linux_$poutine.tar.gz" \
+            "$(digest POUTINE)" poutine &
+          pids+=($!)
+        fi
+        if ! reuse_cached committed "$COMMITTED_VERSION"; then
+          fetch committed "https://github.com/crate-ci/committed/releases/download/v$COMMITTED_VERSION/committed-v${COMMITTED_VERSION}-$rust-unknown-linux-musl.tar.gz" \
+            "$(digest COMMITTED)" ./committed &
+          pids+=($!)
+        fi
+        if ! reuse_cached actionlint "$ACTIONLINT_VERSION"; then
+          fetch actionlint "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_$actionlint.tar.gz" \
+            "$(digest ACTIONLINT)" actionlint &
+          pids+=($!)
+        fi
+        if ! reuse_cached shellcheck "$SHELLCHECK_VERSION"; then
+          fetch shellcheck "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.$rust.tar.gz" \
+            "$(digest SHELLCHECK)" "shellcheck-v$SHELLCHECK_VERSION/shellcheck" &
+          pids+=($!)
+        fi
+        if ! reuse_cached zizmor "$ZIZMOR_VERSION"; then
+          fetch_zizmor &
+          pids+=($!)
+        fi
+        failed=0
+        for pid in "${pids[@]}"; do
+          wait "$pid" || failed=1
+        done
+        rm -rf "$staging"
+        [ "$failed" -eq 0 ]
+
+    - name: Run merge stops
+      id: run
+      shell: bash
+      env:
+        MERGE_STOPS_BASE: ${{ inputs.base || github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        MERGE_STOPS_HEAD: ${{ inputs.head || github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+        MERGE_STOPS_MERGE: ${{ inputs.merge || github.sha }}
+        MERGE_STOPS_HEAD_REF: ${{ inputs.head-ref || github.head_ref || github.event.merge_group.head_ref }}
+        MERGE_STOPS_ISOLATED_WORKTREE: ${{ inputs.isolated-worktree }}
+        MERGE_STOPS_NEW_CLONES: ${{ inputs.new-clones }}
+        MERGE_STOPS_UPSTREAM_BRANCH: ${{ inputs.upstream-branch }}
+        MERGE_STOPS_GITHUB_TOKEN: ${{ inputs.github-token }}
+        MERGE_STOPS_BIN: ${{ runner.temp }}/nddev-ci/bin
+      run: node "$GITHUB_ACTION_PATH/run.mjs"

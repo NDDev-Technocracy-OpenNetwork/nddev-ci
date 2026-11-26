@@ -1,5 +1,5 @@
 name: ci
-run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'github' && inputs.runner-profile != '' && 'Contour hosted fallback' || '' }}
+run-name: ${{ github.event.repository.private && github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] != '' && github.actor_id == vars.NDDEV_BRANCH_FALLBACK_ACTOR_ID && github.actor == github.triggering_actor && 'Contour hosted fallback' || '' }}
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, edited]
@@ -13,14 +13,18 @@ on:
         options: [ours, github]
         default: ours
       runner-profile:
-        description: Platform requested for automatic fallback.
+        description: Platform selected for a manual GitHub-hosted run.
         type: string
 permissions: {}
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.repository.private && github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] != '' && github.actor_id == vars.NDDEV_BRANCH_FALLBACK_ACTOR_ID && github.actor == github.triggering_actor && format('hosted-{0}', github.sha) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   check:
     uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@RELEASE_COMMIT # RELEASE_VERSION
     permissions:
       contents: read
+      # Grant `id-token: write` and `actions: read` to use signed receipts on managed runners.
     # Select only the exact SDKs/tools the project's recipes need.
     # with:
     #   runner-profile: linux-x64

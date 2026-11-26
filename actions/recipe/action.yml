@@ -19,11 +19,22 @@ inputs:
   github-token:
     description: Existing job token used only for official public asset API reads.
     default: ${{ github.server_url == 'https://github.com' && github.token || '' }}
+  receipt-inputs:
+    description: Optional JSON snapshot of caller workflow inputs enabling gateway step-receipt reuse.
+    default: ''
 outputs:
   just-version:
     description: The admitted task runner version.
   runner-reason:
     description: A runner failure reason detected in the failed recipe, when available.
+  receipt-mode:
+    description: "Step receipt mode: reused, executed, bypassed or canary."
+  reused-run-id:
+    description: Numeric GitHub run ID of the reused receipt source, if any.
+  bypass-reason:
+    description: Non-empty reason when step-receipt reuse was bypassed.
+  canary-result:
+    description: Canary comparison result (match or mismatch), when applicable.
 runs:
   using: node24
   main: run.mjs

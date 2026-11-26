@@ -15,6 +15,9 @@ inputs:
   project-outcome:
     description: The outcome of the project's own command steps, success or failure.
     default: ''
+  failure-reason:
+    description: A short plain failure reason code reported by an earlier failed step, if known.
+    default: ''
   runner-reason:
     description: A runner failure reason reported by a failed step, if known.
     default: ''
@@ -36,6 +39,9 @@ inputs:
   artifact-days:
     description: How many days the artifact is kept.
     default: '3'
+  part:
+    description: Optional full-check part label recorded in private OCI artifact annotations.
+    default: ''
   reports:
     description: Workspace-relative reports, one per line, kept whatever the result; a missing one fails the job.
     default: ''
@@ -51,8 +57,8 @@ runs:
     - name: Artifact
       id: artifact
       # A passed full run keeps what the project deploys, so a deployment takes the exact build of a
-      # checked commit instead of building again.
-      if: inputs.status == 'success' && github.event_name != 'pull_request' && inputs.artifact != ''
+      # checked commit instead of building again. Public repositories use workflow artifacts.
+      if: ${{ !github.event.repository.private && inputs.status == 'success' && github.event_name != 'pull_request' && github.event_name != 'merge_group' && inputs.artifact != '' }}
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ inputs.artifact-name }}
@@ -60,11 +66,23 @@ runs:
         if-no-files-found: error
         retention-days: ${{ inputs.artifact-days }}
 
+    - name: Artifact (OCI)
+      id: artifact-oci
+      # Private repositories push checked artifacts to GHCR as content-addressed OCI artifacts.
+      if: ${{ github.event.repository.private && inputs.status == 'success' && github.event_name != 'pull_request' && github.event_name != 'merge_group' && inputs.artifact != '' }}
+      uses: $/actions/oci-artifact
+      with:
+        mode: push
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.artifact }}
+        part: ${{ inputs.part }}
+        github-token: ${{ github.token }}
+
     - name: Reports
       id: reports
       # The caller's named evidence, kept whether the job passed or failed, never as a deployment
-      # artifact.
-      if: ${{ !cancelled() && inputs.status != 'cancelled' && inputs.reports != '' }}
+      # artifact. Private repositories verify the files below without uploading a workflow artifact.
+      if: ${{ !github.event.repository.private && !cancelled() && inputs.status != 'cancelled' && inputs.reports != '' }}
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: reports-${{ inputs.name }}-${{ github.run_attempt }}
@@ -104,7 +122,8 @@ runs:
 
     - name: Diagnostics of the failed job
       # Only the caller's named reports are kept, never a release artifact of a failed job.
-      if: ${{ !cancelled() && inputs.diagnostics != '' && (inputs.status == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') }}
+      # Private repositories rely on the job log instead of uploading workflow artifacts.
+      if: ${{ !github.event.repository.private && !cancelled() && inputs.diagnostics != '' && (inputs.status == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') }}
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: diagnostics-${{ inputs.name }}-${{ github.run_attempt }}
@@ -132,17 +151,9 @@ runs:
 
     - name: Revoke App read token
       if: always() && inputs.read-token != ''
-      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      uses: $/actions/revoke-token
       with:
-        github-token: ${{ inputs.read-token }}
-        script: |
-          try {
-            await github.request('DELETE /installation/token');
-            core.info('Scoped App read token revoked.');
-          } catch (error) {
-            if (error.status !== 401) throw error;
-            core.info('Scoped App read token is already expired or revoked.');
-          }
+        token: ${{ inputs.read-token }}
 
     - name: Job record
       if: always()
@@ -151,9 +162,10 @@ runs:
         task: ${{ inputs.task }}
         task-type: ${{ inputs.task-type }}
         # A passed job whose own artifact or reports then failed has failed.
-        status: ${{ (inputs.status == 'success' && (steps.artifact.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure')) && 'failure' || inputs.status }}
+        status: ${{ (inputs.status == 'success' && (steps.artifact.outcome == 'failure' || steps.artifact-oci.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure')) && 'failure' || inputs.status }}
         # The project's commands or reports, or the steps around them (nddev_ci.failure.layer).
-        failure-layer: ${{ (inputs.status == 'failure' || steps.artifact.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure') && ((inputs.project-outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && 'project' || 'library') || '' }}
+        failure-layer: ${{ (inputs.status == 'failure' || steps.artifact.outcome == 'failure' || steps.artifact-oci.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure') && ((inputs.project-outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && 'project' || 'library') || '' }}
+        failure-reason: ${{ (inputs.status == 'failure' || steps.artifact.outcome == 'failure' || steps.artifact-oci.outcome == 'failure' || steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure' || steps.images-cleanup.outcome == 'failure') && (inputs.failure-reason || (steps.artifact-oci.outcome == 'failure' && (steps.artifact-oci.outputs.failure-reason || 'artifact-upload-failed')) || (steps.artifact.outcome == 'failure' && 'artifact-upload-failed') || ((steps.reports.outcome == 'failure' || steps.reports-kept.outcome == 'failure') && 'reports-missing') || (steps.images-cleanup.outcome == 'failure' && 'image-cleanup-failed') || (inputs.project-outcome == 'failure' && 'project-command-failed') || 'workflow-step-failed') || '' }}
         runner-reason: ${{ inputs.runner-reason }}
         check-run-id: ${{ inputs.check-run-id }}
         started-file: ${{ runner.temp }}/nddev-ci-started

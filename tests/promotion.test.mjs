@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { main as promote } from "../actions/promote/run.mjs";
 import { comparisonPageSize, selectPromotion } from "../lib/promotion.mjs";
 import { client, qualify, recheck } from "../lib/qualification.mjs";
@@ -12,6 +14,66 @@ import { client, qualify, recheck } from "../lib/qualification.mjs";
 const repository = "fixture/library";
 const workflowPath = ".github/workflows/ci.yml";
 const sha = (n) => n.toString(16).padStart(40, "0");
+
+const writer = fileURLToPath(new URL("../actions/protected-git/run.sh", import.meta.url));
+const linuxWriter = {skip: process.platform !== "linux" && "The protected Git writer runs on Linux."};
+
+function handoff(t, stalled = "", mode = "promote") {
+  const directory = mkdtempSync(path.join(tmpdir(), "promotion-writer-"));
+  t.after(() => rmSync(directory, {recursive: true, force: true}));
+  const trace = path.join(directory, "trace");
+  writeFileSync(path.join(directory, "git"), `#!/usr/bin/env bash
+set -euo pipefail
+[ -z "\${KEY+x}" ]
+printf '%s\\n' "$*" >> "$TRACE"
+if [ "$1" = init ]; then mkdir -p -- "\${!#}"; fi
+if [ "$1" = "$STALLED" ]; then sleep 2; fi
+if [ "$1" = fetch ]; then printf '%s\\n' "$GIT_SSH_COMMAND" >> "$TRACE"; fi
+`, {mode: 0o700});
+  writeFileSync(path.join(directory, "timeout"), `#!/usr/bin/env bash
+set -euo pipefail
+[ "$1" = --kill-after=5s ] && [ "$2" = 120s ]
+shift 2
+exec /usr/bin/timeout --kill-after=1s 0.5s "$@"
+`, {mode: 0o700});
+  const result = spawnSync("bash", [writer], {
+    cwd: directory,
+    encoding: "utf8",
+    timeout: 6000,
+    env: {...process.env, PATH: `${directory}:${process.env.PATH}`, TRACE: trace,
+      STALLED: stalled, OPERATION: mode, SHA: sha(1), TARGET: "main", REPOSITORY: repository,
+      NUMBER: "23", HEAD_BRANCH: "topic",
+      RUNNER_TEMP: directory, KEY: "fixture\n-----END OPENSSH PRIVATE KEY-----"},
+  });
+  return {...result, commands: readFileSync(trace, "utf8")};
+}
+
+test("the promotion writer fetches and pushes the exact checked ref without force", linuxWriter, (t) => {
+  const result = handoff(t);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.commands, /-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3/);
+  assert.ok(result.commands.includes(`fetch -q --filter=blob:none origin ${sha(1)} refs/heads/main\n`));
+  assert.ok(result.commands.includes(`push -q origin ${sha(1)}:refs/heads/main\n`));
+});
+
+test("the merge writer merges the exact checked head and pushes the resulting commit without force", linuxWriter, (t) => {
+  const result = handoff(t, "", "merge");
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.ok(result.commands.includes(`fetch -q --filter=blob:none origin +refs/heads/main:refs/remotes/origin/main ${sha(1)}\n`));
+  assert.ok(result.commands.includes(`merge -q --no-ff --no-edit -m Merge pull request #23 from ${repository}/topic ${sha(1)}\n`));
+  assert.ok(result.commands.includes("push -q origin HEAD:refs/heads/main\n"));
+});
+
+for (const operation of ["fetch", "push"]) {
+  test(`a stalled promotion ${operation} fails with a bounded, named error`, linuxWriter, (t) => {
+    const result = handoff(t, operation);
+    assert.equal(result.status, 124, result.stdout + result.stderr);
+    assert.ok(result.stdout.includes(`::error title=Protected git ${operation} failed::`));
+    if (operation === "fetch") assert.doesNotMatch(result.commands, /^push /m);
+    assert.doesNotMatch(result.stdout, /^main is at /m);
+  });
+}
+
 const started = new Date(Date.now() - 10000).toISOString();
 let id = 0;
 const run = (head, fields = {}) => ({id: ++id, run_number: id, run_attempt: 1, head_sha: head, head_branch: "dev",
@@ -190,7 +252,7 @@ test("promotion does not retry writes, malformed JSON, authorization failures or
     } else response.end("{");
   });
   const github = client("fixture", url, {retryReads: true});
-  await assert.rejects(github.json("POST", "/write"), /transport did not complete/);
+  await assert.rejects(github.json("POST", "/write"), /transport did not complete \(UND_ERR_SOCKET\)/);
   await assert.rejects(github.json("GET", "/denied"), /HTTP 403/);
   await assert.rejects(github.json("GET", "/limited"), /HTTP 503/);
   await assert.rejects(github.json("GET", "/malformed"), /malformed JSON/);
@@ -234,51 +296,55 @@ test("incomplete, inconsistent and misanchored comparison pages refuse before qu
   }
 });
 
-test("branch eligibility matches the configured App actor and exact scoped run name", async () => {
+test("workflow_dispatch runs do not qualify a branch push check", async () => {
   const commit = sha(1);
   const cancelled = run(commit, {conclusion: "cancelled"});
   const actor = {id: 27};
-  const hosted = run(commit, {event: "workflow_dispatch", display_title: "Contour hosted fallback", actor, triggering_actor: actor});
-  const fallbackActorId = "27";
+  const dispatch = run(commit, {event: "workflow_dispatch", display_title: "Manual run", actor, triggering_actor: actor});
   const expected = {repository, workflowPath, sha: commit, branch: "dev"};
-  const github = (push, dispatch) => api({ahead: [commit], runs: {[commit]: [...push, ...dispatch]}});
-  const selectWith = (client) => selectPromotion(client, {repository, workflowPath, fallbackActorId});
-  const valid = github([cancelled], [hosted]);
-  assert.equal((await selectWith(valid)).run_id, hosted.id);
-  assert.equal((await selectWith(github([], [hosted]))).run_id, hosted.id);
-  assert.equal(valid.calls.filter(route => route.includes("/actions/workflows/")).length, 1);
-  assert.equal((await select(valid)).state, "unchecked");
-  const proof = await qualify(valid, expected, {waitMinutes: 0, fallbackActorId});
-  assert.equal(proof.event, "workflow_dispatch");
-  assert.equal((await recheck(valid, proof, {fallbackActorId})).run_id, hosted.id);
+  const github = api({ahead: [commit], runs: {[commit]: [cancelled, dispatch]}});
+  assert.equal((await select(github)).state, "unchecked");
+  await assert.rejects(qualify(github, expected, {waitMinutes: 0}), /No qualification/);
+  const passedPush = run(commit);
+  const withPush = api({ahead: [commit], runs: {[commit]: [cancelled, dispatch, passedPush]}});
+  const proof = await qualify(withPush, expected, {waitMinutes: 0});
+  assert.equal(proof.event, "push");
+  assert.equal(proof.run_id, passedPush.id);
+  assert.equal((await recheck(withPush, proof)).run_id, passedPush.id);
+});
 
-  for (const dispatch of [
-    {...hosted, display_title: "Manual run"},
-    {...hosted, actor: {id: 34}},
-    {...hosted, triggering_actor: {id: 34}},
-    {...hosted, triggering_actor: null},
-    {...hosted, run_number: cancelled.run_number - 1 || 1},
-    {...hosted, conclusion: "failure"},
-  ]) assert.equal((await selectWith(github([cancelled], [dispatch]))).state, "unchecked");
-  for (const conclusion of ["failure", "timed_out"]) {
-    const laterFailure = run(commit, {conclusion});
-    assert.equal((await selectWith(github([laterFailure], [hosted]))).state, "unchecked");
-  }
-  for (const other of [
-    {...hosted, head_sha: sha(3)},
-    {...hosted, head_branch: "main"},
-    {...hosted, path: ".github/workflows/other.yml"},
-    {...hosted, head_repository: {full_name: "foreign/repository"}},
-  ]) await assert.rejects(selectWith(github([cancelled], [other])), /foreign identity/);
+test("promotion validates a commit's prerelease-file before moving main", async (t) => {
+  const commit = sha(1);
+  const github = api({ahead: [commit], runs: {[commit]: [run(commit)]}});
+  let stage = "2.0.0-alpha\n";
+  let tags = [];
+  const url = await listen(t, async (request, response) => {
+    if (request.url === `/repos/${repository}/contents/.github/prerelease?ref=${commit}`) {
+      if (stage === null) return response.writeHead(404).end();
+      const buf = Buffer.from(stage);
+      return response.end(JSON.stringify({type: "file", path: ".github/prerelease", encoding: "base64", size: buf.length, content: buf.toString("base64")}));
+    }
+    if (request.url === `/repos/${repository}/git/matching-refs/tags/v`) return response.end(JSON.stringify(tags));
+    response.end(JSON.stringify(await github.json(request.method, request.url)));
+  });
+  const dir = mkdtempSync(path.join(tmpdir(), "promotion-prerelease-"));
+  t.after(() => rmSync(dir, {recursive: true, force: true}));
+  const runPromote = (name) => promote({
+    "INPUT_GITHUB-TOKEN": "fixture", "INPUT_PRERELEASE-FILE": ".github/prerelease",
+    GITHUB_API_URL: url, GITHUB_REPOSITORY: repository, GITHUB_OUTPUT: path.join(dir, name),
+  });
+  const ok = await runPromote("ok");
+  assert.equal(ok.state, "ready");
+  assert.equal(ok.version, "2.0.0-alpha.1");
 
-  const superseded = github([cancelled], [hosted, {...hosted, run_attempt: 2, conclusion: "failure"}]);
-  await assert.rejects(recheck(superseded, proof, {fallbackActorId}), /newest check/);
-  const manuallyRerun = github([cancelled], [hosted, {...hosted, run_attempt: 2, triggering_actor: {id: 34}}]);
-  assert.equal((await selectWith(manuallyRerun)).state, "unchecked");
-  const laterManual = run(commit, {event: "workflow_dispatch", display_title: "Contour hosted fallback",
-    actor: {id: 34}, triggering_actor: {id: 34}});
-  assert.equal((await selectWith(github([cancelled], [hosted, laterManual]))).run_id, hosted.id);
-  const laterPush = run(commit);
-  assert.equal((await selectWith(github([cancelled, laterPush], [hosted]))).run_id, laterPush.id);
-  await assert.rejects(recheck(github([cancelled, laterPush], [hosted]), proof, {fallbackActorId}), /replaced/);
+  tags = [{ref: "refs/tags/v2.0.0-beta.1", object: {type: "commit", sha: sha(9)}}];
+  await assert.rejects(runPromote("regressed"), /not newer/);
+
+  stage = "2.0.0-gamma\n";
+  await assert.rejects(runPromote("malformed"), /-alpha, -beta or -rc/);
+
+  stage = null;
+  const graduate = await runPromote("graduate");
+  assert.equal(graduate.state, "ready");
+  assert.equal(graduate.version, "2.0.0");
 });

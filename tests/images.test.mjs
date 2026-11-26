@@ -55,14 +55,16 @@ test("completion always cleans the fixed library entry after upload and records 
   const expression = (key) => source.split("\n").find((line) => line.trimStart().startsWith(key + ": $")).
     split(": $")[1].slice(2, -3).replace(/steps\.([a-z]+-[a-z-]+)/g, 'steps["$1"]').
     replace(/inputs\.project-outcome/g, 'inputs["project-outcome"]');
-  const evaluate = (key, fail) => runInNewContext(expression(key), {
+  const evaluate = (key, overrides = {}) => runInNewContext(expression(key), {
     inputs: {status: "success", "project-outcome": "success"},
-    steps: {artifact: {outcome: "success"}, reports: {outcome: "success"},
-      "reports-kept": {outcome: "success"}, "images-cleanup": {outcome: fail ? "failure" : "success"}},
+    steps: {artifact: {outcome: "success"}, "artifact-oci": {outcome: "success"}, reports: {outcome: "success"},
+      "reports-kept": {outcome: "success"}, "images-cleanup": {outcome: "success"}, ...overrides},
   });
-  assert.equal(evaluate("status", false), "success");
-  assert.equal(evaluate("status", true), "failure");
-  assert.equal(evaluate("failure-layer", true), "library");
+  assert.equal(evaluate("status"), "success");
+  assert.equal(evaluate("status", {"images-cleanup": {outcome: "failure"}}), "failure");
+  assert.equal(evaluate("failure-layer", {"images-cleanup": {outcome: "failure"}}), "library");
+  assert.equal(evaluate("status", {"artifact-oci": {outcome: "failure"}}), "failure");
+  assert.equal(evaluate("failure-layer", {"artifact-oci": {outcome: "failure"}}), "library");
 });
 
 test("only the declared containerd store satisfies image production", () => {
@@ -76,7 +78,7 @@ test("shared manifests follow the repository, image, platform, target and ref ac
   const root = mkdtempSync(path.join(process.env.RUNNER_TEMP ?? os.tmpdir(), "image-cache-"));
   try {
     const event = path.join(root, "event.json");
-    writeFileSync(event, JSON.stringify({repository: {default_branch: "main"}}));
+    writeFileSync(event, JSON.stringify({repository: {id: 42, default_branch: "main"}}));
     const env = {
       NDDEV_BUILDKIT_CACHE_ENDPOINT: "http://127.0.0.1:8750",
       NDDEV_BUILDKIT_CACHE_BUCKET: "ci-cache",
@@ -86,14 +88,41 @@ test("shared manifests follow the repository, image, platform, target and ref ac
     };
     const image = plan().images[0];
     const {from, to} = buildCache(image, env);
+    const {GITHUB_REPOSITORY_ID: _omitted, ...envWithoutRepoId} = env;
+    assert.deepEqual(buildCache(image, envWithoutRepoId), {from, to});
     assert.equal(from.length, 2);
-    assert.equal(to, from[0] + ",mode=max,ignore-error=true");
+    assert.equal(
+      to,
+      from[0] + ",mode=max,compression=zstd,compression-level=3,force-compression=true,touch_refresh=72h,ignore-error=true",
+    );
     assert.match(from[0], /^type=s3,region=auto,use_path_style=true,prefix=buildkit\//);
     assert.equal(buildCache(image, {...env, RUNNER_NAME: "another-slot"}).to, to);
     assert.deepEqual(buildCache(image, {...env, GITHUB_REF: "refs/heads/main"}).from, [from[1]]);
     for (const variant of [{name: "another"}, {platform: "linux/arm64"}, {target: "dev"}])
       assert.notEqual(buildCache({...image, ...variant}, env).to, to);
     assert.notEqual(buildCache(image, {...env, GITHUB_REPOSITORY_ID: "43"}).to, to);
+    const missingIdEvent = path.join(root, "missing-id.json");
+    writeFileSync(missingIdEvent, JSON.stringify({repository: {default_branch: "main"}}));
+    assert.throws(
+      () => buildCache(image, {...envWithoutRepoId, GITHUB_EVENT_PATH: missingIdEvent}),
+      /repository ID/,
+    );
     assert.throws(() => buildCache(image, {...env, NDDEV_BUILDKIT_CACHE_ENDPOINT: "http://other:8750,"}), /loopback/);
   } finally { rmSync(root, {recursive: true, force: true}); }
+});
+
+test("image workflow exports zstd OCI archive for trace checks and pushes zstd OCI layers", () => {
+  const source = readFileSync(new URL("../.github/workflows/image.yml", import.meta.url), "utf8");
+  const outputsLine = source.match(/outputs: >-\n\s+\$\{\{ (.+) \}\}/)?.[1];
+  assert.ok(outputsLine, "image.yml outputs expression exists");
+  const evaluate = (github, inputs, runner) => runInNewContext(outputsLine, {github, inputs, runner});
+  const zstdRegistry = "type=registry,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true";
+  assert.equal(evaluate({event_name: "push"}, {push: true}, {environment: "self-hosted"}), zstdRegistry);
+  assert.equal(evaluate({event_name: "push"}, {push: true}, {environment: "github-hosted"}), zstdRegistry);
+  assert.equal(evaluate({event_name: "pull_request"}, {push: true}, {environment: "self-hosted"}), "type=cacheonly");
+  assert.equal(evaluate({event_name: "push"}, {push: false}, {environment: "self-hosted"}), "type=cacheonly");
+  assert.equal(evaluate({event_name: "pull_request"}, {push: true}, {environment: "github-hosted"}), "");
+  assert.match(source, /type=oci,dest=\$\{RUNNER_TEMP\}\/nddev-ci-image\.oci\.tar,compression=zstd,compression-level=3,force-compression=true/);
+  assert.match(source, /uses: \$\/actions\/artifact-traces/);
+  assert.match(source, /type=gha,mode=max,compression=zstd,compression-level=3,force-compression=true,scope=image-\{0\}/);
 });

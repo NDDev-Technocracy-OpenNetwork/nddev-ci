@@ -20,6 +20,9 @@ inputs:
   fetch-depth:
     description: How many commits the checkout fetches; 0 fetches the whole history.
     default: '1'
+  full-history:
+    description: "'true' fetches the full commit history (fetch-depth 0, and blob:none unless fetch-depth is already 0)."
+    default: 'false'
   filter:
     description: A partial clone filter for the checkout, such as blob:none.
     default: ''
@@ -32,7 +35,8 @@ inputs:
   submodules:
     description: >-
       'true' checks out the submodules at their recorded commits, 'recursive' theirs too; they must
-      be readable with the job's token, as public repositories are.
+      be readable with the job's token, as public repositories are. 'exact' materializes direct
+      gitlinks after source credentials are ready, fetching their recorded revisions on clean slots.
     default: 'false'
   repository-token:
     description: >-
@@ -133,14 +137,28 @@ runs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
-        fetch-depth: ${{ inputs.fetch-depth }}
-        filter: ${{ inputs.filter }}
+        fetch-depth: ${{ inputs.full-history == 'true' && '0' || inputs.fetch-depth }}
+        filter: ${{ (inputs.full-history == 'true' && inputs.fetch-depth != '0' && inputs.filter == '') && 'blob:none' || inputs.filter }}
         sparse-checkout: ${{ inputs.sparse-checkout }}
         sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
-        submodules: ${{ inputs.submodules }}
+        submodules: ${{ inputs.submodules != 'exact' && inputs.submodules || 'false' }}
 
     - name: Outside telemetry off
       uses: $/actions/telemetry
+
+    - name: Cargo warnings
+      env:
+        RUST_VERSION: ${{ inputs.rust-version }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+      shell: bash
+      # Constant default so Cargo denies warnings on Rust jobs without rustc flags that invalidate
+      # build caches, while leaving non-Rust jobs (such as Python sdist builds) unaffected.
+      run: | # zizmor: ignore[github-env]
+        set -euo pipefail
+        work_dir="${WORKING_DIRECTORY:-.}"
+        if [ -z "${CARGO_BUILD_WARNINGS:-}" ] && { [ -n "${RUST_VERSION:-}" ] || [ -f Cargo.toml ] || [ -f rust-toolchain.toml ] || [ -f "$work_dir/Cargo.toml" ] || [ -f "$work_dir/rust-toolchain.toml" ]; }; then
+          echo "CARGO_BUILD_WARNINGS=deny" >> "$GITHUB_ENV"
+        fi
 
     - name: Artifact registry
       uses: $/actions/artifact-registry
@@ -330,11 +348,22 @@ runs:
         directory: ${{ runner.temp }}/nddev-ci/native-tools
         add-to-path: true
 
+    - name: Materialize exact submodules
+      if: inputs.submodules == 'exact'
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/exact-submodules.mjs"
+
     - name: Hosted dependency caches
       if: inputs.managed == 'false'
       uses: $/actions/hosted-cache
       with:
         managed: ${{ inputs.managed }}
+        working-directory: ${{ inputs.working-directory }}
+
+    - name: Warm locked uv wheels from the artifact registry
+      if: inputs.managed != 'false' && env.NDDEV_CI_ARTIFACT_REGISTRY != '' && env.UV_CACHE_DIR != ''
+      uses: $/actions/uv-cache
+      with:
         working-directory: ${{ inputs.working-directory }}
 
     - name: Prepare in-job image builds

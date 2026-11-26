@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { registry } from "../artifact-registry/run.mjs";
@@ -149,7 +149,11 @@ export async function main(environment = process.env) {
       {encoding: "utf8", timeout: 120000, maxBuffer: maximumReport, cwd: directory, env: scanEnvironment},
     );
     if (result.error) throw new Error("The registry project scan could not finish.");
-    return reportResult(result.stdout, result.status, selected, block);
+    const exit = reportResult(result.stdout, result.status, selected, block);
+    if (exit !== 0 && environment.GITHUB_OUTPUT) {
+      appendFileSync(environment.GITHUB_OUTPUT, "failure-layer=project\nfailure-reason=registry-check-failed\n");
+    }
+    return exit;
   } finally {
     rmSync(directory, {recursive: true, force: true});
   }
@@ -159,6 +163,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     process.exitCode = await main();
   } catch (error) {
+    if (process.env.GITHUB_OUTPUT) {
+      appendFileSync(process.env.GITHUB_OUTPUT, "failure-reason=registry-scan-failed\n");
+    }
     console.error("::error::" + commandValue(error.message));
     process.exitCode = 1;
   }

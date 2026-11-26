@@ -18,7 +18,6 @@ on:
         type: string
         default: |
           check / short check
-          check / merge-stops / merge stops
       label:
         description: The label that asks for a merge on green.
         type: string
@@ -30,14 +29,14 @@ on:
       runner:
         description: The label of our runners, used by private repositories.
         type: string
-        default: nddev-linux-small
+        default: nddev-linux-release
 
 permissions: {}
 
 jobs:
   merge:
     name: merge on green
-    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || inputs.runner }}
+    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || ((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light') && 'nddev-linux-release' || inputs.runner) }}
     environment: ${{ inputs.environment }}
     concurrency:
       group: nddev-ci-merge-${{ github.repository }}
@@ -64,55 +63,18 @@ jobs:
           required-checks: ${{ inputs.required-checks }}
 
       - name: Merge into the base branch
+        id: git
         if: steps.choose.outputs.state == 'ready'
-        env:
-          KEY: ${{ secrets.PROMOTION_KEY }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
-          NUMBER: ${{ steps.choose.outputs.number }}
-          BASE: ${{ steps.choose.outputs.base }}
-          HEAD_BRANCH: ${{ steps.choose.outputs.head }}
-          REPOSITORY: ${{ github.repository }}
-          KEY_ENVIRONMENT: ${{ inputs.environment }}
-        run: |
-          set -euo pipefail
-          if [ -z "$KEY" ]; then
-            echo "::error title=Merge needs a trusted writer::Pull request #$NUMBER at $SHA passed its checks. A trusted merger can finish it. Otherwise, merge that exact head into $BASE from the pull request page."
-            {
-              printf '### Merge needs a trusted writer\n\n'
-              printf 'Merge [%s#%s](%s/%s/pull/%s) into %s only if the checked head is still %s. Use **Create a merge commit**.\n\n' \
-                "$REPOSITORY" "$NUMBER" "$GITHUB_SERVER_URL" "$REPOSITORY" "$NUMBER" "$BASE" "$SHA"
-              printf '~~~sh\ngh pr merge %s --repo %s --merge --match-head-commit %s\n~~~\n\n' "$NUMBER" "$REPOSITORY" "$SHA"
-              printf 'With environment secrets, configure **Settings → Environments → %s → Environment secrets → PROMOTION_KEY**. For a private repository on GitHub Free, enroll a trusted merger outside repository workflows.\n' "$KEY_ENVIRONMENT"
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          folder="$RUNNER_TEMP/nddev-ci-merge"
-          mkdir -p "$folder"
-          chmod 0700 "$folder"
-          trap 'rm -rf "$folder"' EXIT
-          case "$KEY" in
-            *"-----END OPENSSH PRIVATE KEY-----"*) ;;
-            *) echo "::error::PROMOTION_KEY holds no OpenSSH private key"; exit 1 ;;
-          esac
-          (umask 077 && printf '%s\n' "$KEY" > "$folder/key")
-          # GitHub's published host keys, the same on github.com and on ssh.github.com:443.
-          cat > "$folder/known_hosts" <<'KEYS'
-          github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
-          github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
-          github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=
-          KEYS
-          export GIT_SSH_COMMAND="ssh -i $folder/key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$folder/known_hosts -o HostKeyAlias=github.com -p 443"
-          git init -q "$folder/repository"
-          cd "$folder/repository"
-          git remote add origin "git@ssh.github.com:$REPOSITORY.git"
-          # The commit history without files: enough to merge and to prove the push moves forward.
-          git fetch -q --filter=blob:none origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" "$SHA"
-          git checkout -q --detach "refs/remotes/origin/$BASE"
-          git -c user.name="nddev-ci" -c user.email="nddev-ci@users.noreply.github.com" -c commit.gpgsign=false \
-            merge -q --no-ff --no-edit -m "Merge pull request #$NUMBER from $REPOSITORY/$HEAD_BRANCH" "$SHA"
-          # No force: when the base moved meanwhile GitHub refuses, and its new check merges later.
-          git push -q origin "HEAD:refs/heads/$BASE"
-          echo "Merged pull request #$NUMBER into $BASE."
+        uses: $/actions/protected-git
+        with:
+          operation: merge
+          key: ${{ secrets.PROMOTION_KEY }}
+          sha: ${{ github.event.workflow_run.head_sha }}
+          repository: ${{ github.repository }}
+          target: ${{ steps.choose.outputs.base }}
+          environment: ${{ inputs.environment }}
+          merge-number: ${{ steps.choose.outputs.number }}
+          merge-head: ${{ steps.choose.outputs.head }}
 
       - name: Job record
         if: always()
@@ -121,5 +83,7 @@ jobs:
           task: merge
           task-type: deploy
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && 'library' || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.git.outputs.failure-reason || (steps.choose.outcome == 'failure' && 'merge-selection-failed') || 'workflow-step-failed') || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

@@ -15,6 +15,30 @@ on:
         description: Run the full verify recipe in one job without scheduling a planner.
         type: boolean
         default: false
+      split-full-check:
+        description: Run independent verify parts as separate jobs instead of inside one full-check job.
+        type: boolean
+        default: false
+      parallel-parts:
+        description: Run independent post-check parts of verify concurrently inside the single full-check job.
+        type: boolean
+        default: false
+      inline-merge-stops:
+        description: Run pull request merge stops inside the short check job on full Linux checkouts (falls back to separate merge-stops for sparse checkouts or non-Linux runners).
+        type: boolean
+        default: true
+      retain-separate-merge-stops:
+        description: Keep the separate merge stops context while a caller migrates its required checks to inline stops.
+        type: boolean
+        default: false
+      merge-group-full-check:
+        description: Run just verify on merge_group events while keeping the required short-check context.
+        type: boolean
+        default: false
+      part-paths:
+        description: Optional JSON map from verify part group IDs to repository-relative path prefixes; unmapped or global changes run every part.
+        type: string
+        default: '{}'
       registry-commit:
         description: Exact commit of the protected registry input selected by the caller.
         type: string
@@ -177,6 +201,26 @@ on:
         description: Explicit owner/repository names, one per line, granted contents-read access.
         type: string
         default: ""
+      upstream-branch:
+        description: Optional branch in this repository that mirrors a fork's upstream; its commit ancestry is skipped by authorship.
+        type: string
+        default: ''
+      part-runners:
+        description: Optional JSON map from check part IDs (including short) to private runner labels.
+        type: string
+        default: '{}'
+      reuse-receipts:
+        description: Reuse verified step receipts when the exact tree, recipes, lockfiles, toolchain, workflow and epoch match.
+        type: boolean
+        default: true
+      cache-epoch:
+        description: Salt mixed into every step-receipt key; bump to invalidate cached receipts cleanly.
+        type: string
+        default: ''
+      canary-percent:
+        description: Percentage (0-100) of eligible dev push runs re-executed fresh to compare against cached receipts.
+        type: number
+        default: 5
     secrets:
       REGISTRY_SNAPSHOT_FIRST:
         description: Protected environment snapshot fragment.
@@ -200,7 +244,13 @@ on:
           private key.
         required: false
 
-permissions: {}
+# Callers declare permissions on their calling job: `contents: read`, plus `packages: write`
+# when a private repository retains a deployment artifact via GHCR. Helper jobs narrow below.
+# A new push to a pull request cancels its older check of the same profile. On a branch one full
+# check runs at a time, and the newest push waits behind it and replaces any push already waiting.
+concurrency:
+  group: nddev-ci-check-${{ github.workflow }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || (github.event.repository.private && github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] != '' && github.actor_id == vars.NDDEV_BRANCH_FALLBACK_ACTOR_ID && github.actor == github.triggering_actor && format('hosted-{0}', github.sha) || github.ref) }}-${{ inputs.runner }}-${{ inputs.hosted-runner }}-${{ inputs.runner-profile }}
+  cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
 
 defaults:
   run:
@@ -211,43 +261,67 @@ jobs:
   # on, or `verify` whole. A light job: it evaluates nothing and needs no SDK.
   plan:
     name: plan the full check
-    if: github.event_name != 'pull_request' && !inputs.whole-full-check
+    if: github.event_name != 'pull_request' && github.event_name != 'merge_group' && !inputs.whole-full-check && (inputs.split-full-check || inputs['part-runners'] != '{}')
     # runner-profile:plan
     runs-on: >-
-      ${{
-      !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04')
-      || github.event.repository.private && (
-        ((inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '') != '' && (contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || ''))) || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '')))) && fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '')]
-        || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '')] || 'ubuntu-24.04')
-        || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || (inputs.runner == 'nddev-linux-standart' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64')) && 'nddev-linux-small' || inputs.runner)
-      ) || ''
-      }}
+      ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || github.event.repository.private && (((inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '') != '' && (contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || ''))) || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '')))) && fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '')] || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '')] || 'ubuntu-24.04')
+      || (github.event_name == 'pull_request' && github.event.sender.type == 'Bot' && github.event.pull_request.user.type == 'Bot' && github.actor == github.triggering_actor && fromJSON('{"nddev-linux-bounded":"nddev-linux-bounded-maintenance","nddev-linux-light":"nddev-linux-light-maintenance","nddev-linux-small":"nddev-linux-small-maintenance","nddev-linux-standart":"nddev-linux-standart-maintenance","nddev-macos":"nddev-macos-maintenance","nddev-windows":"nddev-windows-maintenance"}')[((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64')) && 'nddev-linux-light' || inputs.runner)] || ((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64')) && 'nddev-linux-light' || inputs.runner))) || '' }}
     timeout-minutes: 10
-    permissions:
-      contents: read
+    # Inherit optional actions: read from the caller to verify the source PR's conclusion.
     outputs:
       split: ${{ steps.plan.outputs.split }}
-      matrix: ${{ steps.plan.outputs.matrix }}
+      matrix: ${{ steps.receipts.outputs.matrix || steps.plan.outputs.matrix }}
+      all-reused: ${{ steps.receipts.outputs.all-reused }}
+      reused: ${{ steps.receipts.outputs.reused }}
+      canary: ${{ steps.receipts.outputs.canary }}
+      bypass-reason: ${{ steps.receipts.outputs.bypass-reason }}
     steps:
       - name: Start
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: ${{ inputs.sparse-checkout }}
-          sparse-checkout-cone-mode: ${{ inputs.sparse-checkout-cone-mode }}
+          filter: ${{ inputs.filter || (inputs.sparse-checkout == '' && 'blob:none' || '') }}
+          sparse-checkout: |-
+            ${{ inputs.sparse-checkout != '' && inputs.sparse-checkout || 'justfile' }}
+            ${{ inputs.sparse-checkout == '' && '**/justfile' || '' }}
+            ${{ inputs.sparse-checkout == '' && 'Justfile' || '' }}
+            ${{ inputs.sparse-checkout == '' && '**/Justfile' || '' }}
+            ${{ inputs.sparse-checkout == '' && '.justfile' || '' }}
+            ${{ inputs.sparse-checkout == '' && '**/.justfile' || '' }}
+            ${{ inputs.sparse-checkout == '' && '*.just' || '' }}
+            ${{ inputs.sparse-checkout == '' && '**/*.just' || '' }}
+          sparse-checkout-cone-mode: ${{ inputs.sparse-checkout != '' && inputs.sparse-checkout-cone-mode || false }}
       - name: Outside telemetry off
         uses: $/actions/telemetry
       - name: Native task runner
         uses: $/actions/frontend
         with:
           managed: ${{ runner.environment == 'self-hosted' }}
+      - name: Full tree fallback if the justfile imports other files
+        if: inputs.sparse-checkout == ''
+        run: |
+          if ! just --dump --dump-format json >/dev/null 2>&1; then
+            git sparse-checkout disable
+          fi
       - name: Plan
         id: plan
         uses: $/actions/plan
         with:
           # Named reports are required of the job that runs verify, so verify stays one job.
           whole: ${{ inputs.reports != '' && 'the caller names reports the whole verify leaves' || '' }}
+      - name: Check verified step receipts
+        id: receipts
+        if: (github.event.repository.private && runner.environment == 'self-hosted') || inputs['part-paths'] != '{}'
+        uses: $/actions/step-receipt
+        env:
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+        with:
+          mode: plan
+          matrix: ${{ steps.plan.outputs.matrix }}
+          split: ${{ steps.plan.outputs.split }}
+          receipt-inputs: ${{ toJSON(inputs) }}
+          github-token: ${{ github.token }}
       - name: Job record
         if: always()
         uses: $/actions/job-record
@@ -255,6 +329,8 @@ jobs:
           task: plan the full check
           task-type: test
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && 'library' || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.plan.outcome == 'failure' && 'plan-failed' || steps.receipts.outcome == 'failure' && 'step-receipts-failed' || 'setup-failed') || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started
 
@@ -263,11 +339,18 @@ jobs:
     if: >-
       inputs.registry-commit != '' && github.event.repository.private &&
       ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
-       (github.event_name == 'push' && github.ref == 'refs/heads/dev'))
+       github.event_name == 'merge_group' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/dev')) &&
+      !(inputs.sparse-checkout == '' &&
+        inputs['part-runners'] == '{}' &&
+        (github.event_name == 'pull_request' || github.event_name == 'merge_group' || inputs.whole-full-check || !inputs.split-full-check) &&
+        !contains(github.event.pull_request.labels.*.name, 'runner:github') &&
+        !(inputs.runner-profile != '' && contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', inputs.runner-profile))) &&
+        (inputs.runner-profile == 'linux-x64' || (inputs.runner-profile == '' && (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-bounded'))))
     # runner-profile:registry
     runs-on: >-
       ${{
-      (github.event_name == 'pull_request' && github.event.sender.type == 'Bot' && github.event.pull_request.user.type == 'Bot' && github.actor == github.triggering_actor && fromJSON('{"nddev-linux-small":"nddev-linux-small-maintenance","nddev-linux-standart":"nddev-linux-standart-maintenance"}')['nddev-linux-small'] || 'nddev-linux-small')
+      (github.event_name == 'pull_request' && github.event.sender.type == 'Bot' && github.event.pull_request.user.type == 'Bot' && github.actor == github.triggering_actor && fromJSON('{"nddev-linux-bounded":"nddev-linux-bounded-maintenance","nddev-linux-light":"nddev-linux-light-maintenance","nddev-linux-small":"nddev-linux-small-maintenance","nddev-linux-standart":"nddev-linux-standart-maintenance","nddev-macos":"nddev-macos-maintenance","nddev-windows":"nddev-windows-maintenance"}')['nddev-linux-small'] || 'nddev-linux-small')
       }}
     timeout-minutes: 10
     environment: ${{ format('registry-input-{0}', inputs.registry-commit) }}
@@ -281,19 +364,21 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Receive the protected registry input
+        id: registry-input
         uses: $/actions/registry-input
-        with:
+        with: &registry-snapshot
           commit: ${{ inputs.registry-commit }}
-          sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
           first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
           second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
           third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
           fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+          sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
       - name: Check direct choices
+        id: registry-check
         uses: $/actions/registry-project
         with:
-          base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-          block: ${{ github.event_name == 'pull_request' }}
+          base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.before }}
+          block: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
       - name: Job record
         if: always()
         uses: $/actions/job-record
@@ -301,6 +386,8 @@ jobs:
           task: technology registry
           task-type: test
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && (steps.registry-check.outputs.failure-layer || 'library') || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.registry-check.outputs.failure-reason || steps.registry-input.outputs.failure-reason || 'registry-scan-failed') || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started
 
@@ -308,38 +395,30 @@ jobs:
   check:
     name: ${{ matrix.part.label }}
     needs: [plan, registry-project]
-    if: ${{ !cancelled() && (github.event_name == 'pull_request' || inputs.whole-full-check || needs.plan.result == 'success') }}
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || inputs.whole-full-check || (!inputs.split-full-check && inputs['part-runners'] == '{}') || (needs.plan.result == 'success' && needs.plan.outputs.matrix != '[]')) }}
     strategy:
       fail-fast: false
       matrix:
-        part: ${{ fromJSON(github.event_name == 'pull_request' && '[{"label":"short check","group":"short","argv":[]}]' || inputs.whole-full-check &&
+        part: ${{ fromJSON(github.event_name == 'merge_group' && inputs['merge-group-full-check'] &&
+          '[{"label":"short check","group":"short","argv":["verify"]}]' ||
+          (github.event_name == 'pull_request' || github.event_name == 'merge_group') && '[{"label":"short check","group":"short","argv":[]}]' || (inputs.whole-full-check || (!inputs.split-full-check && inputs['part-runners'] == '{}')) &&
           '[{"label":"full check","group":"verify","argv":["verify"]}]' || needs.plan.outputs.matrix) }}
     # Public repositories always run on GitHub's runners; an unknown hosted label fails below.
     # runner-profile:check
     runs-on: >-
-      ${{
-      !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04')
-      || github.event.repository.private && (
-        (inputs.runner-profile != '' && (contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', inputs.runner-profile)) || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == inputs.runner-profile))) && fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile]
-        || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || 'ubuntu-24.04')
-        || (github.event_name == 'pull_request' && github.event.sender.type == 'Bot' && github.event.pull_request.user.type == 'Bot' && github.actor == github.triggering_actor && fromJSON('{"nddev-linux-small":"nddev-linux-small-maintenance","nddev-linux-standart":"nddev-linux-standart-maintenance"}')[inputs.runner] || inputs.runner)
-      ) || ''
-      }}
-    # A new push to a pull request cancels its older check of the same profile. On a branch one run of each part runs,
-    # and the newest push waits behind it and replaces any push that was already waiting.
-    concurrency:
-      group: nddev-ci-check-${{ github.workflow }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}-${{ inputs.hosted-runner }}-${{ inputs.runner-profile }}-${{ matrix.part.group }}
-      cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
+      ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || github.event.repository.private && ((inputs.runner-profile != '' && (contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', inputs.runner-profile)) || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == inputs.runner-profile))) && fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || 'ubuntu-24.04')
+      || (github.event_name == 'pull_request' && github.event.sender.type == 'Bot' && github.event.pull_request.user.type == 'Bot' && github.actor == github.triggering_actor && fromJSON('{"nddev-linux-bounded":"nddev-linux-bounded-maintenance","nddev-linux-light":"nddev-linux-light-maintenance","nddev-linux-small":"nddev-linux-small-maintenance","nddev-linux-standart":"nddev-linux-standart-maintenance","nddev-macos":"nddev-macos-maintenance","nddev-windows":"nddev-windows-maintenance"}')[(fromJSON(inputs['part-runners'])[matrix.part.group] || inputs.runner)] || (fromJSON(inputs['part-runners'])[matrix.part.group] || inputs.runner))) || '' }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
     environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
-    permissions:
-      contents: read
     steps:
       - name: Require the registry result
         if: >-
           inputs.registry-commit != '' &&
-          (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/dev')) &&
-          needs.registry-project.result != 'success'
+          (github.event_name == 'pull_request' || github.event_name == 'merge_group' || (github.event_name == 'push' && github.ref == 'refs/heads/dev')) &&
+          needs.registry-project.result != 'success' &&
+          !(github.event.repository.private && runner.environment == 'self-hosted' && runner.os == 'Linux' && runner.arch == 'X64' &&
+            inputs.sparse-checkout == '' && needs.registry-project.result == 'skipped' &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository))
         run: |
           echo "::error::The managed technology registry check did not pass. See the technology registry job for its findings or execution error."
           exit 1
@@ -352,34 +431,23 @@ jobs:
             ubuntu-24.04 | ubuntu-24.04-arm | ubuntu-26.04 | ubuntu-26.04-arm) ;;
             *) echo "::error::hosted-runner must be a GitHub-hosted Linux label of this workflow"; exit 1 ;;
           esac
-
-      # A text edit or a label leaves the merge that a pull request's short check passed unchanged,
-      # so such an event reuses that pass and runs nothing again. A new commit or a moved base makes
-      # a new merge commit. A label that selects this job's hosted route also runs it in full.
-      - name: A passed short check of the same merge
-        id: reuse
-        if: github.event_name == 'pull_request' && (github.event.action == 'edited' || (github.event.action == 'labeled' && github.event.label.name != 'runner:github' &&
-          github.event.label.name != format('runner:github:{0}', inputs.runner-profile)))
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/nddev-ci-short-pass
-          key: nddev-ci-short-pass-${{ github.sha }}-${{ runner.environment }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.runner-profile }}
-          lookup-only: true
-
-      - name: The pass is reused
-        if: steps.reuse.outputs.cache-hit == 'true'
-        run: echo "The short check of this exact merge passed in an earlier run of this pull request; this event runs nothing again."
+      - name: Inline merge stops requirements
+        if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && inputs.inline-merge-stops && inputs.sparse-checkout == '' && inputs.runner != 'nddev-macos' && inputs.runner != 'nddev-windows' && inputs['runner-profile'] != 'macos-arm64' && inputs['runner-profile'] != 'windows-x64' && runner.os != 'Linux'
+        run: |
+          echo "::error::inline-merge-stops requires a Linux runner and a full checkout (empty sparse-checkout)"
+          exit 1
 
       - name: Prepare the job
         id: setup
-        if: steps.reuse.outputs.cache-hit != 'true'
         uses: $/actions/prepare
         with:
+          full-history: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && inputs.inline-merge-stops && inputs.sparse-checkout == '' && inputs.runner != 'nddev-macos' && inputs.runner != 'nddev-windows' && inputs['runner-profile'] != 'macos-arm64' && inputs['runner-profile'] != 'windows-x64' }}
           managed: ${{ runner.environment == 'self-hosted' }}
           artifact-registry: ${{ inputs.artifact-registry }}
-          images: ${{ inputs.images && github.event_name != 'pull_request' }}
+          images: ${{ inputs.images && github.event_name != 'pull_request' && !(github.event_name == 'merge_group' && !inputs['merge-group-full-check']) }}
           diagnostics: ${{ inputs.diagnostics }}
           reports: ${{ inputs.reports }}
+          # jscpd:ignore-start -- the shared prepare action takes these explicit checkout and SDK inputs from each caller
           fetch-depth: ${{ inputs.fetch-depth }}
           filter: ${{ inputs.filter }}
           sparse-checkout: ${{ inputs.sparse-checkout }}
@@ -404,41 +472,52 @@ jobs:
           flutter-version: ${{ inputs.flutter-version }}
           tools: ${{ inputs.tools }}
           tool-assets: ${{ inputs.tool-assets }}
+          # jscpd:ignore-end
 
       - name: Receive the protected registry input
-        if: inputs.registry-commit != '' && steps.reuse.outputs.cache-hit != 'true'
+        id: registry-input
+        if: inputs.registry-commit != ''
         uses: $/actions/registry-input
+        with: *registry-snapshot
+
+      - name: Inline merge stops
+        id: inline-stops
+        if: >-
+          (github.event_name == 'pull_request' || github.event_name == 'merge_group') &&
+          inputs.inline-merge-stops && inputs.sparse-checkout == '' &&
+          inputs.runner != 'nddev-macos' && inputs.runner != 'nddev-windows' &&
+          inputs['runner-profile'] != 'macos-arm64' && inputs['runner-profile'] != 'windows-x64' &&
+          runner.os == 'Linux'
+        uses: $/actions/merge-stops
         with:
-          commit: ${{ inputs.registry-commit }}
-          sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
-          first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
-          second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
-          third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
-          fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+          isolated-worktree: 'true'
+          new-clones: ${{ inputs.new-clones }}
+          upstream-branch: ${{ inputs.upstream-branch }}
+
+      - name: Check technology registry
+        id: registry-check
+        if: >-
+          inputs.registry-commit != '' && github.event.repository.private &&
+          runner.environment == 'self-hosted' && runner.os == 'Linux' && runner.arch == 'X64' &&
+          inputs.sparse-checkout == '' && needs.registry-project.result == 'skipped' &&
+          ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+           github.event_name == 'merge_group' ||
+           (github.event_name == 'push' && github.ref == 'refs/heads/dev'))
+        uses: $/actions/registry-project
+        with:
+          base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.before }}
+          block: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
 
       - name: Check
         id: project
-        if: steps.reuse.outputs.cache-hit != 'true'
         uses: $/actions/project-check
         env:
           GH_TOKEN: ${{ github.token }}
         with:
           setup: ${{ inputs.setup }}
           part: ${{ toJSON(matrix.part.argv) }}
+          receipt-inputs: ${{ toJSON(inputs) }}
 
-      # The mark that this merge's short check passed, read by a later text or label event.
-      - name: Mark the pass of this merge
-        if: github.event_name == 'pull_request' && steps.project.outcome == 'success'
-        run: |
-          mkdir -p "$RUNNER_TEMP/nddev-ci-short-pass"
-          date -u +%FT%TZ > "$RUNNER_TEMP/nddev-ci-short-pass/passed"
-
-      - name: Keep the pass of this merge
-        if: github.event_name == 'pull_request' && steps.project.outcome == 'success'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/nddev-ci-short-pass
-          key: nddev-ci-short-pass-${{ github.sha }}-${{ runner.environment }}-${{ runner.os }}-${{ runner.arch }}-${{ inputs.runner-profile }}
 
       # In parts, the part whose recipes left the deployment artifact keeps it; another part that
       # left the same name would fail its upload.
@@ -448,36 +527,46 @@ jobs:
         env:
           ARTIFACT: ${{ inputs.artifact }}
         run: |
-          if [ -e "$ARTIFACT" ]; then echo "left=true" >> "$GITHUB_OUTPUT"; fi
+          node --input-type=module <<'JS'
+          import { appendFileSync, existsSync, globSync } from "node:fs";
+
+          const paths = process.env.ARTIFACT.split(/\r?\n/).map((path) => path.trim()).filter(Boolean);
+          if (paths.some((path) => existsSync(path) || globSync(path).length > 0)) {
+            appendFileSync(process.env.GITHUB_OUTPUT, "left=true\n");
+          }
+          JS
 
       - name: Complete the job
-        if: always() && steps.reuse.outputs.cache-hit != 'true'
+        if: always()
         uses: $/actions/complete
         with:
           status: ${{ job.status }}
-          check-run-id: ${{ job.check_run_id }}
-          project-outcome: ${{ steps.project.outcome }}
+          project-outcome: ${{ (steps.project.outcome == 'failure' || steps.registry-check.outputs.failure-layer == 'project' || steps.inline-stops.outputs.failure-layer == 'project') && 'failure' || steps.project.outcome }}
+          failure-reason: ${{ steps.inline-stops.outputs.failure-reason || steps.registry-check.outputs.failure-reason || steps.registry-input.outputs.failure-reason || (steps.project.outcome == 'failure' && 'project-command-failed') || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
           runner-reason: ${{ steps.setup.outputs.runner-reason || steps.project.outputs.runner-reason }}
+          check-run-id: ${{ job.check_run_id }}
           task: ${{ matrix.part.task || matrix.part.label }}
           task-type: test
           name: ${{ github.job }}-${{ matrix.part.group }}
           artifact: ${{ (needs.plan.outputs.split != 'true' || steps.left.outputs.left == 'true') && inputs.artifact || '' }}
           artifact-name: ${{ inputs.artifact-name }}
           artifact-days: ${{ inputs.artifact-days }}
+          part: ${{ matrix.part.label }}
           reports: ${{ inputs.reports }}
           diagnostics: ${{ inputs.diagnostics }}
           read-token: ${{ steps.setup.outputs.read-token }}
 
-      # A few bytes that tell the joined result which part left the deployment artifact.
+      # A few bytes that tell the joined result which part left the deployment artifact in public
+      # repositories; private repositories read the same part annotation from GHCR.
       - name: Receipt of the deployment artifact
-        if: success() && steps.left.outputs.left == 'true'
+        if: ${{ !github.event.repository.private && success() && steps.left.outputs.left == 'true' }}
         run: |
           mkdir -p "$RUNNER_TEMP/nddev-ci-left"
           printf '%s\n' "$PART" > "$RUNNER_TEMP/nddev-ci-left/part.json"
         env:
           PART: ${{ matrix.part.label }}
       - name: Keep the receipt
-        if: success() && steps.left.outputs.left == 'true'
+        if: ${{ !github.event.repository.private && success() && steps.left.outputs.left == 'true' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nddev-ci-left-${{ inputs.artifact-name }}
@@ -490,39 +579,58 @@ jobs:
     name: ${{ needs.plan.outputs.split == 'true' && 'full check' || 'joined parts' }}
     needs: [plan, check]
     if: ${{ !cancelled() && needs.plan.outputs.split == 'true' && needs.check.result != 'cancelled' }}
+    # jscpd:ignore-start -- generated runner routing shared with plan via tools/runner-profiles.mjs
     # runner-profile:join
     runs-on: >-
-      ${{
-      !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04')
-      || github.event.repository.private && (
-        ((inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '') != '' && (contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || ''))) || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '')))) && fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '')]
-        || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small') && 'linux-x64' || '')] || 'ubuntu-24.04')
-        || (inputs.runner == 'nddev-macos' && 'nddev-linux-arm64' || (inputs.runner == 'nddev-linux-standart' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64')) && 'nddev-linux-small' || inputs.runner)
-      ) || ''
-      }}
+      ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || github.event.repository.private && (((inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '') != '' && (contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || ''))) || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == (inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '')))) && fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '')] || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[(inputs.runner == 'nddev-macos' && 'linux-arm64' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64') && 'linux-x64' || inputs.runner-profile || inputs.runner == 'nddev-linux-arm64' && 'linux-arm64' || (inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light' || inputs.runner == 'nddev-linux-release') && 'linux-x64' || '')] || 'ubuntu-24.04')
+      || (github.event_name == 'pull_request' && github.event.sender.type == 'Bot' && github.event.pull_request.user.type == 'Bot' && github.actor == github.triggering_actor && fromJSON('{"nddev-linux-bounded":"nddev-linux-bounded-maintenance","nddev-linux-light":"nddev-linux-light-maintenance","nddev-linux-small":"nddev-linux-small-maintenance","nddev-linux-standart":"nddev-linux-standart-maintenance","nddev-macos":"nddev-macos-maintenance","nddev-windows":"nddev-windows-maintenance"}')[((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64')) && 'nddev-linux-light' || inputs.runner)] || ((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || (inputs.runner-profile == 'macos-arm64' || inputs.runner-profile == 'windows-x64')) && 'nddev-linux-light' || inputs.runner))) || '' }}
     timeout-minutes: 10
-    permissions:
-      contents: read
+    # jscpd:ignore-end
     steps:
       - name: Start
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
       - name: Every part passed
+        id: parts
         env:
           RESULT: ${{ needs.check.result }}
+          ALL_REUSED: ${{ needs.plan.outputs.all-reused }}
         run: |
-          if [ "$RESULT" != success ]; then
+          if [ "$RESULT" != success ] && { [ "$RESULT" != skipped ] || [ "$ALL_REUSED" != true ]; }; then
             echo "::error::A part of the full check ended with $RESULT; its job names the cause. A part that reads what another part leaves names that part as its dependency in the justfile."
             exit 1
           fi
+      - name: Step receipt reuse summary
+        id: receipt-summary
+        if: needs.plan.outputs.reused != '' && needs.plan.outputs.reused != '[]' || needs.plan.outputs.bypass-reason != '' || needs.plan.outputs.canary == 'true'
+        uses: $/actions/step-receipt
+        with:
+          mode: summary
+          reused: ${{ needs.plan.outputs.reused }}
+          bypass-reason: ${{ needs.plan.outputs.bypass-reason }}
+          canary: ${{ needs.plan.outputs.canary }}
       - name: One part left the deployment artifact
-        if: inputs.artifact != ''
+        if: ${{ !github.event.repository.private && github.event_name != 'merge_group' && inputs.artifact != '' }}
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: nddev-ci-left-${{ inputs.artifact-name }}
           path: ${{ runner.temp }}/nddev-ci-left
       - name: The part that left it
-        if: inputs.artifact != ''
+        if: ${{ !github.event.repository.private && github.event_name != 'merge_group' && inputs.artifact != '' }}
         run: echo "The deployment artifact came from $(cat "$RUNNER_TEMP/nddev-ci-left/part.json")."
+      - name: One part left the deployment artifact (OCI)
+        id: artifact-oci
+        if: ${{ github.event.repository.private && github.event_name != 'merge_group' && inputs.artifact != '' }}
+        uses: $/actions/oci-artifact
+        with:
+          mode: verify
+          name: ${{ inputs.artifact-name }}
+          github-token: ${{ github.token }}
+      - name: The part that left it (OCI)
+        if: ${{ github.event.repository.private && github.event_name != 'merge_group' && inputs.artifact != '' }}
+        env:
+          PART: ${{ steps.artifact-oci.outputs.part }}
+          DIGEST: ${{ steps.artifact-oci.outputs.digest }}
+        run: echo "The deployment artifact came from $PART ($DIGEST)."
       - name: Job record
         if: always()
         uses: $/actions/job-record
@@ -530,12 +638,14 @@ jobs:
           task: full check
           task-type: test
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && (steps.parts.outcome == 'failure' && 'project' || 'library') || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.parts.outcome == 'failure' && 'full-check-part-failed' || steps.artifact-oci.outputs.failure-reason || 'artifact-verify-failed') || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started
 
   merge-stops:
     # The merge stops, the same workflow a project with its own command jobs calls.
-    if: github.event_name == 'pull_request'
+    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && (!inputs.inline-merge-stops || inputs.retain-separate-merge-stops || inputs.sparse-checkout != '' || inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-windows' || inputs['runner-profile'] == 'macos-arm64' || inputs['runner-profile'] == 'windows-x64')
     uses: $/.github/workflows/merge-stops.yml
     with:
       retain-runs: ${{ inputs.retain-runs }}
@@ -545,5 +655,6 @@ jobs:
       hosted-runner: ${{ inputs.hosted-runner }}
       sparse-checkout: ${{ inputs.sparse-merge-stops }}
       new-clones: ${{ inputs.new-clones }}
+      upstream-branch: ${{ inputs.upstream-branch }}
     permissions:
       contents: read

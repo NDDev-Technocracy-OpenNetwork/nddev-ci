@@ -1,0 +1,9 @@
+name: Revoke GitHub App installation token
+description: Revoke a scoped GitHub App installation token using native Node fetch.
+inputs:
+  token:
+    description: Scoped GitHub App installation token to revoke.
+    required: true
+runs:
+  using: node24
+  main: run.mjs

@@ -2,6 +2,10 @@ name: Select protected registry input
 on:
   workflow_call:
     inputs:
+      retain-runs:
+        description: Isolate each registry selection run in its own concurrency group.
+        type: boolean
+        default: false
       lock-file:
         description: The tracked JSON lock that selects the registry commit.
         type: string
@@ -11,9 +15,12 @@ on:
         description: The exact commit to use for the protected registry input.
         value: ${{ jobs.select.outputs.commit }}
 permissions: {}
+concurrency:
+  group: nddev-ci-select-registry-${{ github.workflow }}-${{ inputs.retain-runs && format('run-{0}', github.run_id) || github.ref }}-${{ inputs.lock-file }}
+  cancel-in-progress: ${{ !inputs.retain-runs && github.event_name == 'pull_request' }}
 jobs:
   select:
-    runs-on: ${{ github.event.repository.private && 'nddev-linux-small' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.event.repository.private && 'nddev-linux-light' || 'ubuntu-24.04' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -32,8 +39,5 @@ jobs:
           set -euo pipefail
           [[ "$LOCK" =~ ^[A-Za-z0-9_-][A-Za-z0-9._/-]*\.json$ ]]
           case "/$LOCK/" in */../* | */./* | *//*) exit 1 ;; esac
-          commit=$(git show "HEAD:$LOCK" | jq -er '
-            select(.schema_version == 1) | .registry_commit |
-            strings | select(test("^[0-9a-f]{40}$"))
-          ')
+          commit=$(git show "HEAD:$LOCK" | node -e 'const d=JSON.parse(require("fs").readFileSync(0,"utf8")); if(d.schema_version!==1||typeof d.registry_commit!=="string"||!/^[0-9a-f]{40}$/.test(d.registry_commit)) process.exit(1); console.log(d.registry_commit)')
           printf 'commit=%s\n' "$commit" >> "$GITHUB_OUTPUT"

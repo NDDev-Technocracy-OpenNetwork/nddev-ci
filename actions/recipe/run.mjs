@@ -18,6 +18,22 @@ import { ActionError, downloadAsset } from "../../lib/release-asset.mjs";
 import { extract } from "../../lib/native-member.mjs";
 import { runProjectCommand } from "../../lib/project-command.mjs";
 import { managedRunner } from "../../lib/runner-profile.mjs";
+import {
+  buildReceiptSession,
+  checkIdForArgv,
+  computeInputDigest,
+  fetchOidcToken,
+  formatReceiptSummary,
+  issueStepInSession,
+  lookupStepInSession,
+  makeSummaryEntry,
+  parseJsonSafe,
+  readJustDump,
+  recipeClosureDigest,
+  sanitizeProjectEnv,
+  writeActionOutputs,
+  writeReceiptMetadata,
+} from "../../lib/step-receipts.mjs";
 const configuration = JSON.parse(
   readFileSync(new URL("./just.json", import.meta.url), "utf8"),
 );
@@ -177,26 +193,106 @@ export async function prepareFrontend(environment = process.env) {
   return just;
 }
 
-export async function main(environment = process.env) {
+export async function main(environment = process.env, deps = {}) {
+  const input = (name) => (environment[`INPUT_${name.toUpperCase()}`] ?? "").trim();
+  const workingDirectory = input("working-directory") || ".";
+  const justfile = input("justfile") || "justfile";
   const request = invocation({
     workspace: environment.GITHUB_WORKSPACE,
-    directory: environment["INPUT_WORKING-DIRECTORY"],
-    justfile: environment.INPUT_JUSTFILE,
-    recipe: environment.INPUT_RECIPE,
-    arguments: environment.INPUT_ARGUMENTS,
+    directory: workingDirectory,
+    justfile,
+    recipe: input("recipe"),
+    arguments: input("arguments") || "[]",
   });
   const just = await prepareFrontend(environment);
-  const childEnvironment = commandEnvironment(environment);
+  const childEnvironment = sanitizeProjectEnv(commandEnvironment(environment));
   if (path.isAbsolute(just)) {
     const originalPath = environment.PATH ?? environment.Path ?? "";
     for (const name of Object.keys(childEnvironment))
       if (name.toLowerCase() === "path") delete childEnvironment[name];
     childEnvironment.PATH = `${path.dirname(just)}${path.delimiter}${originalPath}`;
   }
+
+  const receiptRaw = input("receipt-inputs");
+  const workflowInputs = receiptRaw ? parseJsonSafe(receiptRaw, null) : null;
+  let ctx = null;
+
+  if (workflowInputs && environment.RUNNER_ENVIRONMENT === "self-hosted" && environment.NDDEV_CI_RECEIPT_GATEWAY) {
+    const session = await buildReceiptSession(environment, workflowInputs, { wholeJobArtifact: true, deps });
+    const argv = [input("recipe"), ...parseArguments(input("arguments") || "[]")];
+    const checkId = checkIdForArgv(argv, { kind: "recipe", workingDirectory, justfile });
+    const dump = (deps.readJustDump ?? readJustDump)(request.cwd, path.resolve(request.cwd, justfile));
+    const inputDigest = session.workflowSha && session.treeSha
+      ? computeInputDigest({
+        cacheEpoch: session.cacheEpoch, workflowSha: session.workflowSha, checkId,
+        treeSha: session.treeSha, lockfilesDigest: session.lockfilesDigest,
+        recipeDigest: recipeClosureDigest(dump, argv, { workingDirectory, justfile }),
+        toolchainDigest: session.toolchainDigest, runnerDigest: session.runnerDigest,
+      })
+      : "";
+    ctx = { session, label: `just ${argv.join(" ")}`, argv, checkId, inputDigest, cachedHit: false, reusedRunId: "", reusedRunUrl: "", reusedEvent: "" };
+    const lookup = await lookupStepInSession(session, { checkId, inputDigest }, deps);
+    if (lookup.hit) {
+      ctx.cachedHit = true;
+      ctx.reusedRunId = String(lookup.receipt.run_id ?? "");
+      ctx.reusedRunUrl = String(lookup.receipt.run_url ?? "");
+      ctx.reusedEvent = String(lookup.receipt.event_name ?? "");
+      if (!session.canary) {
+        console.log(`Reused step receipt for \`${ctx.label}\` from run #${ctx.reusedRunId} (${ctx.reusedRunUrl})`);
+        if (environment.GITHUB_STEP_SUMMARY) {
+          appendFileSync(environment.GITHUB_STEP_SUMMARY, `
+${formatReceiptSummary([makeSummaryEntry({ ...ctx, treeSha: session.treeSha }, { outcome: "reused (pass)", reused: true })])}
+`);
+        }
+        writeReceiptMetadata(environment.RUNNER_TEMP, { mode: "reused", reusedRunId: ctx.reusedRunId });
+        writeActionOutputs(environment.GITHUB_OUTPUT, { "receipt-mode": "reused", "reused-run-id": ctx.reusedRunId, "bypass-reason": "", "canary-result": "" });
+        return;
+      }
+    }
+  }
+
   const status = await runProjectCommand(just, request.argv, {
     cwd: request.cwd,
     environment: childEnvironment,
   }).catch(() => { throw new ActionError("Recipe process did not complete."); });
+
+  if (ctx) {
+    const { session } = ctx;
+    if (status !== 0) {
+      const mismatch = session.canary && ctx.cachedHit;
+      if (mismatch) {
+        console.error(`::error::Canary re-execution failed for "${ctx.label}" despite cached green receipt from run #${ctx.reusedRunId}; inspect receipt inputs or bump CACHE_EPOCH.`);
+      }
+      const failMode = session.bypass.bypass ? "bypassed" : (mismatch ? "canary" : "executed");
+      writeReceiptMetadata(environment.RUNNER_TEMP, { mode: failMode, reusedRunId: ctx.reusedRunId, bypassReason: session.bypass.reason, canaryResult: mismatch ? "mismatch" : "" });
+      writeActionOutputs(environment.GITHUB_OUTPUT, {
+        "receipt-mode": failMode,
+        "reused-run-id": ctx.reusedRunId, "bypass-reason": session.bypass.reason, "canary-result": mismatch ? "mismatch" : "",
+      });
+      throw new ActionError(`Recipe failed with exit code ${status}.`);
+    }
+    if (session.eventName === "pull_request" && !session.bypass.bypass && ctx.inputDigest) {
+      const oidc = await (deps.fetchOidcToken ?? fetchOidcToken)(environment, environment.NDDEV_CI_RECEIPT_AUDIENCE || undefined, deps.fetchImpl);
+      if (oidc?.token) await issueStepInSession(session, ctx, oidc.token, deps);
+    }
+    const matched = session.canary && ctx.cachedHit;
+    const mode = session.bypass.bypass ? "bypassed" : (matched ? "canary" : "executed");
+    if (environment.GITHUB_STEP_SUMMARY && (session.bypass.bypass || matched)) {
+      const entry = makeSummaryEntry({ ...ctx, treeSha: session.treeSha }, {
+        outcome: matched ? "canary match (pass)" : `bypassed (${session.bypass.reason})`,
+        canaryResult: matched ? "match" : "",
+      });
+      appendFileSync(environment.GITHUB_STEP_SUMMARY, `
+${formatReceiptSummary([entry], { bypassReason: session.bypass.reason, canary: session.canary })}
+`);
+    }
+    writeReceiptMetadata(environment.RUNNER_TEMP, { mode, reusedRunId: ctx.reusedRunId, bypassReason: session.bypass.reason, canaryResult: matched ? "match" : "" });
+    writeActionOutputs(environment.GITHUB_OUTPUT, {
+      "receipt-mode": mode, "reused-run-id": ctx.reusedRunId, "bypass-reason": session.bypass.reason, "canary-result": matched ? "match" : "",
+    });
+    return;
+  }
+
   if (status !== 0)
     throw new ActionError(`Recipe failed with exit code ${status}.`);
 }

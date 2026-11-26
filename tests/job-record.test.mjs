@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -64,6 +64,34 @@ test("duration comes from the start file and compiler-cache counters from sccach
   );
 });
 
+test("shared host compiler daemons omit aggregate sccache stats while per-slot wrappers keep them", { skip: process.platform === "win32" }, () => {
+  const root = mkdtempSync(path.join(tmpdir(), "job-record-sccache-"));
+  try {
+    const marker = path.join(root, "invoked");
+    const wrapper = path.join(root, "sccache");
+    writeFileSync(wrapper, `#!/bin/sh\necho called > "${marker}"\nprintf 'Compile requests 12\\nCache hits 10\\nCache misses 2\\n'\n`);
+    chmodSync(wrapper, 0o755);
+
+    const perSlot = record({ ...base, RUSTC_WRAPPER: wrapper });
+    assert.equal(perSlot["nddev_ci.sccache.requests"], 12);
+    assert.equal(perSlot["nddev_ci.sccache.hits"], 10);
+    assert.equal(perSlot["nddev_ci.sccache.misses"], 2);
+    assert.equal(existsSync(marker), true);
+
+    rmSync(marker);
+    const disabledFlag = record({ ...base, RUSTC_WRAPPER: wrapper, SCCACHE_CLIENT_SIDE: "0" });
+    assert.equal(disabledFlag["nddev_ci.sccache.requests"], 12);
+    assert.equal(existsSync(marker), true);
+
+    for (const value of ["1", "true"]) {
+      rmSync(marker, { force: true });
+      const shared = record({ ...base, RUSTC_WRAPPER: wrapper, SCCACHE_CLIENT_SIDE: value });
+      assert.equal(Object.keys(shared).some((key) => key.startsWith("nddev_ci.sccache.")), false);
+      assert.equal(existsSync(marker), false);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("native ARM64 records identify the actual OS and measured queue time", () => {
   for (const [system, expected] of [["macOS", "darwin"], ["Linux", "linux"]]) {
     const document = record({...base, RUNNER_OS: system, RUNNER_ARCH: "ARM64", NDDEV_CI_QUEUE_SECONDS: "1.25"});
@@ -91,26 +119,56 @@ test("the record reaches the runner's telemetry file only by an absolute regular
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("a failed job names whose failure it is, and only a failed job", () => {
+test("a failed job names its failure layer and always records a bounded failure reason", () => {
   const failed = { ...base, INPUT_STATUS: "failure" };
-  assert.equal(record({ ...failed, "INPUT_FAILURE-LAYER": "project" })["nddev_ci.failure.layer"], "project");
-  assert.equal(record({ ...failed, "INPUT_FAILURE-LAYER": "library" })["nddev_ci.failure.layer"], "library");
-  assert.equal(record(failed)["nddev_ci.failure.layer"], undefined);
+  const projectFailed = record({ ...failed, "INPUT_FAILURE-LAYER": "project" });
+  assert.equal(projectFailed["nddev_ci.failure.layer"], "project");
+  assert.equal(projectFailed["nddev_ci.failure.reason"], "project-failure");
+  const libraryFailed = record({ ...failed, "INPUT_FAILURE-LAYER": "library" });
+  assert.equal(libraryFailed["nddev_ci.failure.layer"], "library");
+  assert.equal(libraryFailed["nddev_ci.failure.reason"], "library-failure");
+  const unlayeredFailed = record(failed);
+  assert.equal(unlayeredFailed["nddev_ci.failure.layer"], undefined);
+  assert.equal(unlayeredFailed["nddev_ci.failure.reason"], "job-failure");
+  const explicit = record({
+    ...failed,
+    "INPUT_FAILURE-LAYER": "library",
+    "INPUT_FAILURE-REASON": "artifact-too-many-files",
+  });
+  assert.equal(explicit["nddev_ci.failure.layer"], "library");
+  assert.equal(explicit["nddev_ci.failure.reason"], "artifact-too-many-files");
+  assert.equal(
+    record({ ...base, "INPUT_FAILURE-LAYER": "library", "INPUT_FAILURE-REASON": "artifact-too-many-files" })[
+      "nddev_ci.failure.reason"
+    ],
+    undefined,
+  );
   assert.equal(record({ ...base, "INPUT_FAILURE-LAYER": "library" })["nddev_ci.failure.layer"], undefined);
   assert.throws(() => record({ ...failed, "INPUT_FAILURE-LAYER": "runner" }), /failure-layer/);
+  for (const invalid of ["Has Spaces", "UPPER", "line\nbreak", "a".repeat(65)])
+    assert.throws(() => record({ ...failed, "INPUT_FAILURE-REASON": invalid }), /failure-reason/);
 });
 
-test("a fixed runner reason changes attribution only for a failed job", () => {
-  const source = {"INPUT_FAILURE-LAYER": "project", "INPUT_RUNNER-REASON": "docker-timeout"};
-  const failed = record({...base, ...source, INPUT_STATUS: "failure"});
+test("a fixed runner reason overrides layer and reason only for a failed job", () => {
+  const source = {
+    "INPUT_FAILURE-LAYER": "project",
+    "INPUT_FAILURE-REASON": "project-command-failed",
+    "INPUT_RUNNER-REASON": "docker-timeout",
+  };
+  const failed = record({ ...base, ...source, INPUT_STATUS: "failure" });
   assert.equal(failed["cicd.pipeline.task.run.result"], "failure");
   assert.equal(failed["nddev_ci.failure.layer"], "runner");
   assert.equal(failed["nddev_ci.failure.reason"], "docker-timeout");
-  assert.equal(record({...base, INPUT_STATUS: "failure", "INPUT_FAILURE-LAYER": "library",
-    "INPUT_RUNNER-REASON": "docker-unavailable"})["nddev_ci.failure.layer"], "runner");
-  for (const change of [source, {...source, INPUT_STATUS: "cancelled"},
-    {...source, INPUT_STATUS: "failure", "INPUT_RUNNER-REASON": "unknown"}])
-    assert.equal(record({...base, ...change})["nddev_ci.failure.reason"], undefined);
+  assert.equal(record({ ...base, INPUT_STATUS: "failure", "INPUT_FAILURE-LAYER": "library",
+    "INPUT_RUNNER-REASON": "docker-unavailable" })["nddev_ci.failure.layer"], "runner");
+  assert.equal(record({ ...base, INPUT_STATUS: "failure", "INPUT_RUNNER-REASON": "disk-quota-exceeded" })[
+    "nddev_ci.failure.layer"
+  ], "runner");
+  for (const change of [source, { ...source, INPUT_STATUS: "cancelled" }])
+    assert.equal(record({ ...base, ...change })["nddev_ci.failure.reason"], undefined);
+  const unknownRunner = record({ ...base, ...source, INPUT_STATUS: "failure", "INPUT_RUNNER-REASON": "unknown" });
+  assert.equal(unknownRunner["nddev_ci.failure.layer"], "project");
+  assert.equal(unknownRunner["nddev_ci.failure.reason"], "project-command-failed");
 });
 
 test("runner attribution requires an error tied to one of the job's runner resources", () => {
@@ -120,6 +178,8 @@ test("runner attribution requires an error tied to one of the job's runner resou
     HTTPS_PROXY: "http://proxy.example.test:3128",
     SCCACHE_DIR: "/runner/cache",
     RUNNER_TEMP: "/runner/tmp",
+    BUN_INSTALL_CACHE_DIR: "/runner/cache/packages/bun",
+    CARGO_HOME: "/opt/contour/cargo",
   };
   const cases = [
     ["Cannot connect to the Docker daemon at unix:///run/fixture-docker.sock", "docker-unavailable"],
@@ -128,6 +188,12 @@ test("runner attribution requires an error tied to one of the job's runner resou
     ["http://cache.example.test:8000/packages: HTTP 503", "cache-unavailable"],
     ["failed to connect to proxy.example.test:3128: connection refused", "network-unavailable"],
     ["write /runner/tmp/file: no space left on device", "runner-storage"],
+    ["Error: EDQUOT: unknown error, write", "disk-quota-exceeded"],
+    ["write /srv/ci/buildkit/layer: Disk quota exceeded", "disk-quota-exceeded"],
+    ['error: moving "@types/bun" to cache dir failed: EACCES: .9b9feb-3.bun: Permission denied (rename())', "bun-cache-eacces"],
+    ["error: renaming changes to cache dir: EACCES: @hey-api/openapi-ts@0.99.0: Permission denied (rename())", "bun-cache-eacces"],
+    ["fatal: detected dubious ownership in repository at '/opt/contour/cargo/advisory-dbs/advisory-db-3157b0e258782691'", "cargo-advisory-ownership"],
+    ["fatal: detected dubious ownership in repository at '/tmp/project-repo'", ""],
     ["test did not finish within 300 s", ""],
     ['"docker" "--host" "unix:///run/project-docker.sock" "buildx" timed out', ""],
     ["http://cache.example.test:8000/packages: HTTP 404", ""],

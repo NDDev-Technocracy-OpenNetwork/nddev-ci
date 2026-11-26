@@ -15,6 +15,7 @@ Let Renovate or Dependabot update the pin. Each workflow and action declaration 
 | [check.yml](.github/workflows/check.yml) | Project checks and merge stops |
 | [merge-stops.yml](.github/workflows/merge-stops.yml) | The same stops beside a project's existing jobs |
 | [recipe.yml](.github/workflows/recipe.yml) | One project recipe in a native platform matrix |
+| [nextest-shards.yml](.github/workflows/nextest-shards.yml) | Opt-in cargo-nextest archive build and parallel shard test execution |
 | [image.yml](.github/workflows/image.yml) | Build a native container image and push it by source commit |
 | [source-version.yml](.github/workflows/source-version.yml) | Require a trusted readiness status before full-build fan-out |
 | [promote.yml](.github/workflows/promote.yml) | Move `main` forward to the newest `dev` commit whose full check passed, then start the release |
@@ -61,18 +62,44 @@ own steps, and records a later failure of its own artifact or reports as the job
 | Event | Commands |
 | --- | --- |
 | Pull request | `just check`, then `just test` if declared, including aliases |
+| Merge group (`merge_group`) | `just check` and `just test` by default, or `just verify` with `merge-group-full-check: true` |
 | Push to `dev`, or manual run | `just verify` |
 
 `setup: true` runs `just setup` first. A missing optional test recipe is allowed;
-a failed command or invalid justfile fails the job. New PR pushes cancel their
-superseded checks. Each `dev` commit keeps its full check.
+a failed command or invalid justfile fails the job. New pull request pushes cancel
+their superseded checks, recipes and image builds. Merge queue runs (`merge_group`) report the same required check names as pull requests, including
+when the short-check job runs `just verify`. They skip deployment artifact publication and are
+never cancelled mid-flight. On a branch
+such as `dev`, one run executes at a time and a newer push waits behind it, replacing
+any push already waiting; releases are never cancelled.
 
 ### The full check in parts
 
-A full check runs the parts of `verify` as jobs of their own, side by side, and joins them into one
-result named `full check`. The parts are the recipes `verify` depends on, read from
-`just --dump --dump-format json` by a light first job: a project declares nothing beyond its
-justfile, and `just verify` stays the one command an agent runs.
+By default a full check runs `verify` inside one `full check` job without scheduling separate
+planner or join jobs. Inside that job, `verify` is decomposed into its dependency-grouped parts
+from `just --dump --dump-format json` so per-part step receipts reuse already verified parts (such
+as `check` and `test` from a pull request) and `just setup` runs once. Set `parallel-parts: true`
+to run independent post-`check` parts concurrently inside that single job when their workspace
+outputs do not collide.
+
+Projects with independent subtrees can optionally set `part-paths` to a JSON map from part group
+IDs to repository-relative path prefixes (for example `'{"api":["services/api"],"web":["apps/web"]}'`).
+Path filtering is strictly fail-safe: release refs, unavailable or empty diffs, edits to workflows,
+justfiles, lockfiles or root configuration files, and any file outside the declared prefixes run
+every part. Unmapped parts and artifact-producing parts (when `artifact` is configured) always run.
+
+### Sharded cargo-nextest runs
+
+Repositories whose Rust test execution exceeds roughly 90 to 120 seconds on a single runner can
+opt into [nextest-shards.yml](.github/workflows/nextest-shards.yml). It builds the locked nextest
+archive once (`cargo nextest archive --locked`), transfers the archive as an immutable GHCR OCI
+artifact for private repositories (or a short-lived workflow artifact for public repositories),
+and executes deterministic `slice:m/n` or `hash:m/n` shards in parallel (the deprecated `count`
+partitioner is rejected).
+
+When a project needs independent parts on different runners (`part-runners`) or opts into
+multi-job fan-out (`split-full-check: true`), the full check runs a light `plan` job, each part as
+its own job, and joins them into one result named `full check`:
 
 - A part that another part needs, directly or through its own dependencies, runs in that part's
   job, as `just image test-image`, so nothing runs twice and the declared order holds. A part that
@@ -81,12 +108,17 @@ justfile, and `just verify` stays the one command an agent runs.
 - `verify` runs as one `full check` job when it has commands of its own, parameters, a recipe after
   `&&`, a computed, variadic or option-like argument, fewer than two independent parts, or when
   the caller names `reports`, which the job running `verify` must leave. Callers
-  that always run the whole recipe can set `whole-full-check: true` to run
-  `verify` without scheduling the planner.
-- Every part takes the same inputs, setup, runner choice, SDKs and caches. One run of each part runs
-  on a branch at a time; a newer push's waiting part replaces an older waiting one.
-- The deployment `artifact` is kept by the part whose recipes left it; the joined result fails
-  unless exactly one part did. Diagnostics are kept per part. Promotion reads the run as before.
+  that always run the whole recipe can set `whole-full-check: true`.
+- Every part uses the same inputs, setup, SDKs and caches. Private projects can set `part-runners`
+  to a JSON object such as `'{"check":"nddev-linux-light"}'` so architecture-independent lint and
+  format parts use a lighter class while native build and test parts stay on `runner`. The part ID
+  is its first recipe's name with punctuation other than `-` and `_` replaced by hyphens (`short`
+  for a pull request's short check). Unmapped parts use `runner`. The plan, join and GitHub-hosted
+  selection keep their own routes. One run of each part runs on a branch at a time; a newer push's waiting part replaces an
+  older waiting one.
+- In split mode, the deployment `artifact` is kept by the part whose recipes left it; the joined
+  result fails unless exactly one part did. Diagnostics are kept per part. Promotion reads the run
+  as before.
 
 Use `check.yml` for this standard path. A project with existing command jobs calls
 `merge-stops.yml` beside them. Use `recipe.yml` for a native matrix, with a declared
@@ -97,25 +129,36 @@ checked build to release or deployment are kept for three days by default. Use
 repository's retention limit.
 
 Use `retain-runs: true` when a project requires a verdict for every run. This gives
-`check.yml` and its merge stops a separate concurrency group for each run. A project
-with native command jobs passes it directly to `merge-stops.yml` and owns concurrency
-for its own jobs.
+`check.yml`, `merge-stops.yml`, `recipe.yml`, `image.yml`, `select-registry-input.yml`
+and `source-version.yml` a separate concurrency group for each run. Callers with extra
+local jobs can also set workflow-level `concurrency:` (as in
+[examples/ci.yml](examples/ci.yml)) using a group prefix distinct from `nddev-ci-`.
 
 Subscribe the caller's pull request trigger to opened, synchronize, reopened, labeled and edited
-events, as in the example. Editing a title or description must rerun its metadata checks. The
-short check does not run again for such an event: after it passes, it keeps a mark of the merge
-commit and runner it checked in GitHub's cache. An `edited` event or an unrelated label can reuse
-a pass of the same merge on the same runner platform and provider. A new merge commit or a label
-that selects the job's hosted route runs the check in full.
+events, as in the example. Editing a title or description reruns the metadata checks.
 The authorship stop rejects generated assistant signatures and machine coauthor trailers in
 the introduced commits, including merge commits, and in the title/description. Bot requests
 receive the same check. Human coauthors, cryptographic signatures, tool-version discussion and
-quoted examples remain valid. It reads Git objects and event data without executing project code
+quoted examples remain valid. For a fork that mirrors its upstream on a branch in this repository,
+set `upstream-branch` (such as `upstream/main`) on `check.yml` or `merge-stops.yml` so commits
+already in that branch's Git ancestry are skipped while the fork's own commits, merge commits and
+pull request text are still checked. It reads Git objects and event data without executing project code
 or requesting another permission.
 
+[artifact-traces](actions/artifact-traces/action.yml) inspects a directory, tar archive or OCI
+image archive against the shared pattern policy in `lib/client-traces-policy.json` (also used by
+the authorship check) and rejects agent instruction files, harness directories, harness binaries
+and generated signatures. `image.yml` runs this check before pushing when `check-artifact-traces`
+is enabled (the default), and `lib/images.mjs` checks every canonical OCI archive it produces.
+
 The PR merge stops scan secrets in the changed commits, dangerous workflows and newly
-introduced fixed critical dependency vulnerabilities. Commit messages and the pull request's
-text are checked as warnings that never stop a merge, and so are the tracked lines that build
+introduced fixed critical dependency vulnerabilities, running the independent read-only stops
+concurrently on one Linux runner. On full Linux checkouts, `check.yml` defaults to
+`inline-merge-stops: true` and runs those stops in a temporary worktree before the project
+commands in `short check`; sparse checkouts and non-Linux runners fall back to the separate
+`merge-stops` job automatically. Set `inline-merge-stops: false` (or `retain-separate-merge-stops: true`)
+when the separate context is still required.
+Commit messages and the pull request's text are checked as warnings that never stop a merge, and so are the tracked lines that build
 against what a managed runner gives a job ([build-conventions](actions/build-conventions/action.yml)):
 - setting `GRADLE_USER_HOME`, which replaces the runner's persistent Gradle home; Gradle's settings
   go in `GRADLE_OPTS` as `-Dorg.gradle.*`, and a proxy as `-Dhttps.proxyHost` and
@@ -124,7 +167,9 @@ against what a managed runner gives a job ([build-conventions](actions/build-con
   network past the package mirror, where a package manager can stall for minutes; set
   `images: true` and build with the flags, as the in-job image builds below say;
 - an exported local layer cache, which costs its export on every run while the library's builder
-  shares layers between jobs on the machine.
+  shares layers between jobs on the machine;
+- `cargo clippy -- -D warnings`, which invalidates Cargo build caches; set
+  `CARGO_BUILD_WARNINGS=deny` instead (also exported by default by [prepare](actions/prepare/action.yml)).
 Dependency comparison reads the exact proposed merge and its own base from Git,
 runs no project installers, and scans both against the same vulnerability data.
 Existing findings remain diagnostics. Native source packages without a registry version stay
@@ -139,6 +184,11 @@ After a project's .jscpd.json is on its base branch, set new-clones: true in che
 merge-stops.yml to reject new code clones. The job scans the proposed merge and compares it with
 the exact base using the base's .jscpd.json. Existing clones stay in the baseline. The enabled job
 needs the full checkout, including files the pull request did not change.
+
+The library declares its planner speed budget in `.nddev-ci-planner-speed.json` on the base
+branch. The merge stop measures the planner at the exact base and checked merge on one runner.
+It takes the median CPU time of five batches for each source and rejects a slowdown beyond the
+declared margin.
 
 The message rules leave out a commit whose author is exactly Dependabot: it writes one long line
 for a grouped update and offers no setting for it. A repository's own `committed.toml` replaces
@@ -156,6 +206,18 @@ paths for an edit hook or omit paths for a local check of changes and untracked 
 reads the policy at the worktree's common base with origin/dev, or uses the built-in policy when
 there is no published base. It reports the file, line and rule for findings on new lines.
 
+The release also publishes `prepare-source-secrets.mjs` for project setup. Pin this file by SHA-256
+and run `node prepare-source-secrets.mjs <destination> <release-tag> <archive-sha256>`. The command
+verifies the chosen `scan-before-push.zip` and prepares its scanner beside the supported Betterleaks
+binary. Use a destination per archive pin. Put its `bin` first on PATH when running
+`tools/scan-source-secrets.mjs`. Preparation uses the artifact registry when configured.
+
+For an admitted pre-push build with protected registry input, the launcher provides the lock path,
+registry commit and snapshot digest through `NDDEV_CI_PRE_PUSH_REGISTRY_LOCK`,
+`NDDEV_CI_PRE_PUSH_REGISTRY_COMMIT` and `NDDEV_CI_PRE_PUSH_REGISTRY_SHA256`. It supplies the
+snapshot path as `NDDEV_CI_REGISTRY_SNAPSHOT`. The receiver checks the lock at the exact bundle
+commit and copies the verified bytes into the job's own directory before it runs a recipe.
+
 For a reviewed, deliberately synthetic fixture that has to be checked in, add one
 `[[allowlists]]` entry to the base branch's `.betterleaks.toml`. Set `condition = "AND"`, match
 the exact fixture path in `paths` and match the exact fake value in `regexes`. Anchor both
@@ -163,15 +225,18 @@ patterns with `^` and `$` and escape any regular expression metacharacters. Merg
 policy change first so that both scans can read it from the base. Prefer generating
 fixture credentials at test runtime when their literal value has no purpose.
 
-Daily security findings go to the run summary and the `security-report-<attempt>` artifact,
-retained for 14 days. The artifact contains `security-report.json` with `schema_version: 1`,
-the run URL and every finding's scanner, kind, identifier, package/ecosystem, installed version,
-target, severity (null when unavailable) and `fixed_versions` (empty when none are reported).
-OSV rows also retain their matching affected ranges and severity scores; reported fixes are
-upstream range data, not a qualified upgrade recommendation. Secret rows contain verification
-and source-location metadata, never the matched value. The bounded summary may omit rows that
-remain in JSON and the full run log. The workflow opens, edits and closes no issue; existing
-findings remain report-only and scanner execution errors still fail the run.
+Daily security findings go to the job summary (bounded within 1 MiB, with finding counts and
+scanner versions) and as a single-line JSON document in the job log (`schema_version: 1`,
+`event.name: nddev_ci.security.report`). Public repositories also upload the same JSON document as
+the `security-report-<attempt>` artifact, retained for 14 days; private repositories upload no
+security report artifact. Each document records the run URL, scanner versions, finding counts and
+every finding's scanner, kind, identifier, package/ecosystem, installed version, target, severity
+(null when unavailable) and `fixed_versions` (empty when none are reported). OSV rows also retain
+their matching affected ranges and severity scores; reported fixes are upstream range data, not a
+qualified upgrade recommendation. Secret rows contain verification and source-location metadata,
+never the matched value. The bounded summary may omit rows that remain in the structured JSON and
+full run log. The workflow opens, edits and closes no issue; existing findings remain report-only
+and scanner execution errors still fail the run.
 
 The first attempt of a fixed daily UTC security schedule reports the nominal cron slot and
 how late the security job started. The runner's measured queue time is shown separately when
@@ -191,13 +256,15 @@ not infer these use and distribution conditions.
 
 Checkout inputs support projects that read history or omit generated trees; `submodules` checks
 out public submodules at their recorded commits for a superproject's checks.
-`diagnostics` keeps only named workspace reports on failure; release artifacts are
-uploaded only after successful non-PR checks.
-`reports` keeps named workspace reports whether the job passes or fails, pull requests included,
-for 14 days and apart from release artifacts. Each named path must hold a file the job left: the
-ones that exist are kept, and any missing one then fails the job, even when another matched. Both
-lists refuse absolute, parent and hidden paths, so a project that writes reports to a hidden folder
-copies them to a visible one.
+`diagnostics` uploads named workspace reports on failure in public repositories; private
+repositories skip the upload and use the job log. Release artifacts are uploaded only after
+successful non-PR checks.
+`reports` checks that every named workspace report holds a file the job left, whether the job
+passes or fails, pull requests included; any missing path fails the job even when another matched.
+Public repositories also upload those reports for 14 days apart from release artifacts, while
+private repositories verify them without uploading workflow artifacts. Both lists refuse absolute,
+parent and hidden paths, so a project that writes reports to a hidden folder copies them to a
+visible one.
 
 `repository-token: true` gives the project's commands the job's own token as `GITHUB_TOKEN`, for
 checks of the project's own private repository, such as a link check of its README. The token
@@ -221,15 +288,18 @@ The job verifies the digest and commit and exports the private regular file as
 `NDDEV_CI_REGISTRY_SNAPSHOT`. The project uses that file to verify the selected
 versions before installation. The input action removes the file after the job.
 
-For a pull request or a push to `dev`, `check.yml` runs a separate, managed Linux x64
-technology registry job when a protected registry commit is selected. This input is for
-private repositories and pull requests from branches in the same repository. The snapshot supplies the
+For a pull request or a push to `dev`, `check.yml` runs the protected technology registry check
+when a protected registry commit is selected. On a private single-job Linux x64 managed check with
+a full checkout, `check` runs that check inline after receiving the protected snapshot, avoiding a
+separate job hop. On other platforms, hosted fallbacks, sparse checkouts or multi-job split runs,
+`check.yml` runs a separate managed Linux x64 `technology registry` job. This input is for private
+repositories and pull requests from branches in the same repository. The snapshot supplies the
 CLI settings and the numeric repository, release and asset IDs with the archive's SHA-256.
 The job downloads from the runner's gateway, verifies the compressed bytes, then reads the
 checked source and its exact comparison commit. New unregistered choices and declarations outside
 the accepted lines fail a pull request. Existing findings and findings on a `dev` push are
-reported. An invalid snapshot, failed download or failed scan fails the check. The registry job
-uses the managed runner even when the other jobs move to a GitHub-hosted runner.
+reported. An invalid snapshot, failed download or failed scan fails the check. The separate
+registry job uses the managed runner even when the other jobs move to a GitHub-hosted runner.
 
 ### Gradle on a managed runner
 
@@ -251,44 +321,61 @@ sources.
 
 Public projects use the selected GitHub-hosted runner. Private projects use `runner`:
 
-| Managed class | Project commands | Image builds | Merge stops, image tags, daily scans |
-| --- | --- | --- | --- |
-| `nddev-linux-standart` | Linux x64 | Same class | `nddev-linux-small` |
-| `nddev-linux-small` | Linux x64 | Same class | Same class |
-| `nddev-linux-arm64` | Linux ARM64 | Same class | Same class |
-| `nddev-macos` | Native macOS ARM64 | `nddev-linux-arm64` | `nddev-linux-arm64` |
+| Managed class | Project commands | Image builds | Planning, joins, merge stops, daily scans | Releases, promotions, image tags |
+| --- | --- | --- | --- | --- |
+| `nddev-linux-standart` | Linux x64 | Same class | `nddev-linux-light` | `nddev-linux-release` |
+| `nddev-linux-small` | Linux x64 | Same class | `nddev-linux-light` | `nddev-linux-release` |
+| `nddev-linux-light` | Linux x64 or ARM64 | Same class | Same class | `nddev-linux-release` |
+| `nddev-linux-release` | Linux x64 or ARM64 | Same class | Same class | Same class |
+| `nddev-linux-arm64` | Linux ARM64 | Same class | Same class | Same class |
+| `nddev-macos` | Native macOS ARM64 | `nddev-linux-arm64` | `nddev-linux-light` | `nddev-linux-release` |
 
-The jobs of the last column are light by their nature, so they leave the standard class to a
-project's own builds and tests.
+Light, architecture-independent jobs run on any available Linux x64 or ARM64 runner and leave
+standard x64 slots to native builds and tests. Release and promotion workflows (`release.yml`,
+`promote.yml`, `image-tag.yml` and `merge-on-green.yml`) default to `nddev-linux-release` so the
+runner service can place them ahead of branch and pull request checks. The protected technology
+registry check stays on `nddev-linux-small` because its CLI asset is Linux x64.
 
-The shared check workflow routes private Linux x64 PRs authored and triggered
-by a bot to the matching `nddev-linux-small-maintenance` or `nddev-linux-standart-maintenance` label.
-The runner service registers those labels against the same hardware and class.
-A person's run or rerun, a branch check and a release use the ordinary managed
-label. Explicit hosted selections keep their existing route.
+Private pull requests authored and triggered by a bot route their managed check, recipe, image,
+merge-stop, registry and source-version jobs to the matching `-maintenance` label
+(`nddev-linux-light-maintenance`, `nddev-linux-small-maintenance`,
+`nddev-linux-standart-maintenance`, `nddev-linux-bounded-maintenance`, `nddev-macos-maintenance`
+or `nddev-windows-maintenance`). The runner service registers those labels against the same
+hardware and class and places them only when no release or foreground job waits. A person's run or
+rerun and branch checks use the ordinary managed label. Explicit hosted selections keep their
+existing route.
 
 Configure `runner-profile` for each private `check.yml` or `recipe.yml` call that supports
-automatic fallback. The caller listens for PR `labeled` events and declares the optional string
-`runner-profile` alongside its `runner` choice in `workflow_dispatch`. A scheduler restarts the
-run using `runner:github:<profile>` on a PR or `runner=github` plus `runner-profile=<profile>`
-on a branch. Only matching jobs use a GitHub-hosted runner in the replacement run. Other jobs
+profile-scoped GitHub-hosted runs. The caller listens for PR `labeled` events and declares the
+optional string `runner-profile` alongside its `runner` choice in `workflow_dispatch`. Adding
+`runner:github:<profile>` on a PR or dispatching with `runner=github` and
+`runner-profile=<profile>` moves only matching jobs to a GitHub-hosted runner. Other jobs
 continue to target their managed labels. Lightweight Linux jobs use the profile of their own
 runner class.
 
 The supported profiles are Linux x64, Linux ARM64, macOS ARM64 and Windows x64. Each
 selects a standard GitHub-hosted image of the same platform.
 
-For branch release checks, set the caller's run name to `Contour hosted fallback` when the
-dispatch selects both `runner=github` and a nonempty `runner-profile`, as in the example.
-The `NDDEV_BRANCH_FALLBACK_ACTOR_ID` configuration variable holds the scheduler App's numeric
-bot user ID. A push or a dispatch with that run name and both matching actor IDs qualifies the
-same exact repository, workflow, branch and commit. Promotion and release check the newest
-eligible run and revalidate its attempt before consuming the artifact receipt.
+Promotion and release qualify the exact branch, commit and configured workflow, checking the
+newest run and revalidating its attempt before consuming artifacts. The repository or organization's
+`NDDEV_BRANCH_FALLBACK_ACTOR_ID` can also qualify a `Contour hosted fallback` dispatch for the
+primary workflow. Both actor IDs must match the configured App and its exact attempt must have a
+successful `check / full check` job. Additional required workflows take their exact push checks.
+
+For an owner-approved branch fallback, configure the caller as in the example and set
+`NDDEV_BRANCH_FALLBACK_ACTOR_ID` to the scheduler App's numeric bot user ID. Operators invoke
+`tools/hosted-fallback.mjs` using a scheduler App installation token in `GH_TOKEN` and that actor
+ID in `NDDEV_BRANCH_FALLBACK_ACTOR_ID`. Pass the repository, workflow filename, branch, full SHA,
+runner profile and push run ID in that order. The fallback has its own concurrency group for that commit. The operator command confirms that
+GitHub created the eligible fallback before cancelling the same commit's push. Older commits keep
+their push runs.
 
 The unqualified PR label `runner:github` and a manual `runner: github` without a profile move the
 whole check and its portable jobs. For a call without a profile, the manual selection keeps its
 legacy hosted label. Public calls always use GitHub-hosted runners. A public recipe can use
 `runner-profile` to select a standard image or set `hosted-runner` explicitly.
+Public promotion uses `ubuntu-24.04` by default. Set `hosted-runner` on `promote.yml` to select
+another standard Ubuntu 24.04 or 26.04 image.
 
 [hosted-sdk](actions/hosted-sdk/action.yml) prepares only selected exact Node, Python,
 uv, Bun, Rust, Temurin Java, Go, standalone Dart or stable Flutter versions and selected
@@ -434,6 +521,38 @@ the daily scanner database routes on managed runners. Set `images: true` on `che
 Project setup must support its execution environment. Hosted setup uses the explicit
 SDK inputs and cannot require a private installer or private cache variable.
 
+### Step receipts and unchanged-work reuse
+
+`check.yml` and `recipe.yml` support content-addressed step receipts (`reuse-receipts`, default
+`true`) so unchanged sub-checks do not repeat across identical trees, including a `dev` push whose
+tree (`HEAD^{tree}`) already passed `just check` and `just test` in its pull request.
+
+- **Input digest.** Each sub-check receipt is keyed by a SHA-256 digest of the schema version,
+  `cache-epoch` (default `1`, also readable from `NDDEV_CI_CACHE_EPOCH` or `CACHE_EPOCH`), the
+  Git tree SHA (`HEAD^{tree}`, covering file bytes, executable modes and submodule pins), tracked
+  lockfiles and workspace manifests, the resolved `just` recipe and transitive dependency closure,
+  declared SDK and probed toolchain versions, runner OS/architecture/profile and SDK lock digest
+  (`NDDEV_CI_SDK_LOCK_SHA256` on managed runners; `ImageOS`/`ImageVersion` on hosted runners), and
+  the pinned `nddev-ci` reusable workflow SHA.
+- **Storage and trust.** Private managed runners authenticate to a local HTTP receipt gateway
+  (`NDDEV_CI_RECEIPT_GATEWAY`) with a short-lived GitHub OIDC JWT (callers opt in by adding
+  `id-token: write` and `actions: read` beside `contents: read`; OIDC credentials are stripped
+  from project commands). A `dev` push or a later run of the same pull request can reuse a check
+  from a completed, successful PR run of the pinned workflow. The signed receipt must match the
+  exact Git tree and base. A cache miss, missing permission or failed GitHub lookup runs the
+  check normally.
+  Public repositories and checks on GitHub-hosted runners always run fresh.
+- **Bypass and canary verification.** Reuse is bypassed unconditionally (executing fresh while
+  keeping dependency and compiler caches) on release refs (`main`, tags, `release/*`), when
+  required `reports` or whole-job `artifact` outputs are declared, on dirty checkouts, when the
+  diff cannot be read, and whenever `.github/workflows/**`, `.github/actions/**`, `justfile` /
+  `*.just`, or lockfiles and toolchain pins change. A deterministic share of eligible `dev` pushes
+  (`canary-percent`, default `5`) re-executes fresh and compares against the cached green receipt,
+  reporting any mismatch in the job log, summary and `nddev_ci.job.completed` telemetry record.
+- **Job summaries.** Every job that reuses a receipt records the reused run link, source event,
+  tree SHA and input digest in `$GITHUB_STEP_SUMMARY`, and emits `nddev_ci.receipt.*` fields in
+  `nddev_ci.job.completed`.
+
 ## Checked artifacts and publication
 
 [qualify](actions/qualify/action.yml) selects the newest full check of an exact source
@@ -447,20 +566,56 @@ expiration, size and digest must agree. Files are bounded regular top-level entr
 package directory trees into an archive first. API and artifact transports have
 separate explicit inputs, and storage redirects receive no API credentials.
 
+Private repositories upload and download no GitHub Actions workflow artifacts: checked artifacts
+(`check.yml`, `recipe.yml`, `actions/complete`, `actions/checked-artifacts`, `promote.yml`,
+`release.yml`) and caller SBOMs (`security.yml` `sboms` via [oci-artifact](actions/oci-artifact/action.yml))
+travel through GHCR (`ghcr.io/<owner>/<repository>/ci-artifacts`) as content-addressed OCI Image
+Manifests verified by digest and exact source, run, attempt and artifact-name annotations. Public
+repositories keep using GitHub Actions workflow artifacts unchanged.
+
+Because reusable workflows cannot elevate `GITHUB_TOKEN` beyond the calling job's ceiling, callers
+declare permissions on their calling job:
+- `check.yml` and `recipe.yml`: `contents: read`, plus `packages: write` when a private repository
+  passes `artifact`.
+- `promote.yml`: `actions: read` and `contents: read`, plus `packages: read` when a private
+  repository passes `artifacts`.
+- `release.yml`: `actions: read` and `contents: write`, plus `packages: read` when a private
+  repository passes `artifacts`.
+- `security.yml`: `contents: read`, plus `packages: read` when a private repository passes `sboms`.
+- Direct calls to `actions/complete` with `artifact` or `actions/oci-artifact` (`mode: push`) in a
+  private repository need `packages: write`; direct calls to `actions/checked-artifacts` or
+  `actions/oci-artifact` (`mode: pull` or `verify`) need `packages: read`.
+
 `release.yml` reuses this implementation: `main` releases the exact successful `dev`
 commit, reuses its files, adds `SHA256SUMS`, and publishes a verified draft. Tags use
-`v<major>.<minor>.<patch>` and never move. Reruns reconcile the same release.
+`v<major>.<minor>.<patch>` (or `v<major>.<minor>.<patch>-<stage>.<n>` for declared
+pre-releases) and never move. Reruns reconcile the same release. `release.yml` also
+outputs `prerelease` (`true` or `false`) so callers can gate stable-only publication steps.
 Deployment stays with the caller.
+
+To publish SemVer pre-releases (`alpha`, `beta`, `rc`), commit a single-line file in the
+repository containing `<major>.<minor>.<patch>-<stage>` (for example `2.0.0-alpha`) and pass
+its repository-relative path as `prerelease-file` to both `promote.yml` and `release.yml`.
+Both workflows read that file at the exact candidate commit without a checkout. While a stage
+is declared, each promoted commit raises `N` automatically (`v2.0.0-alpha.1`, `v2.0.0-alpha.2`)
+and publishes an immutable GitHub pre-release (`prerelease: true`, `make_latest: "false"`).
+Changing the line advances the stage (`2.0.0-beta`, `2.0.0-rc`), and emptying or deleting the
+file graduates the next commit to the final stable release (`v2.0.0`, `prerelease: false`,
+`make_latest: "true"`). Regressions, malformed stage files and explicit `version` overrides
+while a stage is active are refused before moving `main` or creating a tag.
 
 For software with an embedded product version, pass `release-metadata` to both
 `promote.yml` and `release.yml`. It lists the top-level JSON metadata file names
 from the full-check artifacts, one per line; `artifacts` names the artifacts holding
 them. Each document has `schema_version: 1`, `source_commit` equal to the checked
-commit and a plain `version`, such as `1.2.3`. Additional platform or hash fields
+commit and a plain numeric `version`, such as `1.2.3`. Additional platform or hash fields
 are permitted. Every selected platform must agree. Missing, changed, malformed or
 contradictory metadata stops promotion before moving `main`, and stops publication
 before creating a tag or release. A version used by another commit is refused.
-The checked product version is the release version; an explicit `version` must
+When paired with `prerelease-file`, the numeric product version must match the declared
+stage base (for example metadata `2.0.0` with stage `2.0.0-alpha`) and `N` advances in Git
+tags and GitHub pre-releases while the numeric build version stays fixed until final release.
+Otherwise the checked product version is the release version, and an explicit `version` must
 agree with it. The project's version preparation updates its source before the
 full build; these actions do not edit the product manifest.
 
@@ -479,8 +634,9 @@ structured `nddev_ci.job.completed` line: source commit, workflow, result, actua
 OS/architecture, duration and available compiler-cache counters. Missing measured
 queue time remains unknown. A failed job names its `failure-layer`: `project` for its
 own commands or named reports, `library` for the steps around them, or `runner` when
-preparation or a failed command reports an error tied to a declared runner resource. The
-`nddev_ci.failure.reason` field identifies the Docker, cache, network or storage symptom.
+preparation or a failed command reports an error tied to a declared runner resource. Every failed
+job also records a bounded `nddev_ci.failure.reason` code naming the failure class across all three
+layers, without raw log text or secrets.
 The runner can
 provide `NDDEV_CI_QUEUE_SECONDS` and `NDDEV_CI_TELEMETRY_FILE`; hosted jobs keep the
 record in the job log. The execution controller owns the SDK, device and generation
@@ -502,10 +658,13 @@ newest full check on a push passed. The move is a push, so a release workflow th
 commit whose check failed or still runs waits for the next promotion. It never moves `main`
 backward or sideways: when `main` holds a commit `dev` lacks, it stops.
 
-Promotion retries transient GitHub API read failures up to three attempts within the request's
-time limit. Reads of checked artifact metadata and bytes follow the same policy. An interrupted
-download is discarded before the next attempt. If a read still fails, the error names the last
-transport cause. The fast-forward push runs separately.
+Promotion, publication, `qualify`, `checked-artifacts` and `require-status` retry transient
+GitHub API read failures, a dropped or timed-out connection or a 502, 503 or 504 without
+`Retry-After`, up to three attempts within the request's time limit. Reads of checked artifact
+metadata and bytes follow the same policy. An interrupted download is discarded before the next
+attempt. A permanent error fails at once, and a read that still fails names its last transport
+cause. Writes are never repeated: the fast-forward push runs separately, and a rerun of
+publication reconciles the tag, draft and files it already made.
 
 GitHub's job token cannot move a branch onto commits that change workflow files, so the move
 pushes with a deploy key that has write access. The caller keeps it as `PROMOTION_KEY` in an
@@ -576,7 +735,7 @@ and pass each required check as a separate argument.
 
 ```sh
 node tools/qualify-merge.mjs owner/repository 42 "$head_sha" dev \
-  'check / short check' 'check / merge-stops / merge stops'
+  'check / short check'
 ```
 
 The tool makes read-only API calls and prints one JSON receipt. A `ready` receipt binds

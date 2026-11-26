@@ -10,6 +10,7 @@ export async function main(environment = process.env) {
 		base: environment.INPUT_BASE,
 		head: environment.INPUT_HEAD,
 		merge: environment.INPUT_MERGE,
+		mergeGroup: environment.GITHUB_EVENT_NAME === "merge_group",
 	});
 	if (!input.changed || (!input.base.length && !input.head.length)) {
 		const receipt = {

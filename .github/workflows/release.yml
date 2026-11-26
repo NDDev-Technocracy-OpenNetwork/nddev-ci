@@ -38,6 +38,10 @@ on:
         description: The version of the first release when none exists.
         type: string
         default: 0.1.0
+      prerelease-file:
+        description: Optional repository file naming a pre-release stage (X.Y.Z-alpha, -beta or -rc) at the exact commit.
+        type: string
+        default: ''
       wait-minutes:
         description: How long a still running qualifying check is awaited.
         type: number
@@ -45,7 +49,7 @@ on:
       runner:
         description: The label of our runners, used by private repositories.
         type: string
-        default: nddev-linux-standart
+        default: nddev-linux-release
     secrets:
       artifact-token:
         description: Optional separate credential for the declared artifact transport.
@@ -60,29 +64,30 @@ on:
       tag:
         description: The release tag.
         value: ${{ jobs.release.outputs.tag }}
+      prerelease:
+        description: Whether the published release is a pre-release (true or false).
+        value: ${{ jobs.release.outputs.prerelease }}
       url:
         description: The release page.
         value: ${{ jobs.release.outputs.url }}
 
-permissions: {}
-
+# Callers declare permissions on their calling job: `actions: read` and `contents: write`, plus
+# `packages: read` when a private repository publishes checked artifacts via GHCR.
 jobs:
   release:
     name: release
     if: github.ref == 'refs/heads/main'
     # Public repositories release on GitHub's runners, private ones on ours.
-    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || inputs.runner }}
+    runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || ((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light') && 'nddev-linux-release' || inputs.runner) }}
     concurrency:
       group: nddev-ci-release-${{ github.workflow }}
       cancel-in-progress: false
     timeout-minutes: 60
-    permissions:
-      actions: read # find the full check of the commit on dev and its artifacts
-      contents: write # create the tag and the release
     outputs:
       state: ${{ steps.release.outputs.state }}
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
       url: ${{ steps.release.outputs.url }}
     steps:
       - name: Start
@@ -103,6 +108,7 @@ jobs:
           artifacts: ${{ inputs.artifacts }}
           version: ${{ inputs.version }}
           initial-version: ${{ inputs.initial-version }}
+          prerelease-file: ${{ inputs.prerelease-file }}
           wait-minutes: ${{ inputs.wait-minutes }}
           api-url: ${{ inputs.api-url }}
           artifact-api-url: ${{ inputs.artifact-api-url }}
@@ -115,5 +121,7 @@ jobs:
           task: release
           task-type: deploy
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && 'library' || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.release.outcome == 'failure' && 'release-failed' || 'workflow-step-failed') || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

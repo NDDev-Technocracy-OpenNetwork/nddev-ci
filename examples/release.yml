@@ -11,3 +11,4 @@ jobs:
       contents: write
     # with:
     #   artifacts: build # top-level release files kept by the successful dev check
+    #   prerelease-file: .github/prerelease # optional single-line stage file (e.g. 2.0.0-alpha)

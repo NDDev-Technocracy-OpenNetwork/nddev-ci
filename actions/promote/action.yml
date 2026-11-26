@@ -12,6 +12,9 @@ inputs:
   artifacts:
     description: Qualifying artifact names holding the product metadata, one per line.
     default: ''
+  prerelease-file:
+    description: Optional repository file checked at the candidate commit for an active pre-release stage.
+    default: ''
   check-workflow:
     description: The workflow file whose push check on the source branch qualifies a commit.
     default: ci.yml

@@ -19,6 +19,9 @@ inputs:
   fourth:
     description: Fourth fragment, if present.
     default: ''
+outputs:
+  failure-reason:
+    description: Short plain reason code when reading the protected registry snapshot fails.
 runs:
   using: node24
   main: run.mjs

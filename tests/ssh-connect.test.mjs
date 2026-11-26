@@ -109,14 +109,16 @@ test("the end of a finished session closes the tunnel quietly", { timeout: 10000
 	let accept;
 	const connected = new Promise((resolve) => { accept = resolve; });
 	const server = http.createServer();
-	server.on("connect", (_, socket) => { socket.write("HTTP/1.1 200 OK\r\n\r\n"); accept(socket); });
+	server.on("connect", (_, socket) => { socket.write("HTTP/1.1 200 OK\r\n\r\nready"); accept(socket); });
 	await fixture(server, async (port) => {
 		const { child, result } = client("ssh.github.com", 443, { HTTPS_PROXY: `http://127.0.0.1:${port}` });
 		t.after(() => child.kill("SIGKILL"));
+		const relayed = once(child.stdout, "data");
 		const socket = await connected;
 		socket.resume();
 		socket.once("end", () => socket.end());
 		const closed = new Promise((resolve) => socket.once("close", resolve));
+		await relayed;
 		assert.equal(child.kill("SIGHUP"), true);
 		const { code, err } = await result;
 		await closed;

@@ -1,18 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-// The merge stop's own script, taken from the workflow as the runner runs it.
-const workflow = readFileSync(new URL("../.github/workflows/merge-stops.yml", import.meta.url), "utf8");
-const start = workflow.indexOf("      - name: Pull request text\n");
-assert.notEqual(start, -1);
-const end = workflow.indexOf("\n      - name: ", start + 1);
-const script = workflow.slice(start, end).split("        run: |\n")[1]
-  .split("\n").map((line) => line.slice(10)).join("\n");
+// The merge stop's own script, run directly as actions/merge-stops runs it.
+const scriptPath = fileURLToPath(new URL("../actions/merge-stops/pr-text.py", import.meta.url));
 
 const TERMS = `[terms."pull request"]
 avoid = ["PR", "PRs"]
@@ -30,7 +25,7 @@ function check(t, request) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   writeFileSync(join(root, "terms.toml"), TERMS);
   writeFileSync(join(root, "event.json"), JSON.stringify({ pull_request: request }));
-  return spawnSync("python3", ["-I", "-c", script], {
+  return spawnSync("python3", ["-I", scriptPath], {
     env: {
       PATH: process.env.PATH,
       GITHUB_EVENT_PATH: join(root, "event.json"),
@@ -73,7 +68,7 @@ test("a runner without the terms says so and passes", (t) => {
   const root = mkdtempSync(join(tmpdir(), "nddev-ci-pr-text-none-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   writeFileSync(join(root, "event.json"), JSON.stringify({ pull_request: { user: person, title: "fix: PR", body: "" } }));
-  const result = spawnSync("python3", ["-I", "-c", script], {
+  const result = spawnSync("python3", ["-I", scriptPath], {
     env: { PATH: process.env.PATH, GITHUB_EVENT_PATH: join(root, "event.json") },
     encoding: "utf8",
   });
@@ -86,7 +81,7 @@ test("the terms may be a plain file path", (t) => {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   writeFileSync(join(root, "terms.toml"), TERMS);
   writeFileSync(join(root, "event.json"), JSON.stringify({ pull_request: { user: person, title: "fix: PR", body: "" } }));
-  const result = spawnSync("python3", ["-I", "-c", script], {
+  const result = spawnSync("python3", ["-I", scriptPath], {
     env: { PATH: process.env.PATH, GITHUB_EVENT_PATH: join(root, "event.json"), NDDEV_CI_TERMS: join(root, "terms.toml") },
     encoding: "utf8",
   });

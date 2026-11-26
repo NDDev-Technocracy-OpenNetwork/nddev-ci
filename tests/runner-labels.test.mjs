@@ -34,6 +34,20 @@ test("recipe.yml describes exactly the labels it accepts", () => {
   for (const label of hostedLabels.recipe) assert.match(description, new RegExp(`\\b${label.replace(".", "\\.")}\\b`));
 });
 
+function githubContext({
+  labels = [], target = "", provider = "github", event = "pull_request",
+  privateRepo = true, actor = "developer", triggeringActor = actor, sender = "User", author = "User",
+} = {}) {
+  return {
+    actor, triggering_actor: triggeringActor, event_name: event,
+    event: {
+      repository: { private: privateRepo }, sender: { type: sender },
+      pull_request: { labels: event === "pull_request" ? labels : [], user: { type: author } },
+      inputs: { runner: provider, "runner-profile": target },
+    },
+  };
+}
+
 function route(file, job) {
   const block = read(file).split("# runner-profile:" + job + "\n    runs-on: >-\n")[1].split(/\n    \S/)[0];
   const expression = block.trim().slice(3, -2)
@@ -41,22 +55,14 @@ function route(file, job) {
     .replaceAll("inputs.runner-profile", "inputs['runner-profile']")
     .replaceAll("inputs.hosted-runner", "inputs['hosted-runner']");
   // The emitted expressions use only these three actions primitives and boolean selection.
-  const evaluate = new Function("github", "inputs", "contains", "format", "fromJSON", "return (" + expression + ")");
-  return ({ labels = [], target = "", provider = "github", event = "pull_request",
-    profile = "", runner = "managed-example", hosted = "", privateRepo = true,
-    actor = "developer", triggeringActor = actor, sender = "User", author = "User",
-  } = {}) => evaluate({
-    actor,
-    triggering_actor: triggeringActor,
-    event_name: event,
-    event: {
-      repository: { private: privateRepo },
-      sender: { type: sender },
-      pull_request: { labels: event === "pull_request" ? labels : [], user: { type: author } },
-      inputs: { runner: provider, "runner-profile": target },
-    },
-  }, { runner, "runner-profile": profile, "hosted-runner": hosted },
-  (values, value) => values.includes(value), (form, value) => form.replace("{0}", value), JSON.parse);
+  const evaluate = new Function("github", "inputs", "matrix", "contains", "format", "fromJSON", "return (" + expression + ")");
+  return (options = {}) => {
+    const { profile = "", runner = "managed-example", hosted = "", group = "", partRunners = {} } = options;
+    return evaluate(githubContext(options),
+      { runner, "runner-profile": profile, "hosted-runner": hosted, "part-runners": JSON.stringify(partRunners) },
+      { part: { group } },
+      (values, value) => values.includes(value), (form, value) => form.replace("{0}", value), JSON.parse);
+  };
 }
 
 test("a scoped restart moves just the matching work to the same platform", () => {
@@ -82,17 +88,37 @@ test("a scoped restart moves just the matching work to the same platform", () =>
   }
 });
 
-test("light jobs follow their own Linux class", () => {
+test("light jobs follow the cross-architecture Linux light class", () => {
   for (const [file, job] of [["check.yml", "plan"], ["check.yml", "join"], ["merge-stops.yml", "stops"]]) {
     const select = route(file, job);
     const mac = {runner:"nddev-macos", profile:"macos-arm64"};
-    assert.equal(select({...mac, labels:["runner:github:macos-arm64"]}), "nddev-linux-arm64");
+    assert.equal(select({...mac, labels:["runner:github:macos-arm64"]}), "nddev-linux-light");
     assert.equal(select({...mac, labels:["runner:github:linux-arm64"]}), profileHostedLabels["linux-arm64"]);
     const windows = {runner:"example-windows", profile:"windows-x64"};
-    assert.equal(select({...windows, target:"windows-x64", event:"workflow_dispatch"}), "nddev-linux-small");
+    assert.equal(select({...windows, target:"windows-x64", event:"workflow_dispatch"}), "nddev-linux-light");
     assert.equal(select({...windows, target:"linux-x64", event:"workflow_dispatch"}), profileHostedLabels["linux-x64"]);
-    assert.equal(select({runner:"nddev-linux-standart", profile:"linux-x64"}), "nddev-linux-small");
+    assert.equal(select({runner:"nddev-linux-standart", profile:"linux-x64"}), "nddev-linux-light");
+    assert.equal(select({runner:"nddev-linux-small", profile:"linux-x64"}), "nddev-linux-light");
+    assert.equal(select({runner:"nddev-linux-light"}), "nddev-linux-light");
+    assert.equal(select({runner:"nddev-linux-light", labels:["runner:github:linux-x64"]}), profileHostedLabels["linux-x64"]);
   }
+});
+
+test("a private check can opt in to per-part runner labels", () => {
+  const select = route("check.yml", "check");
+  const partRunners = { check: "nddev-linux-light", test: "nddev-linux-standart" };
+  const args = { event: "push", partRunners, profile: "linux-x64" };
+  assert.equal(select({ ...args, group: "check" }), "nddev-linux-light");
+  assert.equal(select({ ...args, group: "test" }), "nddev-linux-standart");
+  assert.equal(select({ ...args, group: "build" }), "managed-example");
+  assert.equal(select({ ...args, group: "short", event: "pull_request" }), "managed-example");
+  assert.equal(select({ ...args, group: "short", event: "pull_request", partRunners: { short: "nddev-linux-light" } }),
+    "nddev-linux-light");
+  assert.equal(select({ ...args, group: "short", event: "pull_request", partRunners: { short: "nddev-linux-light" },
+    actor: "renovate[bot]", author: "Bot", sender: "Bot" }), "nddev-linux-light-maintenance");
+  assert.equal(select({ ...args, group: "check", privateRepo: false }), profileHostedLabels["linux-x64"]);
+  assert.equal(select({ ...args, group: "check", event: "workflow_dispatch", target: "linux-x64" }),
+    profileHostedLabels["linux-x64"]);
 });
 
 test("public and unqualified manual selection preserve their routes", () => {
@@ -107,25 +133,68 @@ test("public and unqualified manual selection preserve their routes", () => {
   }
 });
 
-test("bot-only private Linux PR checks use the maintenance lane", () => {
+function inlineRoute(file, jobLine) {
+  const line = read(file).split("\n").find((entry) => entry.includes(jobLine));
+  assert.ok(line, `missing runs-on in ${file}`);
+  const expression = line.split("runs-on:")[1].trim().slice(3, -2)
+    .replaceAll("github.event.pull_request.labels.*.name", "github.event.pull_request.labels")
+    .replaceAll("inputs.hosted-runner", "inputs['hosted-runner']");
+  const evaluate = new Function("github", "inputs", "contains", "fromJSON", "return (" + expression + ")");
+  return (options = {}) => {
+    const { runner = "nddev-linux-release", hosted = "ubuntu-24.04", provider = "ours" } = options;
+    return evaluate(githubContext({ ...options, provider }),
+      { runner, "hosted-runner": hosted }, (values, value) => values.includes(value), JSON.parse);
+  };
+}
+
+test("release and promotion workflows route private runs to nddev-linux-release", () => {
+  for (const file of ["release.yml", "promote.yml", "merge-on-green.yml", "image-tag.yml"]) {
+    const select = inlineRoute(file, "runs-on:");
+    assert.equal(select({ privateRepo: false, runner: "nddev-linux-standart" }), "ubuntu-24.04");
+    for (const runner of ["nddev-linux-release", "nddev-linux-light", "nddev-linux-small", "nddev-linux-standart", "nddev-macos"])
+      assert.equal(select({ runner }), "nddev-linux-release", `${file} ${runner}`);
+    assert.equal(select({ runner: "nddev-linux-arm64" }), "nddev-linux-arm64", file);
+  }
+});
+
+test("public promotion accepts a standard hosted Linux image", () => {
+  const select = inlineRoute("promote.yml", "runs-on:");
+  assert.equal(select({ privateRepo: false, hosted: "ubuntu-26.04" }), "ubuntu-26.04");
+  assert.equal(select({ privateRepo: false, hosted: "nddev-linux-light", runner: "nddev-linux-light" }), "ubuntu-24.04");
+  assert.equal(select({ hosted: "ubuntu-26.04", runner: "nddev-linux-light" }), "nddev-linux-release");
+});
+
+test("bot-only private PR jobs use the maintenance lane across all workflows", () => {
   const check = route("check.yml", "check");
+  const plan = route("check.yml", "plan");
+  const join = route("check.yml", "join");
   const recipe = route("recipe.yml", "recipe");
   const mergeStops = route("merge-stops.yml", "stops");
   const registry = route("check.yml", "registry");
+  const image = inlineRoute("image.yml", "runs-on:");
+  const sourceVersion = inlineRoute("source-version.yml", "runs-on:");
   const bot = { actor: "renovate[bot]", author: "Bot", sender: "Bot", profile: "linux-x64" };
-  for (const runner of ["nddev-linux-small", "nddev-linux-standart"]) {
-    assert.equal(check({ ...bot, runner }), runner + "-maintenance");
-    assert.equal(check({ ...bot, runner, triggeringActor: "developer" }), runner);
-    assert.equal(check({ ...bot, runner, sender: "User", actor: "developer" }), runner);
-    assert.equal(check({ ...bot, runner, author: "User" }), runner);
-    assert.equal(check({ ...bot, runner, event: "push" }), runner);
-    assert.equal(check({ ...bot, runner, event: "release" }), runner);
+  for (const runner of ["nddev-linux-light", "nddev-linux-small", "nddev-linux-standart", "nddev-linux-bounded"]) {
+    for (const select of [check, recipe, image, sourceVersion]) {
+      assert.equal(select({ ...bot, runner }), runner + "-maintenance");
+      assert.equal(select({ ...bot, runner, triggeringActor: "developer" }), runner);
+      assert.equal(select({ ...bot, runner, sender: "User", actor: "developer" }), runner);
+      assert.equal(select({ ...bot, runner, author: "User" }), runner);
+      assert.equal(select({ ...bot, runner, event: "push" }), runner);
+      assert.equal(select({ ...bot, runner, event: "release" }), runner);
+      assert.equal(select({ ...bot, runner, privateRepo: false }), "ubuntu-24.04");
+    }
     assert.equal(check({ ...bot, runner, event: "workflow_dispatch", provider: "ours" }), runner);
     assert.equal(check({ ...bot, runner, labels: ["runner:github:linux-x64"] }), "ubuntu-24.04");
-    assert.equal(check({ ...bot, runner, privateRepo: false }), "ubuntu-24.04");
-    assert.equal(recipe({ ...bot, runner }), runner);
-    assert.equal(mergeStops({ ...bot, runner }), "nddev-linux-small-maintenance");
-    assert.equal(mergeStops({ ...bot, runner, triggeringActor: "developer" }), "nddev-linux-small");
+    for (const light of [plan, join, mergeStops]) {
+      assert.equal(light({ ...bot, runner }), runner === "nddev-linux-bounded" ? "nddev-linux-bounded-maintenance" : "nddev-linux-light-maintenance");
+      assert.equal(light({ ...bot, runner, triggeringActor: "developer" }), runner === "nddev-linux-bounded" ? "nddev-linux-bounded" : "nddev-linux-light");
+    }
+  }
+  for (const [runner, profile] of [["nddev-macos", "macos-arm64"], ["nddev-windows", "windows-x64"]]) {
+    assert.equal(check({ ...bot, runner, profile }), runner + "-maintenance");
+    assert.equal(recipe({ ...bot, runner, profile }), runner + "-maintenance");
+    assert.equal(recipe({ ...bot, runner, profile, event: "push" }), runner);
   }
   assert.equal(check({ ...bot, runner: "nddev-linux-arm64" }), "nddev-linux-arm64");
   assert.equal(registry(bot), "nddev-linux-small-maintenance");
