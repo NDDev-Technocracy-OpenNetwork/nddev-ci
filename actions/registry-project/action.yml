@@ -13,6 +13,8 @@ inputs:
 outputs:
   failure-layer:
     description: "'project' when a new unregistered direct choice blocked the pull request; empty otherwise."
+  failure-reason:
+    description: Short plain reason code when the registry project check fails.
 runs:
   using: node24
   main: run.mjs

@@ -102,6 +102,7 @@ jobs:
           prerelease-file: ${{ inputs.prerelease-file }}
 
       - name: Move the target forward
+        id: git
         if: steps.choose.outputs.state == 'ready'
         uses: $/actions/protected-git
         with:
@@ -119,5 +120,7 @@ jobs:
           task: promotion
           task-type: deploy
           status: ${{ job.status }}
+          failure-layer: ${{ job.status == 'failure' && 'library' || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.git.outputs.failure-reason || (steps.choose.outcome == 'failure' && 'promotion-selection-failed') || 'workflow-step-failed') || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

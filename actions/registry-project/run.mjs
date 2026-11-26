@@ -150,7 +150,9 @@ export async function main(environment = process.env) {
     );
     if (result.error) throw new Error("The registry project scan could not finish.");
     const exit = reportResult(result.stdout, result.status, selected, block);
-    if (exit !== 0 && environment.GITHUB_OUTPUT) appendFileSync(environment.GITHUB_OUTPUT, "failure-layer=project\n");
+    if (exit !== 0 && environment.GITHUB_OUTPUT) {
+      appendFileSync(environment.GITHUB_OUTPUT, "failure-layer=project\nfailure-reason=registry-check-failed\n");
+    }
     return exit;
   } finally {
     rmSync(directory, {recursive: true, force: true});
@@ -161,6 +163,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     process.exitCode = await main();
   } catch (error) {
+    if (process.env.GITHUB_OUTPUT) {
+      appendFileSync(process.env.GITHUB_OUTPUT, "failure-reason=registry-scan-failed\n");
+    }
     console.error("::error::" + commandValue(error.message));
     process.exitCode = 1;
   }

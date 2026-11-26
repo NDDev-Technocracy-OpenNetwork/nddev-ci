@@ -88,6 +88,23 @@ function lines(workflow, id) {
   return [start + 1, end === -1 ? source.length : end];
 }
 
+test("every reusable workflow job record carries failure-layer and failure-reason", () => {
+  const smokeWorkflows = new Set([
+    ".github/workflows/qualification-smoke.yml",
+    ".github/workflows/recipe-smoke.yml",
+  ]);
+  for (const call of all) {
+    if (!call.path.startsWith(".github/workflows/") || smokeWorkflows.has(call.path)) continue;
+    if (call.target === "actions/job-record") {
+      assert.ok(call.keys.includes("failure-layer"), `${call.path}:${call.line} omits failure-layer`);
+      assert.ok(call.keys.includes("failure-reason"), `${call.path}:${call.line} omits failure-reason`);
+    }
+    if (call.target === "actions/complete") {
+      assert.ok(call.keys.includes("failure-reason"), `${call.path}:${call.line} omits failure-reason`);
+    }
+  }
+});
+
 test("the project's command jobs begin with prepare and end with complete", () => {
   for (const [workflow, id] of [["check.yml", "check"], ["recipe.yml", "recipe"]]) {
     const [start, end] = lines(workflow, id);

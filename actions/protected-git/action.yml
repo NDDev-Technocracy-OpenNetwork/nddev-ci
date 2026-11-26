@@ -25,10 +25,15 @@ inputs:
   merge-head:
     description: The checked pull request head branch for a merge.
     default: ''
+outputs:
+  failure-reason:
+    description: Short plain reason code when the protected Git write fails.
+    value: ${{ steps.git.outputs.failure-reason }}
 runs:
   using: composite
   steps:
-    - shell: bash
+    - id: git
+      shell: bash
       env:
         OPERATION: ${{ inputs.operation }}
         KEY: ${{ inputs.key }}

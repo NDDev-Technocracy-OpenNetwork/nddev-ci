@@ -231,6 +231,7 @@ jobs:
           task-type: build
           status: ${{ job.status }}
           failure-layer: ${{ job.status == 'failure' && ((steps.export.outcome == 'failure' || steps.traces.outcome == 'failure' || steps.build.outcome == 'failure') && 'project' || 'library') || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.traces.outcome == 'failure' && 'artifact-traces-found' || (steps.export.outcome == 'failure' || steps.build.outcome == 'failure') && 'image-build-failed' || steps.builder.outcome == 'failure' && 'image-builder-failed' || 'workflow-step-failed') || '' }}
           runner-reason: ${{ steps.builder.outputs.runner-reason }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

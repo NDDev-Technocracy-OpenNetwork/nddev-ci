@@ -46,7 +46,7 @@ test("merge-stops runner executes independent checks concurrently, preserves sum
     assert.equal(readFileSync(output, "utf8"), "");
     assert.match(readFileSync(summary, "utf8"), /## Dependency comparison/);
 
-    // Project stop failure must fail the run and record failure-layer=project.
+    // Project stop failure must fail the run and record failure-layer=project and failure-reason.
     writeFileSync(output, "");
     const failed = await runMergeStops(
       { GITHUB_WORKSPACE: root, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: output },
@@ -58,7 +58,40 @@ test("merge-stops runner executes independent checks concurrently, preserves sum
       },
     );
     assert.equal(failed, 1);
-    assert.equal(readFileSync(output, "utf8"), "failure-layer=project\n");
+    assert.equal(readFileSync(output, "utf8"), "failure-layer=project\nfailure-reason=merge-stops-failed\n");
+
+    // Named stop reason and stale PR merge-base reason propagate distinctly.
+    writeFileSync(output, "");
+    const namedFail = await runMergeStops(
+      { GITHUB_WORKSPACE: root, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: output },
+      {
+        customChecks: [
+          { ...delayed("No new code clones", true, 1, 5), reason: "merge-stop-clones" },
+        ],
+      },
+    );
+    assert.equal(namedFail, 1);
+    assert.equal(readFileSync(output, "utf8"), "failure-layer=project\nfailure-reason=merge-stop-clones\n");
+
+    writeFileSync(output, "");
+    const staleBase = await runMergeStops(
+      { GITHUB_WORKSPACE: root, RUNNER_TEMP: root, GITHUB_STEP_SUMMARY: summary, GITHUB_OUTPUT: output },
+      {
+        customChecks: [{
+          name: "No new fixed critical dependency",
+          reason: "merge-stop-dependencies",
+          projectStop: true,
+          async run() {
+            return {
+              status: 1,
+              output: "::error::Dependency merge base is neither the PR base nor a later commit of it.\n",
+            };
+          },
+        }],
+      },
+    );
+    assert.equal(staleBase, 1);
+    assert.equal(readFileSync(output, "utf8"), "failure-layer=project\nfailure-reason=stale-pr-merge-base\n");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
