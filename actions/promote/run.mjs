@@ -1,13 +1,15 @@
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { branchSha, selectPromotion } from "../../lib/promotion.mjs";
 import { client, qualifyWorkflows, qualificationWorkflows, recheck, transferArtifacts } from "../../lib/qualification.mjs";
 import { ReleaseError, UnversionedError } from "../../lib/release.mjs";
 import { releaseVersion } from "../../lib/release-version.mjs";
-import { branchSha, selectPromotion } from "../../lib/promotion.mjs";
+
+const readInput = (environment, name) => environment[`INPUT_${name.toUpperCase()}`] || "";
 
 export async function main(environment = process.env) {
-  const input = (name) => environment[`INPUT_${name.toUpperCase()}`] || "";
+  const input = (name) => readInput(environment, name);
   const token = input("github-token");
   if (!token) throw new Error("A read token is required to choose the commit.");
   const github = client(token, environment.GITHUB_API_URL, {retryReads: true});
