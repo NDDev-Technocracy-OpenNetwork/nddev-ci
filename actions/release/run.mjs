@@ -21,7 +21,7 @@ import {
   checksums,
 } from "../../lib/release.mjs";
 import { resolveRelease, tagCommit } from "../../lib/release-version.mjs";
-import { client, qualifyWorkflows, recheck, transferArtifacts } from "../../lib/qualification.mjs";
+import { client, qualifyWorkflows, recheck, transferArtifacts, writeUpstreamReason } from "../../lib/qualification.mjs";
 
 const refuse = (message, options) => {
   throw new ReleaseError(message, options);
@@ -272,8 +272,7 @@ export async function main(env = process.env, { uploadBackoffMs } = {}) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
   main().catch((error) => {
-    if (error instanceof ReleaseError && error.upstreamReason && process.env.GITHUB_OUTPUT)
-      appendFileSync(process.env.GITHUB_OUTPUT, `upstream-reason=${error.upstreamReason}\n`);
+    writeUpstreamReason(error);
     const message = error instanceof ReleaseError ? error.message : "Release failed before completion.";
     console.log(`::error::${message.replace(/[\r\n%]/g, " ")}`);
     process.exitCode = 1;
