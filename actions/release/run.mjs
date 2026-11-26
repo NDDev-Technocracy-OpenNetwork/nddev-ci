@@ -47,7 +47,8 @@ export async function main(env = process.env) {
     refuse("wait-minutes must be a whole number from 0 to 120.");
   if (ref !== "refs/heads/main")
     refuse("A release publishes only commits of main.");
-  const github = client(input("github-token") || refuse("A token is required."), input("api-url") || environment("GITHUB_API_URL"));
+  const github = client(input("github-token") || refuse("A token is required."), input("api-url") || environment("GITHUB_API_URL"),
+    {retryReads: true});
 
   const fallbackActorId = env.NDDEV_BRANCH_FALLBACK_ACTOR_ID;
   // 1. The newest full check of this exact commit on the integration branch.

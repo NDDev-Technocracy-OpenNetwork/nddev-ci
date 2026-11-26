@@ -15,7 +15,7 @@ export async function main(environment = process.env) {
   try { qualified = receipt(JSON.parse(input("receipt"))); }
   catch { throw new Error("A valid qualification receipt is required."); }
   if (!input("github-token")) throw new Error("A metadata read token is required.");
-  const result = await transferArtifacts(client(input("github-token"), input("api-url") || environment.GITHUB_API_URL),
+  const result = await transferArtifacts(client(input("github-token"), input("api-url") || environment.GITHUB_API_URL, {retryReads: true}),
     qualified, input("artifacts"), directory, {
       apiUrl: input("artifact-api-url"),
       token: input("artifact-token"),
