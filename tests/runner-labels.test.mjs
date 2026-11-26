@@ -57,10 +57,9 @@ function route(file, job) {
   // The emitted expressions use only these three actions primitives and boolean selection.
   const evaluate = new Function("github", "inputs", "matrix", "contains", "format", "fromJSON", "return (" + expression + ")");
   return (options = {}) => {
-    const { profile = "", runner = "managed-example", hosted = "", publicRunner = "", group = "", partRunners = {} } = options;
+    const { profile = "", runner = "managed-example", hosted = "", group = "", partRunners = {} } = options;
     return evaluate(githubContext(options),
-      { runner, "runner-profile": profile, "hosted-runner": hosted,
-        "public-self-hosted-runner": publicRunner, "part-runners": JSON.stringify(partRunners) },
+      { runner, "runner-profile": profile, "hosted-runner": hosted, "part-runners": JSON.stringify(partRunners) },
       { part: { group } },
       (values, value) => values.includes(value), (form, value) => form.replace("{0}", value), JSON.parse);
   };
@@ -142,31 +141,11 @@ function inlineRoute(file, jobLine) {
     .replaceAll("inputs.hosted-runner", "inputs['hosted-runner']");
   const evaluate = new Function("github", "inputs", "contains", "fromJSON", "return (" + expression + ")");
   return (options = {}) => {
-    const { runner = "nddev-linux-release", hosted = "ubuntu-24.04", publicRunner = "", provider = "ours" } = options;
+    const { runner = "nddev-linux-release", hosted = "ubuntu-24.04", provider = "ours" } = options;
     return evaluate(githubContext({ ...options, provider }),
-      { runner, "hosted-runner": hosted, "public-self-hosted-runner": publicRunner },
-      (values, value) => values.includes(value), JSON.parse);
+      { runner, "hosted-runner": hosted }, (values, value) => values.includes(value), JSON.parse);
   };
 }
-
-test("the public self-hosted label takes precedence for check, merge stops, security and promotion", () => {
-  const selectors = [
-    route("check.yml", "plan"),
-    route("check.yml", "check"),
-    route("check.yml", "join"),
-    route("merge-stops.yml", "stops"),
-    inlineRoute("security.yml", "runs-on:"),
-    inlineRoute("promote.yml", "runs-on:"),
-  ];
-  const publicRunner = "dedicated-linux-example";
-  const runner = "private-linux-example";
-  for (const select of selectors) {
-    assert.equal(select({ privateRepo: false, runner, publicRunner, hosted: "ubuntu-26.04" }), publicRunner);
-    assert.equal(select({ privateRepo: false, runner }), "ubuntu-24.04");
-    assert.equal(select({ runner, publicRunner }), runner);
-  }
-  assert.match(read("check.yml"), /public-self-hosted-runner: \$\{\{ inputs\['public-self-hosted-runner'\] \}\}/);
-});
 
 test("release and promotion workflows route private runs to nddev-linux-release", () => {
   for (const file of ["release.yml", "promote.yml", "merge-on-green.yml", "image-tag.yml"]) {
@@ -176,6 +155,13 @@ test("release and promotion workflows route private runs to nddev-linux-release"
       assert.equal(select({ runner }), "nddev-linux-release", `${file} ${runner}`);
     assert.equal(select({ runner: "nddev-linux-arm64" }), "nddev-linux-arm64", file);
   }
+});
+
+test("public promotion accepts a standard hosted Linux image", () => {
+  const select = inlineRoute("promote.yml", "runs-on:");
+  assert.equal(select({ privateRepo: false, hosted: "ubuntu-26.04" }), "ubuntu-26.04");
+  assert.equal(select({ privateRepo: false, hosted: "nddev-linux-light", runner: "nddev-linux-light" }), "ubuntu-24.04");
+  assert.equal(select({ hosted: "ubuntu-26.04", runner: "nddev-linux-light" }), "nddev-linux-release");
 });
 
 test("bot-only private PR jobs use the maintenance lane across all workflows", () => {

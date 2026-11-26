@@ -366,14 +366,10 @@ their push runs.
 
 The unqualified PR label `runner:github` and a manual `runner: github` without a profile move the
 whole check and its portable jobs. For a call without a profile, the manual selection keeps its
-legacy hosted label. Public calls use GitHub-hosted runners by default. A public recipe can use
+legacy hosted label. Public calls always use GitHub-hosted runners. A public recipe can use
 `runner-profile` to select a standard image or set `hosted-runner` explicitly.
-
-For a public repository with a dedicated self-hosted runner, set `public-self-hosted-runner`
-to its label in each call to `check.yml`, `merge-stops.yml`, `promote.yml` or `security.yml`.
-`check.yml` passes the same label to its separate merge-stops job. Explicit self-hosted
-selection takes precedence over the public hosted defaults and does not fall back to them.
-Configure GitHub's runner access and fork workflow approval before enabling the input.
+Public promotion uses `ubuntu-24.04` by default. Set `hosted-runner` on `promote.yml` to select
+another standard Ubuntu 24.04 or 26.04 image.
 
 [hosted-sdk](actions/hosted-sdk/action.yml) prepares only selected exact Node, Python,
 uv, Bun, Rust, Temurin Java, Go, standalone Dart or stable Flutter versions and selected
