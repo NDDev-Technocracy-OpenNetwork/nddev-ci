@@ -120,6 +120,15 @@ async function close(server) {
   server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));
 }
+// Runs the actual release entrypoint as the runner does and returns its exit code and output.
+async function runRelease(env) {
+  const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
+    stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...process.env, ...env}});
+  let output = "";
+  child.stdout.on("data", (bytes) => {output += bytes;}); child.stderr.on("data", (bytes) => {output += bytes;});
+  const [code] = await once(child, "close");
+  return {code, output};
+}
 
 test("mutable status reads revalidate a cached success after a newer failure", async () => {
   let state = "success", id = 1, cached;
@@ -252,16 +261,11 @@ test("the actual release entrypoint never prints unexpected error details", asyn
     reads++; res.setHeader("content-type", "application/json"); res.end(JSON.stringify(inventory()));
   });
   try {
-    const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
-      stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...process.env,
-        GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: privatePath,
-        GITHUB_API_URL: api.url, GITHUB_SERVER_URL: "https://github.com", "INPUT_API-URL": api.url,
-        "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", "INPUT_WAIT-MINUTES": "0", INPUT_ARTIFACTS: "",
-        "INPUT_CHECK-WORKFLOW": "ci.yml"},
-    });
-    let output = "";
-    child.stdout.on("data", (bytes) => {output += bytes;}); child.stderr.on("data", (bytes) => {output += bytes;});
-    const [code] = await once(child, "close");
+    const {code, output} = await runRelease({
+      GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: privatePath,
+      GITHUB_API_URL: api.url, GITHUB_SERVER_URL: "https://github.com", "INPUT_API-URL": api.url,
+      "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", "INPUT_WAIT-MINUTES": "0", INPUT_ARTIFACTS: "",
+      "INPUT_CHECK-WORKFLOW": "ci.yml"});
     assert.equal(code, 1); assert.equal(reads, 1);
     assert.match(output, /Release failed before completion\./);
     assert.doesNotMatch(output, /private-credential-fixture|opaque-credential-fixture/);
@@ -323,16 +327,11 @@ test("the release entrypoint publishes qualified files and checksums after trans
   try {
     for (let attempt = 0; attempt < 2; attempt++) {
       const temp = mkdtempSync(path.join(root, "attempt-"));
-      const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
-        stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...process.env,
-          GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: temp,
-          GITHUB_API_URL: api.url, GITHUB_SERVER_URL: "https://github.com", "INPUT_API-URL": api.url,
-          "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", "INPUT_REQUIRED-WORKFLOWS": "portable.yml\nartifact.yml", "INPUT_WAIT-MINUTES": "0", INPUT_ARTIFACTS: "build",
-          GITHUB_OUTPUT: path.join(temp, "outputs"), GITHUB_STEP_SUMMARY: path.join(temp, "summary")},
-      });
-      let output = "";
-      child.stdout.on("data", (chunk) => {output += chunk;}); child.stderr.on("data", (chunk) => {output += chunk;});
-      const before = mutations, [code] = await once(child, "close");
+      const before = mutations, {code, output} = await runRelease({
+        GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: temp,
+        GITHUB_API_URL: api.url, GITHUB_SERVER_URL: "https://github.com", "INPUT_API-URL": api.url,
+        "INPUT_GITHUB-TOKEN": "opaque-credential-fixture", "INPUT_REQUIRED-WORKFLOWS": "portable.yml\nartifact.yml", "INPUT_WAIT-MINUTES": "0", INPUT_ARTIFACTS: "build",
+        GITHUB_OUTPUT: path.join(temp, "outputs"), GITHUB_STEP_SUMMARY: path.join(temp, "summary")});
       assert.equal(code, 0, output); assert.equal(release.draft, false);
       assert.match(readFileSync(path.join(temp, "outputs"), "utf8"), /version=1\.0\.1\ntag=v1\.0\.1/);
       if (attempt) assert.equal(mutations, before, "a published exact release needs no second mutation");
@@ -351,15 +350,10 @@ test("a permanent API error fails the release at once with its cause", async () 
   let requests = 0;
   const api = await listen((req, res) => { requests++; res.writeHead(404).end(); });
   try {
-    const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
-      stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...process.env,
-        GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: root,
-        GITHUB_API_URL: api.url, "INPUT_API-URL": api.url, "INPUT_GITHUB-TOKEN": "opaque-credential-fixture",
-        "INPUT_WAIT-MINUTES": "0", GITHUB_OUTPUT: path.join(root, "outputs")},
-    });
-    let output = "";
-    child.stdout.on("data", (chunk) => {output += chunk;}); child.stderr.on("data", (chunk) => {output += chunk;});
-    const [code] = await once(child, "close");
+    const {code, output} = await runRelease({
+      GITHUB_REPOSITORY: where.repository, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", RUNNER_TEMP: root,
+      GITHUB_API_URL: api.url, "INPUT_API-URL": api.url, "INPUT_GITHUB-TOKEN": "opaque-credential-fixture",
+      "INPUT_WAIT-MINUTES": "0", GITHUB_OUTPUT: path.join(root, "outputs")});
     assert.equal(code, 1, output); assert.equal(requests, 1);
     assert.match(output, /HTTP 404/);
     assert.equal(existsSync(path.join(root, "outputs")), false);
@@ -484,13 +478,9 @@ test("product promotion and publication refuse false checked metadata before any
       assert.ok(readdirSync(temp).every((name) => !name.startsWith("nddev-ci-promotion-")));
       for (let attempt = 0; attempt < (variant === "valid" ? 2 : 1); attempt++) {
         const work = mkdtempSync(path.join(root, "release-"));
-        const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
-          stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...env,
-            RUNNER_TEMP: work, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", "INPUT_API-URL": api.url,
-            "INPUT_WAIT-MINUTES": "0", GITHUB_OUTPUT: path.join(work, "outputs"), GITHUB_STEP_SUMMARY: path.join(work, "summary")},
-        });
-        let output = "";child.stdout.on("data", (x) => {output += x;});child.stderr.on("data", (x) => {output += x;});
-        const before = writes, [code] = await once(child, "close");
+        const before = writes, {code, output} = await runRelease({...env,
+          RUNNER_TEMP: work, GITHUB_SHA: where.sha, GITHUB_REF: "refs/heads/main", "INPUT_API-URL": api.url,
+          "INPUT_WAIT-MINUTES": "0", GITHUB_OUTPUT: path.join(work, "outputs"), GITHUB_STEP_SUMMARY: path.join(work, "summary")});
         assert.equal(code, variant === "valid" ? 0 : 1, `${variant}: ${output}`);
         if (variant !== "valid" || attempt) assert.equal(writes, before, "refusal/rerun creates no tag or release");
         if (variant === "valid") assert.match(readFileSync(path.join(work, "outputs"), "utf8"), /version=2\.6\.0/);
@@ -546,11 +536,7 @@ for (const variant of ["failed", "replaced", "foreign", "duplicate"])
       assert.ok(secondaryReads > 0, "the negative case must reach required workflow qualification");
       if (variant === "replaced") assert.ok(secondaryReads > 1, "the newer attempt must be rechecked");
       secondaryReads = 0;
-      const child = spawn(process.execPath, [fileURLToPath(new URL("../actions/release/run.mjs", import.meta.url))], {
-        stdio: ["ignore", "pipe", "pipe"], timeout: 10000, env: {...env, GITHUB_OUTPUT: path.join(root, "outputs")},
-      });
-      let output = "";child.stdout.on("data", (bytes) => {output += bytes;});child.stderr.on("data", (bytes) => {output += bytes;});
-      const [code] = await once(child, "close");
+      const {code, output} = await runRelease({...env, GITHUB_OUTPUT: path.join(root, "outputs")});
       assert.equal(writes, 0, "required workflows must stop the first publication mutation");
       assert.equal(code, 1, output);assert.match(output, /No qualification|same run identity/);
       assert.equal(existsSync(path.join(root, "outputs")), false);
