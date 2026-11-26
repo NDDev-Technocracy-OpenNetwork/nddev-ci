@@ -34,12 +34,16 @@ test("recipe.yml describes exactly the labels it accepts", () => {
   for (const label of hostedLabels.recipe) assert.match(description, new RegExp(`\\b${label.replace(".", "\\.")}\\b`));
 });
 
+const startsWith = (value, prefix) =>
+  String(value ?? "").toLowerCase().startsWith(String(prefix).toLowerCase());
+
 function githubContext({
-  labels = [], target = "", provider = "github", event = "pull_request",
+  labels = [], target = "", provider = "github", event = "pull_request", headRef = "",
   privateRepo = true, actor = "developer", triggeringActor = actor, sender = "User", author = "User",
 } = {}) {
   return {
     actor, triggering_actor: triggeringActor, event_name: event,
+    head_ref: event === "pull_request" ? headRef : "",
     event: {
       repository: { private: privateRepo }, sender: { type: sender },
       pull_request: { labels: event === "pull_request" ? labels : [], user: { type: author } },
@@ -54,14 +58,14 @@ function route(file, job) {
     .replaceAll("github.event.pull_request.labels.*.name", "github.event.pull_request.labels")
     .replaceAll("inputs.runner-profile", "inputs['runner-profile']")
     .replaceAll("inputs.hosted-runner", "inputs['hosted-runner']");
-  // The emitted expressions use only these three actions primitives and boolean selection.
-  const evaluate = new Function("github", "inputs", "matrix", "contains", "format", "fromJSON", "return (" + expression + ")");
+  // The emitted expressions use only these four actions primitives and boolean selection.
+  const evaluate = new Function("github", "inputs", "matrix", "contains", "format", "fromJSON", "startsWith", "return (" + expression + ")");
   return (options = {}) => {
     const { profile = "", runner = "managed-example", hosted = "", group = "", partRunners = {} } = options;
     return evaluate(githubContext(options),
       { runner, "runner-profile": profile, "hosted-runner": hosted, "part-runners": JSON.stringify(partRunners) },
       { part: { group } },
-      (values, value) => values.includes(value), (form, value) => form.replace("{0}", value), JSON.parse);
+      (values, value) => values.includes(value), (form, value) => form.replace("{0}", value), JSON.parse, startsWith);
   };
 }
 
@@ -139,11 +143,11 @@ function inlineRoute(file, jobLine) {
   const expression = line.split("runs-on:")[1].trim().slice(3, -2)
     .replaceAll("github.event.pull_request.labels.*.name", "github.event.pull_request.labels")
     .replaceAll("inputs.hosted-runner", "inputs['hosted-runner']");
-  const evaluate = new Function("github", "inputs", "contains", "fromJSON", "return (" + expression + ")");
+  const evaluate = new Function("github", "inputs", "contains", "fromJSON", "startsWith", "return (" + expression + ")");
   return (options = {}) => {
     const { runner = "nddev-linux-release", hosted = "ubuntu-24.04", provider = "ours" } = options;
     return evaluate(githubContext({ ...options, provider }),
-      { runner, "hosted-runner": hosted }, (values, value) => values.includes(value), JSON.parse);
+      { runner, "hosted-runner": hosted }, (values, value) => values.includes(value), JSON.parse, startsWith);
   };
 }
 
@@ -164,39 +168,87 @@ test("public promotion accepts a standard hosted Linux image", () => {
   assert.equal(select({ hosted: "ubuntu-26.04", runner: "nddev-linux-light" }), "nddev-linux-release");
 });
 
-test("bot-only private PR jobs use the maintenance lane across all workflows", () => {
+const maintenanceRouteJobs = {
+  "check.yml": ["plan", "registry", "check", "join"],
+  "image.yml": ["image"],
+  "merge-stops.yml": ["stops"],
+  "nextest-shards.yml": ["archive", "shard"],
+  "recipe.yml": ["recipe"],
+  "source-version.yml": ["ready"],
+};
+
+test("every workflow job using maintenance lanes is covered by runner-label tests", () => {
+  const observed = {};
+  for (const name of readdirSync(folder).filter((entry) => entry.endsWith(".yml")).sort()) {
+    const count = [...read(name).matchAll(/^    runs-on:[^\n]*(?:\n      [^\n]+)*/gm)]
+      .filter((match) => match[0].includes("-maintenance")).length;
+    if (count > 0) observed[name] = count;
+  }
+  const expected = Object.fromEntries(
+    Object.entries(maintenanceRouteJobs).map(([file, jobs]) => [file, jobs.length]),
+  );
+  assert.deepEqual(observed, expected);
+});
+
+test("bot-only private PR jobs use the maintenance lane except on release/* branches", () => {
   const check = route("check.yml", "check");
   const plan = route("check.yml", "plan");
   const join = route("check.yml", "join");
   const recipe = route("recipe.yml", "recipe");
   const mergeStops = route("merge-stops.yml", "stops");
+  const nextestArchive = route("nextest-shards.yml", "archive");
+  const nextestShard = route("nextest-shards.yml", "shard");
   const registry = route("check.yml", "registry");
   const image = inlineRoute("image.yml", "runs-on:");
   const sourceVersion = inlineRoute("source-version.yml", "runs-on:");
   const bot = { actor: "renovate[bot]", author: "Bot", sender: "Bot", profile: "linux-x64" };
+  const maintenanceBranches = ["", "renovate/example", "dependabot/cargo/example", "renovate/release/example"];
+  const releaseBranches = ["release/source-version/v1.0.0", "release/pin-example", "Release/v1.0.0"];
+  const workRoutes = [check, recipe, nextestArchive, nextestShard, image, sourceVersion];
+  const lightRoutes = [plan, join, mergeStops];
+
   for (const runner of ["nddev-linux-light", "nddev-linux-small", "nddev-linux-standart", "nddev-linux-bounded"]) {
-    for (const select of [check, recipe, image, sourceVersion]) {
-      assert.equal(select({ ...bot, runner }), runner + "-maintenance");
-      assert.equal(select({ ...bot, runner, triggeringActor: "developer" }), runner);
-      assert.equal(select({ ...bot, runner, sender: "User", actor: "developer" }), runner);
-      assert.equal(select({ ...bot, runner, author: "User" }), runner);
+    const expectedLight = runner === "nddev-linux-bounded" ? "nddev-linux-bounded" : "nddev-linux-light";
+    for (const select of workRoutes) {
+      for (const headRef of maintenanceBranches)
+        assert.equal(select({ ...bot, runner, headRef }), runner + "-maintenance", `${runner} ${headRef}`);
+      for (const headRef of releaseBranches)
+        assert.equal(select({ ...bot, runner, headRef }), runner, `${runner} ${headRef}`);
+      assert.equal(select({ ...bot, runner, headRef: "renovate/example", triggeringActor: "developer" }), runner);
+      assert.equal(select({ ...bot, runner, headRef: "renovate/example", sender: "User", actor: "developer" }), runner);
+      assert.equal(select({ ...bot, runner, headRef: "renovate/example", author: "User" }), runner);
       assert.equal(select({ ...bot, runner, event: "push" }), runner);
       assert.equal(select({ ...bot, runner, event: "release" }), runner);
-      assert.equal(select({ ...bot, runner, privateRepo: false }), "ubuntu-24.04");
+      assert.equal(select({ ...bot, runner, headRef: "renovate/example", privateRepo: false }), "ubuntu-24.04");
     }
     assert.equal(check({ ...bot, runner, event: "workflow_dispatch", provider: "ours" }), runner);
-    assert.equal(check({ ...bot, runner, labels: ["runner:github:linux-x64"] }), "ubuntu-24.04");
-    for (const light of [plan, join, mergeStops]) {
-      assert.equal(light({ ...bot, runner }), runner === "nddev-linux-bounded" ? "nddev-linux-bounded-maintenance" : "nddev-linux-light-maintenance");
-      assert.equal(light({ ...bot, runner, triggeringActor: "developer" }), runner === "nddev-linux-bounded" ? "nddev-linux-bounded" : "nddev-linux-light");
+    assert.equal(check({ ...bot, runner, headRef: "renovate/example", labels: ["runner:github:linux-x64"] }), "ubuntu-24.04");
+    assert.equal(check({ ...bot, runner, headRef: "release/source-version/v1.0.0", labels: ["runner:github:linux-x64"] }), "ubuntu-24.04");
+    assert.equal(sourceVersion({ ...bot, runner, headRef: "release/source-version/v1.0.0", labels: ["runner:github"] }), "ubuntu-24.04");
+    for (const light of lightRoutes) {
+      for (const headRef of maintenanceBranches)
+        assert.equal(light({ ...bot, runner, headRef }), expectedLight + "-maintenance", `${runner} ${headRef}`);
+      for (const headRef of releaseBranches)
+        assert.equal(light({ ...bot, runner, headRef }), expectedLight, `${runner} ${headRef}`);
+      assert.equal(light({ ...bot, runner, headRef: "renovate/example", triggeringActor: "developer" }), expectedLight);
     }
   }
   for (const [runner, profile] of [["nddev-macos", "macos-arm64"], ["nddev-windows", "windows-x64"]]) {
-    assert.equal(check({ ...bot, runner, profile }), runner + "-maintenance");
-    assert.equal(recipe({ ...bot, runner, profile }), runner + "-maintenance");
+    for (const select of [check, recipe, nextestArchive, nextestShard]) {
+      for (const headRef of maintenanceBranches)
+        assert.equal(select({ ...bot, runner, profile, headRef }), runner + "-maintenance");
+      for (const headRef of releaseBranches)
+        assert.equal(select({ ...bot, runner, profile, headRef }), runner);
+    }
     assert.equal(recipe({ ...bot, runner, profile, event: "push" }), runner);
   }
-  assert.equal(check({ ...bot, runner: "nddev-linux-arm64" }), "nddev-linux-arm64");
-  assert.equal(registry(bot), "nddev-linux-small-maintenance");
+  for (const headRef of maintenanceBranches)
+    assert.equal(registry({ ...bot, headRef }), "nddev-linux-small-maintenance");
+  for (const headRef of releaseBranches)
+    assert.equal(registry({ ...bot, headRef }), "nddev-linux-small");
   assert.equal(registry({ ...bot, event: "push" }), "nddev-linux-small");
+  assert.equal(check({ ...bot, runner: "nddev-linux-arm64", headRef: "renovate/example" }), "nddev-linux-arm64");
+  assert.equal(check({ ...bot, runner: "nddev-linux-release", headRef: "release/pin-example" }), "nddev-linux-release");
+  assert.equal(check({ ...bot, group: "short", partRunners: { short: "nddev-linux-light" },
+    headRef: "release/source-version/v1.0.0" }), "nddev-linux-light");
 });
