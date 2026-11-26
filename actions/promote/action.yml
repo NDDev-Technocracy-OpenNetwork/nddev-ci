@@ -1,7 +1,8 @@
 name: Choose the commit to promote
 description: >-
   Finds the newest commit of the source branch, ahead of the target, whose newest full check on a
-  push passed. It moves nothing; the promote workflow does.
+  push passed, or qualifies one exact source commit when `sha` is supplied. It moves nothing; the
+  promote workflow does.
 inputs:
   required-workflows:
     description: Additional workflow file names that must qualify the same exact source, one per line.
@@ -24,12 +25,15 @@ inputs:
   target-branch:
     description: The branch that moves.
     default: main
+  sha:
+    description: Optional full 40-character lowercase commit SHA on the source branch to promote instead of selecting the newest qualified commit.
+    default: ''
   github-token:
     description: A token that reads contents and actions.
     default: ${{ github.token }}
 outputs:
   state:
-    description: ready, current or unchecked.
+    description: ready, current, unchecked or unversioned.
   sha:
     description: The commit to promote when the state is ready.
 runs:
