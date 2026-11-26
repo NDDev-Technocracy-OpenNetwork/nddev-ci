@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880
         with:
           distribution: temurin
-          java-version: "27.0.1"
+          java-version: "27.0.1.1+4"
       - name: Prepare the verified wrapper fixture
         shell: bash
         run: |-
