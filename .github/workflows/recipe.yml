@@ -112,6 +112,16 @@ on:
         description: Optional exact stable Flutter version for hosted runners, with its Dart SDK.
         type: string
         default: ''
+      # jscpd:ignore-start -- shared workflow_call SDK inputs
+      dotnet-version:
+        description: Optional exact .NET SDK version.
+        type: string
+        default: ''
+      ruby-version:
+        description: Optional exact Ruby version.
+        type: string
+        default: ''
+      # jscpd:ignore-end
       tools:
         description: Optional comma-separated name@exact-version command-line tools for hosted runners
         type: string
@@ -286,6 +296,8 @@ jobs:
           go-version: ${{ inputs.go-version }}
           dart-version: ${{ inputs.dart-version }}
           flutter-version: ${{ inputs.flutter-version }}
+          dotnet-version: ${{ inputs.dotnet-version }}
+          ruby-version: ${{ inputs.ruby-version }}
           tools: ${{ inputs.tools }}
           tool-assets: ${{ inputs.tool-assets }}
           # jscpd:ignore-end

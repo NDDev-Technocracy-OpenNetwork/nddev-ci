@@ -147,8 +147,39 @@ async function runClones({ cwd, env, base, head, merge, binDir, scratchDir }) {
   return { status: res.status, output: outText ? `${outText}\n` : "" };
 }
 
+export function collectActionCheckFiles(cwd) {
+  const files = [];
+  const wfDir = path.join(cwd, ".github", "workflows");
+  if (existsSync(wfDir)) {
+    for (const name of readdirSync(wfDir).sort()) {
+      if (!name.endsWith(".yml") && !name.endsWith(".yaml")) continue;
+      files.push({
+        path: `.github/workflows/${name}`,
+        content: readFileSync(path.join(wfDir, name), "utf8"),
+      });
+    }
+  }
+  const actionsRoot = path.join(cwd, ".github", "actions");
+  if (existsSync(actionsRoot)) {
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.isFile() && (entry.name === "action.yml" || entry.name === "action.yaml")) {
+          const rel = path.relative(cwd, full).split(path.sep).join("/");
+          files.push({ path: rel, content: readFileSync(full, "utf8") });
+        }
+      }
+    };
+    walk(actionsRoot);
+  }
+  return files;
+}
+
 async function runWorkflows({ cwd, env, binDir }) {
-  if (!existsSync(path.join(cwd, ".github", "workflows"))) {
+  const hasWorkflows = existsSync(path.join(cwd, ".github", "workflows"));
+  const hasActions = existsSync(path.join(cwd, ".github", "actions"));
+  if (!hasWorkflows && !hasActions) {
     return { status: 0, output: "No workflows in this repository.\n" };
   }
   const expectedShellcheck = path.join(binDir, "shellcheck");
@@ -160,7 +191,7 @@ async function runWorkflows({ cwd, env, binDir }) {
   const versionLine = (scVer.stdout || "").split("\n")[1] || "";
 
   const [actionlintRes, zizmorRes, poutineRes] = await Promise.all([
-    spawnCapture(path.join(binDir, "actionlint"), [], { cwd, env }),
+    hasWorkflows ? spawnCapture(path.join(binDir, "actionlint"), [], { cwd, env }) : Promise.resolve({ status: 0, output: "" }),
     spawnCapture(path.join(binDir, "zizmor"), ["--no-progress", "--min-severity", "high", ".github"], { cwd, env }),
     new Promise((resolve) => {
       const child = spawn(path.join(binDir, "poutine"), ["analyze_local", ".", "--quiet", "--disable-version-check", "--format", "json"], {
@@ -214,17 +245,7 @@ async function runWorkflows({ cwd, env, binDir }) {
 
   const snapshot = loadRegistrySnapshot(env);
   if (snapshot) {
-    const workflowFiles = [];
-    const wfDir = path.join(cwd, ".github", "workflows");
-    if (existsSync(wfDir)) {
-      for (const name of readdirSync(wfDir).sort()) {
-        if (!name.endsWith(".yml") && !name.endsWith(".yaml")) continue;
-        workflowFiles.push({
-          path: `.github/workflows/${name}`,
-          content: readFileSync(path.join(wfDir, name), "utf8"),
-        });
-      }
-    }
+    const workflowFiles = collectActionCheckFiles(cwd);
     const actionCheck = checkWorkflowActions(snapshot, workflowFiles);
     if (actionCheck.violations.length > 0) {
       const baseRef = env.MERGE_STOPS_BASE || env.INPUT_BASE || "";

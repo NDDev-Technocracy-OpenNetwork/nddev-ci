@@ -6,7 +6,7 @@ inputs:
     default: ''
   toolchains:
     description: >-
-      Optional comma-separated registry toolchain names (such as node,rust,python,uv,bun,go,java,dart,flutter)
+      Optional comma-separated registry toolchain names (such as node,rust,python,uv,bun,go,java,dart,flutter,dotnet,ruby)
       resolved from NDDEV_CI_REGISTRY_SNAPSHOT when present.
     default: ''
   node-version:
@@ -38,6 +38,12 @@ inputs:
     default: ''
   flutter-version:
     description: Optional exact stable Flutter version; its Dart SDK comes with it.
+    default: ''
+  dotnet-version:
+    description: Optional exact .NET SDK version, such as 11.0.100.
+    default: ''
+  ruby-version:
+    description: Optional exact Ruby version, such as 4.0.10.
     default: ''
   tools:
     description: >-
@@ -73,6 +79,8 @@ runs:
         SDK_GO_VERSION: ${{ inputs.go-version }}
         SDK_FLUTTER_VERSION: ${{ inputs.flutter-version }}
         SDK_DART_VERSION: ${{ inputs.dart-version }}
+        SDK_DOTNET_VERSION: ${{ inputs.dotnet-version }}
+        SDK_RUBY_VERSION: ${{ inputs.ruby-version }}
         SDK_TOOLS: ${{ inputs.tools }}
       with:
         step: validate
@@ -164,6 +172,18 @@ runs:
       if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.dart-version != ''
       shell: bash
       run: dart --disable-analytics
+    - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.dotnet-version != ''
+      with:
+        dotnet-version: ${{ steps.validate.outputs.dotnet-version }}
+        cache: false
+    - uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1.343.0
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.ruby-version != ''
+      with:
+        ruby-version: ${{ steps.validate.outputs.ruby-version }}
+        rubygems: default
+        bundler: none
+        bundler-cache: false
     # install-action verifies each archive against its checksum manifest; nothing is compiled
     # and no other source is tried.
     - name: Prepare the declared tools

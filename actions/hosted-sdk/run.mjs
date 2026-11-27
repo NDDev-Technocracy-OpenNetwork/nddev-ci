@@ -7,7 +7,14 @@ import { loadRegistrySnapshot, resolveTool, resolveToolchain } from "../../lib/r
 import { ActionError } from "../../lib/release-asset.mjs";
 import { managedRunner } from "../../lib/runner-profile.mjs";
 
-const names = ["node", "python", "uv", "bun", "rust", "java", "go", "flutter", "dart"];
+const names = ["node", "python", "uv", "bun", "rust", "java", "go", "flutter", "dart", "dotnet", "ruby"];
+const toolExecutables = Object.freeze({
+  maven: "mvn",
+  "bats-core": "bats",
+  "sqlx-cli": "sqlx",
+  "wasm-bindgen-cli": "wasm-bindgen",
+  compose: "docker-compose",
+});
 const key = (name) => `SDK_${name.toUpperCase()}_VERSION`;
 const bareNamePattern = /^[a-z0-9][a-z0-9-]*$/;
 const exactSemverPattern = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
@@ -196,8 +203,16 @@ function measure(name, environment, executable) {
     uv: /^uv ([^\s]+)(?: |$)/m,
     go: /^go version go([^\s]+) /m,
     dart: /^Dart SDK version: ([^\s]+) \(stable\)(?: |$)/m,
+    dotnet: /^([0-9]+\.[0-9]+\.[0-9]+)$/m,
+    ruby: /^ruby ([0-9]+\.[0-9]+\.[0-9]+)(?:p\d+)?(?: |$)/m,
   }[name];
   return {[name]: text.match(expression)?.[1]};
+}
+
+function runtimeArchCandidates(arch = process.arch) {
+  if (arch === "x64") return ["x64", "x86_64"];
+  if (arch === "arm64") return ["arm64", "aarch64"];
+  return [arch];
 }
 
 // Managed toolchains select their requested line from the managed tool cache when installed there.
@@ -208,19 +223,52 @@ function managedRuntime(environment, name, version) {
   if (!root && !["node", "bun"].includes(name)) return null;
   if (!path.isAbsolute(root) || /[\r\n\0]/.test(root))
     throw new ActionError("The managed RUNNER_TOOL_CACHE must be an absolute path.");
-  const cacheName = name === "java" ? "jdk" : name;
-  const folder = path.join(root, cacheName, version, process.arch);
   const exeName = process.platform === "win32" ? `${name}.exe` : name;
   if (name === "node") {
-    const bin = path.join(folder, "bin");
+    const bin = path.join(root, "node", version, process.arch, "bin");
     return { bin, executable: path.join(bin, exeName) };
   }
-  const candidates = name === "bun"
-    ? [folder]
-    : [path.join(folder, "bin"), folder];
-  for (const bin of candidates) {
-    const executable = path.join(bin, exeName);
-    if (existsSync(executable)) return { bin, executable };
+  const arches = runtimeArchCandidates();
+  const candidates = [];
+  if (name === "bun") {
+    candidates.push({ bin: path.join(root, "bun", version, process.arch) });
+  } else if (name === "java") {
+    const baseVersion = version.split("+")[0];
+    for (const ver of new Set([version, baseVersion])) {
+      for (const dir of ["Java_Temurin-Hotspot_jdk", "jdk"]) {
+        for (const arch of arches) {
+          const home = path.join(root, dir, ver, arch);
+          candidates.push({ bin: path.join(home, "bin"), env: { JAVA_HOME: home } });
+        }
+      }
+    }
+  } else if (name === "uv") {
+    for (const arch of arches) {
+      const folder = path.join(root, "uv", version, arch);
+      candidates.push({ bin: folder }, { bin: path.join(folder, "bin") });
+    }
+  } else if (name === "flutter") {
+    for (const dir of [`stable-${version}-${process.arch}`, `${version}-${process.arch}`]) {
+      const home = path.join(root, "flutter", dir, "flutter");
+      candidates.push({ bin: path.join(home, "bin"), env: { FLUTTER_ROOT: home } });
+    }
+    const folder = path.join(root, "flutter", version, process.arch);
+    candidates.push({ bin: path.join(folder, "bin") }, { bin: folder });
+  } else if (name === "dart") {
+    candidates.push(
+      { bin: path.join(root, "dart", `${version}-${process.arch}`, "dart-sdk", "bin") },
+      { bin: path.join(root, "dart", version, process.arch, "bin") },
+      { bin: path.join(root, "dart", version, process.arch) },
+    );
+  } else {
+    for (const arch of arches) {
+      const folder = path.join(root, name, version, arch);
+      candidates.push({ bin: path.join(folder, "bin") }, { bin: folder });
+    }
+  }
+  for (const candidate of candidates) {
+    const executable = path.join(candidate.bin, exeName);
+    if (existsSync(executable)) return { ...candidate, executable };
   }
   return null;
 }
@@ -262,7 +310,14 @@ export function managedTools(environment, exists = existsSync) {
   const root = environment.RUNNER_TOOL_CACHE ?? "";
   if (!path.isAbsolute(root) || /[\r\n\0]/.test(root))
     throw new ActionError("The managed RUNNER_TOOL_CACHE must be an absolute path.");
-  return tools.map((tool) => path.join(root, ...tool.split("@"), process.arch)).filter((folder) => exists(folder));
+  const dirs = [];
+  for (const tool of tools) {
+    const base = path.join(root, ...tool.split("@"), process.arch);
+    const bin = path.join(base, "bin");
+    if (exists(bin)) dirs.push(bin);
+    else if (exists(base)) dirs.push(base);
+  }
+  return dirs;
 }
 
 function verifyRust(environment, toolchain) {
@@ -303,16 +358,28 @@ function verifiedSelection(environment) {
   const { selected, resolvedEnv } = resolveSelectionEnvironment(environment);
   environment = resolvedEnv;
   supported(selected);
+  const isManaged = managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED);
   const runtimes = {};
-  for (const runtimeName of ["node", "bun", "uv", "go", "java", "dart", "flutter"]) {
+  const runtimeEnv = {};
+  for (const runtimeName of ["node", "bun", "uv", "go", "java", "dart", "flutter", "dotnet", "ruby"]) {
     const found = managedRuntime(environment, runtimeName, selected[runtimeName]);
     if (found) {
       runtimes[runtimeName] = found;
       environment = prependPath(environment, found.bin);
+      if (found.env) {
+        Object.assign(runtimeEnv, found.env);
+        environment = { ...environment, ...found.env };
+      }
     }
   }
   // Verification must not let rustup install a missing toolchain through a compiler proxy.
-  if (selected.rust) environment = {...environment, RUSTUP_AUTO_INSTALL: "0"};
+  if (selected.rust) {
+    environment = {...environment, RUSTUP_AUTO_INSTALL: "0"};
+    if (isManaged && !environment.RUSTUP_TOOLCHAIN) {
+      runtimeEnv.RUSTUP_TOOLCHAIN = selected.rust;
+      environment = { ...environment, RUSTUP_TOOLCHAIN: selected.rust };
+    }
+  }
   const versions = {};
   for (const [name, expected] of Object.entries(selected)) {
     const executable = runtimes[name]?.executable;
@@ -327,10 +394,11 @@ function verifiedSelection(environment) {
   const tools = {};
   for (const selection of (environment.SDK_TOOLS || "").split(",").filter(Boolean)) {
     const [name, expected] = selection.split("@");
-    const result = spawnSync(name, ["--version"], {
+    const command = toolExecutables[name] ?? name;
+    const result = spawnSync(command, ["--version"], {
       env: environment, encoding: "utf8", timeout: 30000, maxBuffer: 65536, windowsHide: true,
     });
-    const measured = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.match(/(?:^|\s)v?(\d+\.\d+\.\d+)(?:\s|$)/)?.[1];
+    const measured = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.match(/(?:^|[\s:])v?(\d+\.\d+\.\d+)(?:[\s,)-]|$)/)?.[1];
     if (result.error || result.status !== 0 || measured !== expected)
       throw new ActionError(`The selected ${name} executable does not provide version ${expected}.`);
     tools[name] = measured;
@@ -340,6 +408,7 @@ function verifiedSelection(environment) {
     node: runtimes.node ?? null,
     bun: runtimes.bun ?? null,
     runtimeBins,
+    runtimeEnv,
     folders,
     receipt: {schema_version: 1, platform: process.platform, architecture: process.arch, versions, tools},
   };
@@ -395,8 +464,8 @@ export function main(mode, environment = process.env) {
   const { resolvedEnv } = resolveSelectionEnvironment(environment);
   environment = resolvedEnv;
   const python = managedPython(environment);
-  const { runtimeBins, folders, receipt } = verifiedSelection(python ? prependPath(environment, python.bin) : environment);
-  const variables = {BUN_DO_NOT_TRACK: "1", DO_NOT_TRACK: "1"};
+  const { runtimeBins, runtimeEnv, folders, receipt } = verifiedSelection(python ? prependPath(environment, python.bin) : environment);
+  const variables = {BUN_DO_NOT_TRACK: "1", DO_NOT_TRACK: "1", ...runtimeEnv};
   if (python) variables.UV_PYTHON = python.executable;
   // GitHub prepends each entry. Keep the verified directories ahead of the default SDK bin.
   const paths = [python?.bin, ...runtimeBins, ...folders].filter(Boolean);

@@ -57,6 +57,50 @@ lines = [{ version = "0.39.1", role = "latest" }]
 [technologies.buildkit]
 kind = "toolchain"
 lines = [{ version = "0.35.1", role = "latest" }]
+
+[technologies.bun]
+kind = "toolchain"
+lines = [{ version = "1.4.5", role = "latest" }]
+
+[technologies.jdk]
+kind = "toolchain"
+lines = [{ version = "27.0.1.1", role = "latest" }, { version = "25.0.5.1", role = "compat" }]
+
+[technologies.uv]
+kind = "toolchain"
+lines = [{ version = "0.13.10", role = "latest" }]
+
+[technologies.dotnet]
+kind = "toolchain"
+lines = [{ version = "11.0.100", role = "latest" }]
+
+[technologies.ruby]
+kind = "toolchain"
+lines = [{ version = "4.0.10", role = "latest" }]
+
+[technologies.postgresql]
+kind = "service"
+lines = [{ version = "18.7", role = "latest" }]
+
+[technologies.redis]
+kind = "service"
+lines = [{ version = "8.10.3", role = "latest" }]
+
+[technologies.valkey]
+kind = "service"
+lines = [{ version = "9.2.0", role = "latest" }]
+
+[technologies.nginx]
+kind = "service"
+lines = [{ version = "1.31.10", role = "latest" }]
+
+[technologies.clickhouse]
+kind = "service"
+lines = [{ version = "26.10.2.103", role = "latest" }]
+
+[technologies.sql-server]
+kind = "service"
+lines = [{ version = "2025-CU10", role = "latest" }]
 `;
 
 test("image kind resolves and checks OCI references, hosted runner images and Dockerfiles against snapshot", () => {
@@ -74,9 +118,22 @@ test("image kind resolves and checks OCI references, hosted runner images and Do
     assert.equal(checkImageReference(snapshot, "gcr.io/distroless/static-debian13:nonroot").key, "distroless");
     assert.equal(checkImageReference(snapshot, "docker/dockerfile:1.29.0").key, "dockerfile-frontend");
     assert.equal(checkImageReference(snapshot, "moby/buildkit:v0.35.1@sha256:" + "b".repeat(64)).key, "buildkit");
+    assert.equal(checkImageReference(snapshot, "oven/bun:1.4.5-alpine").key, "bun");
+    assert.equal(checkImageReference(snapshot, "eclipse-temurin:25.0.5.1_2-jdk").key, "jdk");
+    assert.equal(checkImageReference(snapshot, "ghcr.io/astral-sh/uv:0.13.10-debian-slim").key, "uv");
+    assert.equal(checkImageReference(snapshot, "mcr.microsoft.com/dotnet/sdk:11.0.100-alpine").key, "dotnet");
+    assert.equal(checkImageReference(snapshot, "docker.io/library/ruby:4.0.10-slim").key, "ruby");
+    assert.equal(checkImageReference(snapshot, "postgres:18.7-alpine").key, "postgresql");
+    assert.equal(checkImageReference(snapshot, "redis:8.10.3-alpine").key, "redis");
+    assert.equal(checkImageReference(snapshot, "valkey/valkey:9.2.0-alpine").key, "valkey");
+    assert.equal(checkImageReference(snapshot, "nginx:1.31.10-alpine").key, "nginx");
+    assert.equal(checkImageReference(snapshot, "clickhouse/clickhouse-server:26.10.2.103").key, "clickhouse");
+    assert.equal(checkImageReference(snapshot, "mcr.microsoft.com/mssql/server:2025-CU10-ubuntu-22.04").key, "sql-server");
 
     assert.throws(() => checkImageReference(snapshot, "alpine:latest"), /not latest/);
     assert.throws(() => checkImageReference(snapshot, "alpine:3.20.0"), /outside the snapshot/);
+    assert.throws(() => checkImageReference(snapshot, "postgres:17.2-alpine"), /outside the snapshot/);
+    assert.throws(() => checkImageReference(snapshot, "mcr.microsoft.com/dotnet/sdk:9.0.100"), /outside the snapshot/);
     assert.throws(() => checkImageReference(snapshot, "gcr.io/distroless/static-debian12:nonroot"), /outside the snapshot/);
     assert.throws(() => checkImageReference(snapshot, "unregistered/app:1.0.0"), /does not declare/);
 
