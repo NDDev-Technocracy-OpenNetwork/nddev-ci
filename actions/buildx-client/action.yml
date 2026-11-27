@@ -1,0 +1,30 @@
+name: Prepare the Buildx CLI client
+description: >-
+  Verifies the managed Buildx client against any registry snapshot on self-hosted runners, or
+  prepares the resolved Buildx CLI on GitHub-hosted runners.
+inputs:
+  buildx-version:
+    description: Optional exact Buildx version for GitHub-hosted runners.
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Verify managed Buildx against registry
+      if: runner.environment == 'self-hosted' && env.NDDEV_CI_REGISTRY_SNAPSHOT != ''
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/../image-builder/resolve.mjs" managed
+
+    - name: Resolve hosted Buildx version
+      if: runner.environment == 'github-hosted'
+      id: hosted-versions
+      shell: bash
+      env:
+        INPUT_BUILDX_VERSION: ${{ inputs.buildx-version }}
+      run: node "$GITHUB_ACTION_PATH/../image-builder/resolve.mjs" hosted
+
+    - name: BuildKit client on GitHub-hosted runners
+      if: runner.environment == 'github-hosted'
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      with:
+        version: ${{ steps.hosted-versions.outputs.buildx-version }}
+        cache-binary: false

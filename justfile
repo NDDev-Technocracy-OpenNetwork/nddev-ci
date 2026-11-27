@@ -36,6 +36,21 @@ check: (_tools "check") scan-source-secrets
     node --check actions/registry-input/run.mjs
     node --check actions/registry-input/cleanup.mjs
     node --check actions/registry-project/run.mjs
+    node --check lib/toml.mjs
+    node --check lib/hosted-compat-pins.mjs
+    node --check lib/registry-resolve.mjs
+    node --check lib/tool-prepare.mjs
+    node --check actions/image-builder/resolve.mjs
+    node --check actions/image-builder/check-dockerfile.mjs
+    node --check actions/merge-stops/prepare-tools.mjs
+    node --check actions/security-tools/run.mjs
+    node --check tests/toml.test.mjs
+    node --check tests/registry-toolchain.test.mjs
+    node --check tests/registry-tool.test.mjs
+    node --check tests/registry-image.test.mjs
+    node --check tests/registry-action.test.mjs
+    node --check tests/registry-snapshot-e2e.test.mjs
+    node --check tests/no-hardcoded-versions.test.mjs
     node --check tests/registry-input.test.mjs
     node --check tests/registry-project.test.mjs
     node --check tests/artifact-registry.test.mjs
@@ -169,6 +184,7 @@ check: (_tools "check") scan-source-secrets
     node --check tests/promotion.test.mjs
     node --check tools/hosted-fallback.mjs
     node --check tests/hosted-fallback.test.mjs
+    node --test tests/no-hardcoded-versions.test.mjs
     PATH="{{ shellcheck }}:$PATH" "{{ actionlint }}" .github/workflows/*.yml
     "{{ zizmor }}" --strict-collection --min-severity medium .github actions
 
@@ -193,7 +209,7 @@ test:
 package-tools:
     mkdir -p dist
     git archive --format=zip --prefix=nddev-ci/ --output=dist/qualify-merge.zip HEAD tools/qualify-merge.mjs lib/merge-on-green.mjs lib/qualification.mjs lib/oci-artifacts.mjs lib/release.mjs
-    git archive --format=zip --prefix=nddev-ci/ --output=dist/scan-before-push.zip HEAD tools/scan-before-push.mjs tools/scan-source-secrets.mjs lib/secret-scan.mjs lib/secret-policy.mjs lib/security-policy.mjs tools/verify-before-push.mjs lib/pre-push-executor.mjs lib/verify-parts.mjs lib/pre-push-registry-input.mjs lib/registry-snapshot.mjs
+    git archive --format=zip --prefix=nddev-ci/ --output=dist/scan-before-push.zip HEAD tools/scan-before-push.mjs tools/scan-source-secrets.mjs lib/secret-scan.mjs lib/secret-policy.mjs lib/security-policy.mjs lib/toml.mjs lib/registry-resolve.mjs lib/hosted-compat-pins.mjs lib/runner-profile.mjs lib/release-asset.mjs tools/verify-before-push.mjs lib/pre-push-executor.mjs lib/verify-parts.mjs lib/pre-push-registry-input.mjs lib/registry-snapshot.mjs
     git show HEAD:tools/prepare-source-secrets.mjs > dist/prepare-source-secrets.mjs
 
 # Everything the full check on dev runs.

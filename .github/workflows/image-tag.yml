@@ -18,6 +18,29 @@ on:
         description: The label of our runners, used by private repositories.
         type: string
         default: nddev-linux-standart
+      # jscpd:ignore-start -- shared protected registry inputs and secrets
+      registry-commit:
+        description: Exact commit of the protected registry input selected by the caller.
+        type: string
+        default: ''
+      buildx-version:
+        description: Optional exact Buildx version for GitHub-hosted runners.
+        type: string
+        default: ''
+    secrets:
+      REGISTRY_SNAPSHOT_FIRST:
+        description: Protected environment snapshot fragment.
+        required: false
+      REGISTRY_SNAPSHOT_SECOND:
+        description: Protected environment snapshot fragment.
+        required: false
+      REGISTRY_SNAPSHOT_THIRD:
+        description: Protected environment snapshot fragment.
+        required: false
+      REGISTRY_SNAPSHOT_FOURTH:
+        description: Protected environment snapshot fragment.
+        required: false
+    # jscpd:ignore-end
     outputs:
       reference:
         description: The released image by digest.
@@ -32,6 +55,7 @@ jobs:
     # A light, architecture-independent job: on managed runners it takes whichever Linux runner has room.
     runs-on: ${{ !github.event.repository.private && 'ubuntu-24.04' || ((inputs.runner == 'nddev-macos' || inputs.runner == 'nddev-linux-standart' || inputs.runner == 'nddev-linux-small' || inputs.runner == 'nddev-linux-light') && 'nddev-linux-release' || inputs.runner) }}
     timeout-minutes: 15
+    environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
     permissions:
       packages: write # add the version tag to the existing image
     outputs:
@@ -40,14 +64,27 @@ jobs:
       - name: Start
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
+      # jscpd:ignore-start -- shared telemetry and actions/registry-input steps
       - name: Outside telemetry off
         uses: $/actions/telemetry
 
-      - name: BuildKit client
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Receive the protected registry input
+        id: registry-input
+        if: inputs.registry-commit != ''
+        uses: $/actions/registry-input
         with:
-          version: v0.39.1
-          cache-binary: false
+          commit: ${{ inputs.registry-commit }}
+          sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
+          first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
+          second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
+          third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
+          fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+      # jscpd:ignore-end
+
+      - name: BuildKit client
+        uses: $/actions/buildx-client
+        with:
+          buildx-version: ${{ inputs.buildx-version }}
 
       - name: Container registry
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
@@ -88,6 +125,6 @@ jobs:
           task-type: deploy
           status: ${{ job.status }}
           failure-layer: ${{ job.status == 'failure' && 'library' || '' }}
-          failure-reason: ${{ job.status == 'failure' && (steps.tag.outcome == 'failure' && 'image-tag-failed' || 'workflow-step-failed') || '' }}
+          failure-reason: ${{ job.status == 'failure' && (steps.registry-input.outputs.failure-reason || (steps.tag.outcome == 'failure' && 'image-tag-failed') || 'workflow-step-failed') || '' }}
           check-run-id: ${{ job.check_run_id }}
           started-file: ${{ runner.temp }}/nddev-ci-started

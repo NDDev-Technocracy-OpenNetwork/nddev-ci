@@ -4,6 +4,11 @@ inputs:
   managed:
     description: Optional explicit SDK ownership; empty follows runner.environment.
     default: ''
+  toolchains:
+    description: >-
+      Optional comma-separated registry toolchain names (such as node,rust,python,uv,bun,go,java,dart,flutter)
+      resolved from NDDEV_CI_REGISTRY_SNAPSHOT when present.
+    default: ''
   node-version:
     description: Exact Node version from the managed tool cache or hosted setup, or empty to leave it unchanged.
     default: ''
@@ -20,7 +25,7 @@ inputs:
     description: Exact Rust version, or empty to leave it unchanged.
     default: ''
   rust-components:
-    description: Optional comma-separated Rust components for the selected toolchain.
+    description: Optional comma-separated components for the selected Rust toolchain.
     default: ''
   java-version:
     description: Optional exact Temurin JDK version, such as 25.0.5.
@@ -36,8 +41,8 @@ inputs:
     default: ''
   tools:
     description: >-
-      Optional comma-separated name@exact-version command-line tools from their official
-      checksummed releases. A managed runner
+      Optional comma-separated name@exact-version command-line tools (or bare registry names when
+      NDDEV_CI_REGISTRY_SNAPSHOT is set) from their official checksummed releases. A managed runner
       takes each from its SDK and puts the declared line first on PATH.
     default: ''
   rust-targets:
@@ -56,6 +61,7 @@ runs:
       env:
         SDK_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         SDK_MANAGED: ${{ inputs.managed }}
+        SDK_TOOLCHAINS: ${{ inputs.toolchains }}
         SDK_NODE_VERSION: ${{ inputs.node-version }}
         SDK_PYTHON_VERSION: ${{ inputs.python-version }}
         SDK_UV_VERSION: ${{ inputs.uv-version }}
@@ -80,91 +86,91 @@ runs:
         key: ${{ steps.validate.outputs.cache-key }}
         path: ${{ steps.validate.outputs.cache-paths }}
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-      if: steps.validate.outputs.bootstrap == 'true' && inputs.node-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.node-version != ''
       with:
-        node-version: ${{ inputs.node-version }}
+        node-version: ${{ steps.validate.outputs.node-version }}
         package-manager-cache: false
     - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       id: python
-      if: steps.validate.outputs.bootstrap == 'true' && inputs.python-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.python-version != ''
       with:
-        python-version: ${{ inputs.python-version }}
+        python-version: ${{ steps.validate.outputs.python-version }}
     - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
-      if: steps.validate.outputs.bootstrap == 'true' && inputs.uv-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.uv-version != ''
       with:
-        version: ${{ inputs.uv-version }}
+        version: ${{ steps.validate.outputs.uv-version }}
         enable-cache: false
     - name: Resolve the exact native Bun asset
       id: bun-source
-      if: steps.validate.outputs.bootstrap == 'true' && inputs.bun-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.bun-version != ''
       uses: $/actions/hosted-sdk-step
       env:
         SDK_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         SDK_MANAGED: ${{ inputs.managed }}
-        SDK_BUN_VERSION: ${{ inputs.bun-version }}
+        SDK_BUN_VERSION: ${{ steps.validate.outputs.bun-version }}
         SDK_GITHUB_TOKEN: ${{ github.server_url == 'https://github.com' && github.token || '' }}
       with:
         step: bun
     - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      if: steps.validate.outputs.bootstrap == 'true' && inputs.bun-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.bun-version != ''
       env:
         BUN_DO_NOT_TRACK: '1'
         DO_NOT_TRACK: '1'
       with:
-        bun-version: ${{ inputs.bun-version }}
+        bun-version: ${{ steps.validate.outputs.bun-version }}
         bun-download-url: ${{ steps.bun-source.outputs.url }}
         no-cache: true
     - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
-      if: steps.validate.outputs.bootstrap == 'true' && inputs.rust-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.rust-version != ''
       with:
-        toolchain: ${{ inputs.rust-version }}
+        toolchain: ${{ steps.validate.outputs.rust-version }}
         components: ${{ inputs.rust-components }}
         targets: ${{ inputs.rust-targets }}
     - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
-      if: steps.validate.outputs.bootstrap == 'true' && inputs.java-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.java-version != ''
       with:
         distribution: temurin
-        java-version: ${{ inputs.java-version }}
+        java-version: ${{ steps.validate.outputs.java-version }}
         cache-jdk: true
     - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
-      if: steps.validate.outputs.bootstrap == 'true' && inputs.go-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.go-version != ''
       with:
-        go-version: ${{ inputs.go-version }}
+        go-version: ${{ steps.validate.outputs.go-version }}
         cache: false
     # flutter-action calls actions/cache by tag, which commit pinning refuses even when its cache is
     # off; the official archive is taken directly and verified by the manifest's SHA-256.
     - name: Prepare the exact Flutter SDK
-      if: steps.validate.outputs.bootstrap == 'true' && inputs.flutter-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.flutter-version != ''
       uses: $/actions/hosted-sdk-step
       env:
-        SDK_FLUTTER_VERSION: ${{ inputs.flutter-version }}
+        SDK_FLUTTER_VERSION: ${{ steps.validate.outputs.flutter-version }}
       with:
         step: flutter
     - name: Flutter and Dart analytics off
-      if: steps.validate.outputs.bootstrap == 'true' && inputs.flutter-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.flutter-version != ''
       shell: bash
       run: |
         set -euo pipefail
         flutter config --no-analytics --no-cli-animations
         dart --disable-analytics
     - name: Prepare the exact standalone Dart SDK
-      if: steps.validate.outputs.bootstrap == 'true' && inputs.dart-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.dart-version != ''
       uses: $/actions/hosted-sdk-step
       env:
-        SDK_DART_VERSION: ${{ inputs.dart-version }}
+        SDK_DART_VERSION: ${{ steps.validate.outputs.dart-version }}
       with:
         step: dart
     - name: Standalone Dart analytics off
-      if: steps.validate.outputs.bootstrap == 'true' && inputs.dart-version != ''
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.dart-version != ''
       shell: bash
       run: dart --disable-analytics
     # install-action verifies each archive against its checksum manifest; nothing is compiled
     # and no other source is tried.
     - name: Prepare the declared tools
-      if: steps.validate.outputs.bootstrap == 'true' && inputs.tools != ''
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.tools != ''
       uses: taiki-e/install-action@893d6ee8d714b6c7dfe2bcd94e5759e9a7958a7e # v2.90.10
       with:
-        tool: ${{ inputs.tools }}
+        tool: ${{ steps.validate.outputs.tools }}
         checksum: true
         fallback: none
     - name: Verify selected executables and isolate package preparation

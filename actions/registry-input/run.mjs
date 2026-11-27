@@ -10,11 +10,20 @@ export function snapshot(environment) {
   const commit = environment.INPUT_COMMIT;
   const digest = environment.INPUT_SHA256;
   requireRegistryIdentity(commit, digest);
-  const input = chunks.map((name) => environment["INPUT_" + name] || "");
-  if (!input[0] || input.some((part) => part.length > 46_000)) {
-    throw new Error("Protected registry snapshot is missing or oversized.");
+  const combined = environment.INPUT_ENCODED || "";
+  let armored;
+  if (combined) {
+    if (combined.length > chunks.length * 46_000) {
+      throw new Error("Protected registry snapshot is missing or oversized.");
+    }
+    armored = combined;
+  } else {
+    const input = chunks.map((name) => environment["INPUT_" + name] || "");
+    if (!input[0] || input.some((part) => part.length > 46_000)) {
+      throw new Error("Protected registry snapshot is missing or oversized.");
+    }
+    armored = input.join("");
   }
-  const armored = input.join("");
   const compressed = Buffer.from(armored, "base64");
   if (compressed.toString("base64") !== armored) {
     throw new Error("Protected registry snapshot encoding is invalid.");

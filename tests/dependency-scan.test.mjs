@@ -16,22 +16,28 @@ import { createHash } from "node:crypto";
 import {
   prepareScanner,
   scannerPin,
-  scannerPins,
+  scannerPinsFor,
   scanSources,
 } from "../lib/dependency-scan.mjs";
 
-test("each supported native Linux architecture selects its own pinned scanner", () => {
-  assert.equal(scannerPin("linux", "x64"), scannerPins.x64);
-  assert.equal(scannerPin("linux", "x64").name, "osv-scanner_linux_amd64");
-  assert.equal(scannerPin("linux", "arm64"), scannerPins.arm64);
-  assert.equal(scannerPin("linux", "arm64").name, "osv-scanner_linux_arm64");
+test("each supported native Linux architecture selects its own hosted fallback scanner and managed runners refuse hosted pins", () => {
+  const hostedEnv = { RUNNER_ENVIRONMENT: "github-hosted" };
+  const scannerPins = scannerPinsFor(hostedEnv);
+  assert.equal(scannerPin("linux", "x64", hostedEnv), scannerPins.x64);
+  assert.equal(scannerPin("linux", "x64", hostedEnv).name, "osv-scanner_linux_amd64");
+  assert.equal(scannerPin("linux", "arm64", hostedEnv), scannerPins.arm64);
+  assert.equal(scannerPin("linux", "arm64", hostedEnv).name, "osv-scanner_linux_arm64");
   for (const pin of Object.values(scannerPins)) {
-    assert.equal(pin.version, "2.7.1");
+    assert.match(pin.version, /^\d+\.\d+\.\d+$/);
     assert.match(pin.sha256, /^[a-f0-9]{64}$/);
     assert.ok(Number.isSafeInteger(pin.asset) && pin.asset > 0);
     assert.ok(Number.isSafeInteger(pin.size) && pin.size > 0);
   }
   assert.notEqual(scannerPins.x64.sha256, scannerPins.arm64.sha256);
+  assert.throws(
+    () => scannerPinsFor({ RUNNER_ENVIRONMENT: "self-hosted" }),
+    /Managed runners cannot read hosted compatibility pins/,
+  );
 });
 
 test("unsupported platforms and architectures refuse before any download", () => {

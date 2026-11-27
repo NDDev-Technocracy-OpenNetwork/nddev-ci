@@ -4,14 +4,21 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { hostedSecurityToolPins } from "../lib/hosted-compat-pins.mjs";
 
 const workflow = readFileSync(new URL("../.github/workflows/security.yml", import.meta.url), "utf8");
 const script = workflow.split("      - name: Report\n")[1].split("        run: |\n")[1]
   .split("      - name:")[0].split("\n").map((line) => line.replace(/^          /, "")).join("\n");
 
-const scannerVersions = Object.fromEntries(
-  Array.from(workflow.matchAll(/^      ([A-Z_]+_VERSION): "([^"]+)"$/gm), ([, key, value]) => [key, value]),
-);
+const hostedPins = hostedSecurityToolPins({ RUNNER_ENVIRONMENT: "github-hosted" });
+const scannerVersions = {
+  TRUFFLEHOG_VERSION: hostedPins.trufflehog.version,
+  KINGFISHER_VERSION: hostedPins.kingfisher.version,
+  OSV_SCANNER_VERSION: hostedPins["osv-scanner"].version,
+  SYFT_VERSION: hostedPins.syft.version,
+  GRYPE_VERSION: hostedPins.grype.version,
+  TRIVY_VERSION: hostedPins.trivy.version,
+};
 
 function report(files = {}, extraEnv = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "security-report-"));

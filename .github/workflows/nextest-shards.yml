@@ -47,6 +47,20 @@ on:
         description: Optional tool-download registry origin.
         type: string
         default: ''
+      # jscpd:ignore-start -- shared protected registry workflow_call inputs
+      registry-commit:
+        description: Exact commit of the protected registry input selected by the caller.
+        type: string
+        default: ''
+      toolchains:
+        description: Optional comma-separated registry toolchain names resolved from the protected registry snapshot.
+        type: string
+        default: ''
+      just-version:
+        description: Optional exact Just version for GitHub-hosted runners.
+        type: string
+        default: ''
+      # jscpd:ignore-end
       rust-version:
         description: Optional exact Rust version.
         type: string
@@ -92,6 +106,20 @@ on:
         type: boolean
         default: false
     secrets:
+      # jscpd:ignore-start -- shared protected registry snapshot secrets
+      REGISTRY_SNAPSHOT_FIRST:
+        description: Protected environment snapshot fragment.
+        required: false
+      REGISTRY_SNAPSHOT_SECOND:
+        description: Protected environment snapshot fragment.
+        required: false
+      REGISTRY_SNAPSHOT_THIRD:
+        description: Protected environment snapshot fragment.
+        required: false
+      REGISTRY_SNAPSHOT_FOURTH:
+        description: Protected environment snapshot fragment.
+        required: false
+      # jscpd:ignore-end
       read-app-private-key:
         description: GitHub App PEM key for scoped private module reads.
         required: false
@@ -115,6 +143,7 @@ jobs:
       ${{ !github.event.repository.private && (contains(fromJSON('["ubuntu-24.04","ubuntu-24.04-arm","ubuntu-26.04","ubuntu-26.04-arm"]'), inputs.hosted-runner) && inputs.hosted-runner || 'ubuntu-24.04') || github.event.repository.private && ((inputs.runner-profile != '' && (contains(github.event.pull_request.labels.*.name, format('runner:github:{0}', inputs.runner-profile)) || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == inputs.runner-profile))) && fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || (contains(github.event.pull_request.labels.*.name, 'runner:github') || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner == 'github' && github.event.inputs['runner-profile'] == '')) && (fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-26","windows-x64":"windows-2025"}')[inputs.runner-profile] || 'ubuntu-24.04')
       || (github.event_name == 'pull_request' && github.event.sender.type == 'Bot' && github.event.pull_request.user.type == 'Bot' && github.actor == github.triggering_actor && !startsWith(github.head_ref, 'release/') && fromJSON('{"nddev-linux-bounded":"nddev-linux-bounded-maintenance","nddev-linux-light":"nddev-linux-light-maintenance","nddev-linux-small":"nddev-linux-small-maintenance","nddev-linux-standart":"nddev-linux-standart-maintenance","nddev-macos":"nddev-macos-maintenance","nddev-windows":"nddev-windows-maintenance"}')[inputs.runner] || inputs.runner)) || '' }}
     timeout-minutes: ${{ inputs.timeout-minutes }}
+    environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       digest: ${{ steps.push-oci.outputs.digest }}
@@ -139,6 +168,14 @@ jobs:
         with:
           managed: ${{ runner.environment == 'self-hosted' }}
           artifact-registry: ${{ inputs.artifact-registry }}
+          registry-commit: ${{ inputs.registry-commit }}
+          registry-snapshot-sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
+          registry-snapshot-first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
+          registry-snapshot-second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
+          registry-snapshot-third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
+          registry-snapshot-fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+          toolchains: ${{ inputs.toolchains }}
+          just-version: ${{ inputs.just-version }}
           working-directory: ${{ inputs.working-directory }}
           submodules: ${{ inputs.submodules }}
           read-keys: ${{ secrets.read-keys }}
@@ -189,7 +226,7 @@ jobs:
           status: ${{ job.status }}
           check-run-id: ${{ job.check_run_id }}
           project-outcome: ${{ steps.archive.outcome }}
-          failure-reason: ${{ steps.archive.outcome == 'failure' && 'nextest-archive-failed' || steps.push-oci.outputs.failure-reason || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
+          failure-reason: ${{ steps.archive.outcome == 'failure' && 'nextest-archive-failed' || steps.push-oci.outputs.failure-reason || steps.setup.outputs.registry-failure-reason || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
           runner-reason: ${{ steps.setup.outputs.runner-reason || steps.archive.outputs.runner-reason }}
           upstream-reason: ${{ steps.archive.outputs.upstream-reason || steps.push-oci.outputs.upstream-reason }}
           task: nextest archive
@@ -213,6 +250,7 @@ jobs:
       || (github.event_name == 'pull_request' && github.event.sender.type == 'Bot' && github.event.pull_request.user.type == 'Bot' && github.actor == github.triggering_actor && !startsWith(github.head_ref, 'release/') && fromJSON('{"nddev-linux-bounded":"nddev-linux-bounded-maintenance","nddev-linux-light":"nddev-linux-light-maintenance","nddev-linux-small":"nddev-linux-small-maintenance","nddev-linux-standart":"nddev-linux-standart-maintenance","nddev-macos":"nddev-macos-maintenance","nddev-windows":"nddev-windows-maintenance"}')[inputs.runner] || inputs.runner)) || '' }}
     # jscpd:ignore-end
     timeout-minutes: ${{ inputs.timeout-minutes }}
+    environment: ${{ inputs.registry-commit != '' && format('registry-input-{0}', inputs.registry-commit) || '' }}
     steps:
       # jscpd:ignore-start -- shared actions/prepare contract
       - name: Prepare shard runner
@@ -221,6 +259,14 @@ jobs:
         with:
           managed: ${{ runner.environment == 'self-hosted' }}
           artifact-registry: ${{ inputs.artifact-registry }}
+          registry-commit: ${{ inputs.registry-commit }}
+          registry-snapshot-sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
+          registry-snapshot-first: ${{ secrets.REGISTRY_SNAPSHOT_FIRST }}
+          registry-snapshot-second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
+          registry-snapshot-third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
+          registry-snapshot-fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+          toolchains: ${{ inputs.toolchains }}
+          just-version: ${{ inputs.just-version }}
           working-directory: ${{ inputs.working-directory }}
           submodules: ${{ inputs.submodules }}
           rust-version: ${{ inputs.rust-version }}
@@ -265,7 +311,7 @@ jobs:
           status: ${{ job.status }}
           check-run-id: ${{ job.check_run_id }}
           project-outcome: ${{ steps.run.outcome }}
-          failure-reason: ${{ steps.run.outcome == 'failure' && 'nextest-shard-failed' || steps.pull-oci.outputs.failure-reason || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
+          failure-reason: ${{ steps.run.outcome == 'failure' && 'nextest-shard-failed' || steps.pull-oci.outputs.failure-reason || steps.setup.outputs.registry-failure-reason || (steps.setup.outcome == 'failure' && 'setup-failed') || '' }}
           runner-reason: ${{ steps.setup.outputs.runner-reason || steps.run.outputs.runner-reason }}
           upstream-reason: ${{ steps.run.outputs.upstream-reason || steps.pull-oci.outputs.upstream-reason }}
           task: nextest shard ${{ matrix.shard.shard }}/${{ matrix.shard.total }}

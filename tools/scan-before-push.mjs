@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
-import { betterleaksVersion, commitId, scanHistory } from "../lib/secret-scan.mjs";
+import { commitId, resolveBetterleaksVersion, scanHistory } from "../lib/secret-scan.mjs";
 
 const zero = (oid) => /^0+$/.test(oid);
 function git(args, {optional = false} = {}) {
@@ -71,12 +71,13 @@ export function main(remote, destination, input, environment = process.env) {
   const proposed = [...tips].filter((oid) => !published.has(oid));
   if (!proposed.length) return;
 
+  const expectedBetterleaks = resolveBetterleaksVersion(environment);
   let version;
   try {
     version = execFileSync("betterleaks", ["version"], {encoding: "utf8", stdio: ["ignore", "pipe", "pipe"]}).trim();
-  } catch { throw new Error(`The local change scan requires Betterleaks ${betterleaksVersion}.`); }
-  if (version !== betterleaksVersion)
-    throw new Error(`The local change scan requires Betterleaks ${betterleaksVersion}.`);
+  } catch { throw new Error(`The local change scan requires Betterleaks ${expectedBetterleaks}.`); }
+  if (version !== expectedBetterleaks)
+    throw new Error(`The local change scan requires Betterleaks ${expectedBetterleaks}.`);
   scanHistory({...environment, GITHUB_WORKSPACE: git(["rev-parse", "--show-toplevel"]), RUNNER_TEMP: tmpdir()},
     {base, tips: proposed, excludes: [...published]});
 }

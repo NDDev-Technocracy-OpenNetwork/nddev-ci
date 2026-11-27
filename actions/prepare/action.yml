@@ -11,6 +11,36 @@ inputs:
   artifact-registry:
     description: Optional tool-download registry; empty uses the runner setting or official upstream sources.
     default: ''
+  registry-commit:
+    description: Optional full registry commit selected by the caller's lock.
+    default: ''
+  registry-snapshot-sha256:
+    description: SHA-256 of the uncompressed protected registry snapshot.
+    default: ''
+  registry-snapshot-first:
+    description: First fragment of the protected registry snapshot.
+    default: ''
+  registry-snapshot-second:
+    description: Second fragment of the protected registry snapshot.
+    default: ''
+  registry-snapshot-third:
+    description: Third fragment of the protected registry snapshot.
+    default: ''
+  registry-snapshot-fourth:
+    description: Fourth fragment of the protected registry snapshot.
+    default: ''
+  toolchains:
+    description: Optional comma-separated registry toolchain names resolved from NDDEV_CI_REGISTRY_SNAPSHOT.
+    default: ''
+  just-version:
+    description: Optional exact Just version for GitHub-hosted runners.
+    default: ''
+  buildx-version:
+    description: Optional exact Buildx version for GitHub-hosted runners.
+    default: ''
+  buildkit-image:
+    description: Optional digest-pinned BuildKit image for GitHub-hosted runners.
+    default: ''
   diagnostics:
     description: Report paths kept when the job fails, one per line, checked here to stay inside the workspace.
     default: ''
@@ -111,6 +141,9 @@ outputs:
   runner-reason:
     description: A failure tied to the runner's declared image builder or mirror.
     value: ${{ steps.image-builder.outputs.runner-reason }}
+  registry-failure-reason:
+    description: Short plain reason code when receiving the protected registry snapshot fails.
+    value: ${{ steps.registry-input.outputs.failure-reason }}
 runs:
   using: composite
   steps:
@@ -160,10 +193,24 @@ runs:
           echo "CARGO_BUILD_WARNINGS=deny" >> "$GITHUB_ENV"
         fi
 
+    # jscpd:ignore-start -- shared artifact-registry and actions/registry-input steps
     - name: Artifact registry
       uses: $/actions/artifact-registry
       with:
         url: ${{ inputs.artifact-registry }}
+
+    - name: Receive the protected registry input
+      id: registry-input
+      if: inputs.registry-commit != ''
+      uses: $/actions/registry-input
+      with:
+        commit: ${{ inputs.registry-commit }}
+        sha256: ${{ inputs.registry-snapshot-sha256 }}
+        first: ${{ inputs.registry-snapshot-first }}
+        second: ${{ inputs.registry-snapshot-second }}
+        third: ${{ inputs.registry-snapshot-third }}
+        fourth: ${{ inputs.registry-snapshot-fourth }}
+    # jscpd:ignore-end
 
     - name: The job's own read token for the project commands
       # Opt-in: the job's token reads only this repository's contents, and nothing else.
@@ -314,11 +361,14 @@ runs:
       uses: $/actions/frontend
       with:
         managed: ${{ inputs.managed }}
+        just-version: ${{ inputs.just-version }}
 
     - name: Prepare or verify declared SDKs
       uses: $/actions/hosted-sdk
       with:
+        # jscpd:ignore-start -- shared actions/hosted-sdk input forwarding
         managed: ${{ inputs.managed }}
+        toolchains: ${{ inputs.toolchains }}
         node-version: ${{ inputs.node-version }}
         python-version: ${{ inputs.python-version }}
         uv-version: ${{ inputs.uv-version }}
@@ -331,6 +381,7 @@ runs:
         dart-version: ${{ inputs.dart-version }}
         flutter-version: ${{ inputs.flutter-version }}
         tools: ${{ inputs.tools }}
+        # jscpd:ignore-end
 
     - name: Require the managed private native tool profile
       if: inputs.tool-assets != '' && inputs.managed == 'true'
@@ -370,3 +421,6 @@ runs:
       id: image-builder
       if: inputs.images == 'true'
       uses: $/actions/image-builder
+      with:
+        buildx-version: ${{ inputs.buildx-version }}
+        buildkit-image: ${{ inputs.buildkit-image }}
