@@ -752,12 +752,18 @@ test("unretried OCI transport failures report sanitized error codes without leak
       return true;
     },
   );
-  await assert.rejects(
-    retryableFetch((signal) => new Promise((_, reject) => {
-      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-    }), { retry: false, timeout: 40 }),
-    /The OCI registry transport did not complete \(request timeout\)\./,
-  );
+  // Keep the event loop referenced while awaiting AbortSignal.timeout on older Node runtimes.
+  const keepAlive = setTimeout(() => {}, 1000);
+  try {
+    await assert.rejects(
+      retryableFetch((signal) => new Promise((_, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      }), { retry: false, timeout: 40 }),
+      /The OCI registry transport did not complete \(request timeout\)\./,
+    );
+  } finally {
+    clearTimeout(keepAlive);
+  }
 
   const root = mkdtempSync(path.join(tmpdir(), "oci-drop-"));
   const work = path.join(root, "work");

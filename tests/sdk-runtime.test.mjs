@@ -11,7 +11,7 @@ test("the actual SDK phase scripts work without a Node SDK on PATH", () => {
   const action = readFileSync(new URL("../actions/hosted-sdk/action.yml", import.meta.url), "utf8");
   const steps = [...action.matchAll(/uses: \$\/actions\/hosted-sdk-step[\s\S]*?\n        step: (\w+)/g)]
     .map((match) => match[1]);
-  assert.deepEqual(steps, ["validate", "bun", "flutter", "dart", "verify"]);
+  assert.deepEqual(steps, ["validate", "bun", "flutter", "dart", "android", "verify"]);
   assert.doesNotMatch(action, /actions\/github-script/);
   const helperAction = readFileSync(new URL("../actions/hosted-sdk-step/action.yml", import.meta.url), "utf8");
   assert.match(helperAction, /using: node24/);
@@ -24,7 +24,8 @@ test("the actual SDK phase scripts work without a Node SDK on PATH", () => {
         INPUT_STEP: phase,
         SDK_RUNNER_ENVIRONMENT: "self-hosted", SDK_MANAGED: "true", SDK_NODE_VERSION: "", SDK_PYTHON_VERSION: "",
         SDK_BUN_VERSION: "", SDK_UV_VERSION: "", SDK_RUST_VERSION: "", SDK_JAVA_VERSION: "", SDK_GO_VERSION: "",
-        SDK_FLUTTER_VERSION: "", SDK_DART_VERSION: "", SDK_TOOLS: "", SDK_RUST_COMPONENTS: "", SDK_RUST_TARGETS: "",
+        SDK_FLUTTER_VERSION: "", SDK_DART_VERSION: "", SDK_DOTNET_VERSION: "", SDK_RUBY_VERSION: "",
+        SDK_ANDROID_SDK: "", SDK_TOOLS: "", SDK_RUST_COMPONENTS: "", SDK_RUST_TARGETS: "",
         GITHUB_OUTPUT: output, GITHUB_ENV: path.join(root, "environment")}});
       assert.equal(result.status, 0, result.stderr);
       const text = readFileSync(output, "utf8");

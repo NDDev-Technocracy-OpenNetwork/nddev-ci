@@ -397,15 +397,18 @@ Public promotion uses `ubuntu-24.04` by default. Set `hosted-runner` on `promote
 another standard Ubuntu 24.04 or 26.04 image.
 
 [hosted-sdk](actions/hosted-sdk/action.yml) prepares only selected exact Node, Python,
-uv, Bun, Rust, Temurin Java, Go, standalone Dart, stable Flutter, .NET or Ruby versions and
-selected `name@version` command-line tools. Managed runners verify those selections against
+uv, Bun, Rust, Temurin Java, Go, standalone Dart, stable Flutter, .NET, Ruby or Android SDK
+versions (`android-sdk`, or `android` / `android-*` in `toolchains`) and selected
+`name@version` command-line tools. Managed runners verify those selections against
 their prepared SDK, without sudo or global installation. A managed SDK keeps every Python
 line in uv's `UV_PYTHON_INSTALL_DIR`; the selected line goes first on `PATH` and becomes
 `UV_PYTHON`. Without it, the `python` on `PATH` must have that version. External runners bootstrap
-them through the pinned upstream actions. Preparation uses the embedded action
-runtime, so it requires no preinstalled Node SDK.
+them through the pinned upstream actions or verified official release manifests (Flutter,
+standalone Dart and Android SDK packages from Google's `repository2-3.xml`, with exact size,
+digest, `package.xml` and license preparation in the same `ANDROID_HOME` layout as managed
+runners). Preparation uses the embedded action runtime, so it requires no preinstalled Node SDK.
 
-Linux and Windows ARM64 reject Flutter; Windows ARM64 rejects Temurin Java.
+Linux and Windows ARM64 reject Flutter and Android SDK; Windows ARM64 rejects Temurin Java.
 For standalone Dart, use `dart-version`. On hosted runners the stable archive is verified against
 its official SHA-256 before use. Managed runners verify their installed Dart executable.
 Native tools such as FFmpeg require a separately qualified provider and the project's

@@ -19,6 +19,10 @@ export async function runStep(step, environment = process.env) {
     const { install } = await import("../hosted-sdk/dart.mjs");
     return await install(environment);
   }
+  if (step === "android") {
+    const { install } = await import("../hosted-sdk/android.mjs");
+    return await install(environment);
+  }
   throw new ActionError("Unknown hosted SDK helper step.");
 }
 

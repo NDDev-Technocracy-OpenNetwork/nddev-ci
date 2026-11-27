@@ -49,8 +49,9 @@ jobs:
       JAVA_VERSION: '25.0.5.1+2'
       FLUTTER_VERSION: '3.47.9'
       DART_VERSION: '3.13.7'
+      ANDROID_SDK: 'cmdline-tools@23.0,platform-tools@37.0.3,build-tools@37.0.0,platform@37.0'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -80,17 +81,20 @@ jobs:
           dotnet-version: '11.0.100'
           ruby-version: '4.0.10'
           tools: cargo-nextest@0.9.152
-          # Flutter publishes its Linux and Windows SDK for x64 only.
+          # Flutter and Android SDK publish Linux and Windows binaries for x64 only.
           flutter-version: ${{ (runner.os == 'macOS' || runner.arch == 'X64') && env.FLUTTER_VERSION || '' }}
+          android-sdk: ${{ (runner.os == 'macOS' || runner.arch == 'X64') && env.ANDROID_SDK || '' }}
       - name: Require measured SDK versions
         id: expected
         env:
           SDK_RECEIPT: ${{ steps.sdk.outputs.receipt }}
           SDK_JAVA_VERSION: ${{ (runner.os != 'Windows' || runner.arch != 'ARM64') && env.JAVA_VERSION || '' }}
           SDK_FLUTTER_VERSION: ${{ (runner.os == 'macOS' || runner.arch == 'X64') && env.FLUTTER_VERSION || '' }}
+          SDK_ANDROID_SDK: ${{ (runner.os == 'macOS' || runner.arch == 'X64') && env.ANDROID_SDK || '' }}
         run: >-
           bun -e "import fs from 'node:fs'; import path from 'node:path'; import assert from 'node:assert/strict';
           import {sdkInputs} from './lib/renovate-sdk.mjs'; import {selections} from './actions/hosted-sdk/run.mjs';
+          import {parseAndroidSdkSpec} from './actions/hosted-sdk/android.mjs';
           const source=Bun.YAML.parse(fs.readFileSync('.github/workflows/recipe-smoke.yml','utf8')).jobs.native.steps;
           const request=id=>{
             const declaration=source.find(step=>step.id===id)?.with;
@@ -113,12 +117,69 @@ jobs:
           };
           const requests={sdk:request('sdk'),warm:request('sdk-again')};
           const requireVersions=versions=>{for(const [name,version] of Object.entries(requests.sdk.expected))if(versions[name]!==version)throw Error('SDK receipt mismatch: '+name);};
-          const measured=JSON.parse(process.env.SDK_RECEIPT).versions; requireVersions(measured);
+          const receipt=JSON.parse(process.env.SDK_RECEIPT);
+          const measured=receipt.versions; requireVersions(measured);
           for(const name of Object.keys(requests.sdk.expected))for(const value of [undefined,'incorrect'])assert.throws(()=>requireVersions({...measured,[name]:value}),/SDK receipt mismatch:/);
+          const expectedAndroid=parseAndroidSdkSpec(process.env.SDK_ANDROID_SDK??'').versions;
+          if(Object.keys(expectedAndroid).length){assert.deepEqual(receipt.android,expectedAndroid);}
           fs.writeFileSync(path.join(process.env.RUNNER_TEMP,'sdk-requests.json'),JSON.stringify(requests));
           fs.appendFileSync(process.env.GITHUB_OUTPUT,Object.entries(requests.sdk.environment).map(([key,value])=>key+'='+value).join('\n')+'\n')"
       - name: Require the declared tool at its version
         run: cargo nextest --version
+      - name: Build and verify a real Android APK with the prepared SDK
+        if: runner.os != 'Windows' && (runner.os == 'macOS' || runner.arch == 'X64')
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --sdk_root="$ANDROID_HOME" --list_installed
+          adb --version
+          work="$RUNNER_TEMP/android-apk-smoke"
+          rm -rf "$work"
+          mkdir -p "$work/res/values" "$work/src/com/example/smoke" "$work/gen" "$work/classes" "$work/dex"
+          cat > "$work/AndroidManifest.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.example.smoke" android:versionCode="1" android:versionName="1.0">
+            <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="37" />
+            <application android:label="@string/app_name">
+              <activity android:name=".MainActivity" android:exported="true">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN" />
+                  <category android:name="android.intent.category.LAUNCHER" />
+                </intent-filter>
+              </activity>
+            </application>
+          </manifest>
+          XML
+          cat > "$work/res/values/strings.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+            <string name="app_name">Smoke</string>
+          </resources>
+          XML
+          cat > "$work/src/com/example/smoke/MainActivity.java" <<'JAVA'
+          package com.example.smoke;
+          import android.app.Activity;
+          import android.os.Bundle;
+          public final class MainActivity extends Activity {
+            @Override protected void onCreate(Bundle savedInstanceState) {
+              super.onCreate(savedInstanceState);
+              setTitle(R.string.app_name);
+            }
+          }
+          JAVA
+          bt="$ANDROID_HOME/build-tools/37.0.0"
+          jar="$ANDROID_HOME/platforms/android-37.0/android.jar"
+          "$bt/aapt2" compile "$work/res/values/strings.xml" -o "$work/res.zip"
+          "$bt/aapt2" link -I "$jar" --manifest "$work/AndroidManifest.xml" --java "$work/gen" -o "$work/unsigned.apk" "$work/res.zip"
+          javac --release 17 -cp "$jar" -d "$work/classes" "$work/gen/com/example/smoke/R.java" "$work/src/com/example/smoke/MainActivity.java"
+          find "$work/classes" -name '*.class' -print0 | xargs -0 "$bt/d8" --lib "$jar" --min-api 26 --output "$work/dex"
+          (cd "$work/dex" && zip -q "$work/unsigned.apk" classes.dex)
+          "$bt/zipalign" -p 4 "$work/unsigned.apk" "$work/aligned.apk"
+          pass=$(node -e 'process.stdout.write(require("node:crypto").randomBytes(12).toString("hex"))')
+          keytool -genkeypair -keystore "$work/smoke.jks" -storepass "$pass" -keypass "$pass" -alias smoke -keyalg RSA -keysize 2048 -validity 1 -dname "CN=Smoke"
+          "$bt/apksigner" sign --ks "$work/smoke.jks" --ks-pass "pass:$pass" --key-pass "pass:$pass" --out "$work/signed.apk" "$work/aligned.apk"
+          "$bt/apksigner" verify --verbose "$work/signed.apk"
+          rm -rf "$work"
       - name: Prepare the same SDKs again from the tool cache
         id: sdk-again
         uses: $/actions/hosted-sdk
