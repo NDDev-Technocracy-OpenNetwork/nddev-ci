@@ -3,9 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { deflateRawSync } from "node:zlib";
 import { resolveSelectionEnvironment } from "../actions/hosted-sdk/run.mjs";
-import { extractZipMember, prepareMergeStopTools } from "../actions/merge-stops/prepare-tools.mjs";
+import { prepareMergeStopTools } from "../actions/merge-stops/prepare-tools.mjs";
 import { prepareSecurityTools } from "../actions/security-tools/run.mjs";
 import { prepareScanner } from "../lib/dependency-scan.mjs";
 import { checkTool, loadRegistrySnapshot, resolveTool } from "../lib/registry-resolve.mjs";
@@ -107,43 +106,6 @@ test("tool kind resolves bare tool names and verifies versions against registry 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
-});
-
-test("extractZipMember extracts a deflated member in pure Node without Python", () => {
-  const payload = Buffer.from("#!/bin/sh\necho zizmor 1.33.0\n");
-  const compressed = deflateRawSync(payload);
-  const name = Buffer.from("zizmor-1.33.0.data/scripts/zizmor", "utf8");
-  const local = Buffer.alloc(30 + name.length);
-  local.writeUInt32LE(0x04034b50, 0);
-  local.writeUInt16LE(20, 4);
-  local.writeUInt16LE(8, 8);
-  local.writeUInt32LE(compressed.length, 18);
-  local.writeUInt32LE(payload.length, 22);
-  local.writeUInt16LE(name.length, 26);
-  name.copy(local, 30);
-
-  const central = Buffer.alloc(46 + name.length);
-  central.writeUInt32LE(0x02014b50, 0);
-  central.writeUInt16LE(20, 4);
-  central.writeUInt16LE(20, 6);
-  central.writeUInt16LE(8, 10);
-  central.writeUInt32LE(compressed.length, 20);
-  central.writeUInt32LE(payload.length, 24);
-  central.writeUInt16LE(name.length, 28);
-  central.writeUInt32LE(0, 42);
-  name.copy(central, 46);
-
-  const cdOffset = local.length + compressed.length;
-  const eocd = Buffer.alloc(22);
-  eocd.writeUInt32LE(0x06054b50, 0);
-  eocd.writeUInt16LE(1, 8);
-  eocd.writeUInt16LE(1, 10);
-  eocd.writeUInt32LE(central.length, 12);
-  eocd.writeUInt32LE(cdOffset, 16);
-
-  const zip = Buffer.concat([local, compressed, central, eocd]);
-  assert.deepEqual(extractZipMember(zip, "zizmor-1.33.0.data/scripts/zizmor"), payload);
-  assert.throws(() => extractZipMember(zip, "missing"), /does not contain/);
 });
 
 test("managed merge-stops, security-tools and dependency-scan resolve tools from RUNNER_TOOL_CACHE and snapshot", {

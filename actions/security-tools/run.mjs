@@ -1,24 +1,16 @@
 // Prepares daily security scan tools for security.yml without hardcoded managed versions.
 // Managed runners resolve verified binaries from NDDEV_CI_REGISTRY_SNAPSHOT and RUNNER_TOOL_CACHE.
-// Hosted runners take explicit caller tool-pins or fall back to isolated hosted compatibility pins.
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-} from "node:fs";
+// Hosted runners take explicit caller tool-pins, registry snapshot digests, or isolated compatibility pins.
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { hostedSecurityToolPins } from "../../lib/hosted-compat-pins.mjs";
-import { loadRegistrySnapshot, resolveTool } from "../../lib/registry-resolve.mjs";
+import { loadRegistrySnapshot } from "../../lib/registry-resolve.mjs";
 import { ActionError } from "../../lib/release-asset.mjs";
 import { managedRunner } from "../../lib/runner-profile.mjs";
 import {
-  downloadGitHubReleaseAsset,
-  installTarOrBinary,
+  installHostedTool,
   linkManagedTool,
   parseCallerPins,
-  resolvePinDigest,
   runActionCli,
 } from "../../lib/tool-prepare.mjs";
 
@@ -29,7 +21,6 @@ const scannerSpecs = Object.freeze([
     repository: "trufflesecurity/trufflehog",
     asset: (v, a) => `trufflehog_${v}_linux_${a === "x64" ? "amd64" : "arm64"}.tar.gz`,
     tarMember: "trufflehog",
-    access: "token",
   },
   {
     name: "kingfisher",
@@ -37,7 +28,6 @@ const scannerSpecs = Object.freeze([
     repository: "mongodb/kingfisher",
     asset: (_v, a) => `kingfisher-linux-${a === "x64" ? "x64" : "arm64"}.tgz`,
     tarMember: "kingfisher",
-    access: "token",
   },
   {
     name: "osv-scanner",
@@ -45,7 +35,6 @@ const scannerSpecs = Object.freeze([
     repository: "google/osv-scanner",
     asset: (_v, a) => `osv-scanner_linux_${a === "x64" ? "amd64" : "arm64"}`,
     tarMember: "",
-    access: "token",
   },
   {
     name: "syft",
@@ -53,7 +42,6 @@ const scannerSpecs = Object.freeze([
     repository: "anchore/syft",
     asset: (v, a) => `syft_${v}_linux_${a === "x64" ? "amd64" : "arm64"}.tar.gz`,
     tarMember: "syft",
-    access: "token",
   },
   {
     name: "grype",
@@ -61,7 +49,6 @@ const scannerSpecs = Object.freeze([
     repository: "anchore/grype",
     asset: (v, a) => `grype_${v}_linux_${a === "x64" ? "amd64" : "arm64"}.tar.gz`,
     tarMember: "grype",
-    access: "token",
   },
   {
     name: "trivy",
@@ -69,36 +56,8 @@ const scannerSpecs = Object.freeze([
     repository: "aquasecurity/trivy",
     asset: (v, a) => `trivy_${v}_Linux-${a === "x64" ? "64bit" : "ARM64"}.tar.gz`,
     tarMember: "trivy",
-    // Trivy's upstream restricts organization-token access; always use public access.
-    access: "public",
   },
 ]);
-
-function downloadHostedScanner(spec, pin, arch, binDir, stagingDir, environment) {
-  const { version, expectedSha } = resolvePinDigest(spec.name, pin, arch);
-  const archive = path.join(stagingDir, `${spec.name}.download`);
-  const token = spec.access === "token"
-    ? (environment["INPUT_GITHUB-TOKEN"] ?? environment.GH_TOKEN ?? "").trim()
-    : "";
-  downloadGitHubReleaseAsset({
-    toolName: spec.name,
-    repository: spec.repository,
-    tag: `v${version}`,
-    assetName: spec.asset(version, arch),
-    expectedSha,
-    archivePath: archive,
-    token,
-    environment,
-  });
-  installTarOrBinary({
-    toolName: spec.name,
-    archivePath: archive,
-    tarMember: spec.tarMember,
-    stagingDir,
-    targetPath: path.join(binDir, spec.name),
-    environment,
-  });
-}
 
 export function prepareSecurityTools(environment = process.env) {
   if (process.platform !== "linux" || !["x64", "arm64"].includes(process.arch)) {
@@ -124,21 +83,28 @@ export function prepareSecurityTools(environment = process.env) {
     }
   } else {
     const callerPins = parseCallerPins(environment["INPUT_TOOL-PINS"] ?? environment.TOOL_PINS);
-    const fallbackPins = hostedSecurityToolPins(environment);
-    const staging = mkdtempSync(path.join(tempRoot, "nddev-security-tools-"));
+    const loadFallbackPins = () => hostedSecurityToolPins(environment);
+    const stagingDir = mkdtempSync(path.join(tempRoot, "nddev-security-tools-"));
     try {
       for (const spec of scannerSpecs) {
-        const pin = callerPins[spec.name] ?? fallbackPins[spec.name];
-        if (!pin) throw new ActionError(`No hosted pin configured for security tool ${spec.name}.`);
-        if (snapshot) resolveTool(snapshot, spec.name, pin.version);
-        const target = path.join(binDir, spec.name);
-        if (existsSync(target)) rmSync(target, { force: true });
-        downloadHostedScanner(spec, pin, process.arch, binDir, staging, environment);
-        versions[spec.name] = pin.version;
-        envExports.push(`${spec.envVar}=${pin.version}`);
+        const chosen = installHostedTool({
+          toolName: spec.name,
+          defaultRepository: spec.repository,
+          defaultAsset: spec.asset,
+          tarMember: spec.tarMember,
+          callerPins,
+          loadFallbackPins,
+          snapshot,
+          arch: process.arch,
+          binDir,
+          stagingDir,
+          environment,
+        });
+        versions[spec.name] = chosen.version;
+        envExports.push(`${spec.envVar}=${chosen.version}`);
       }
     } finally {
-      rmSync(staging, { recursive: true, force: true });
+      rmSync(stagingDir, { recursive: true, force: true });
     }
   }
 

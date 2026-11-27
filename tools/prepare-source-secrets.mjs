@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const detectorVersion = "1.10.1";
 const detectorDigests = new Map([
@@ -40,11 +41,11 @@ function ready(directory, identity) {
   return complete(directory) && existsSync(marker) && readFileSync(marker, "utf8") === identity;
 }
 
-function install(destination, scanner) {
+function fallbackDetector() {
   const platform = process.platform + "_" + process.arch;
   const digest = detectorDigests.get(platform);
   if (!digest) throw new Error("The source scanner has no Betterleaks asset for " + platform + ".");
-  const detector = {
+  return {
     release:
       "betterleaks/betterleaks/releases/download/v" +
       detectorVersion +
@@ -55,10 +56,35 @@ function install(destination, scanner) {
       ".tar.gz",
     digest,
   };
+}
 
-  const identity = scanner.digest + " " + detector.digest + "\n";
-  if (ready(destination, identity)) return;
-  if (existsSync(destination)) throw new Error("The destination contains a different source checker.");
+async function resolveDetectorFromSnapshot(sourceRoot) {
+  if (!(process.env.NDDEV_CI_REGISTRY_SNAPSHOT ?? "").trim()) return null;
+  const resolverPath = path.join(sourceRoot, "lib", "registry-resolve.mjs");
+  if (!existsSync(resolverPath)) return null;
+  const { loadRegistrySnapshot, resolveToolDigest } = await import(pathToFileURL(resolverPath).href);
+  const snapshot = loadRegistrySnapshot(process.env);
+  if (!snapshot) return null;
+  const digest = resolveToolDigest(snapshot, "betterleaks", {
+    target: `${process.platform}-${process.arch}`,
+    optional: true,
+  });
+  if (!digest) return null;
+  const repo = digest.repository || "betterleaks/betterleaks";
+  return {
+    release: `${repo}/releases/download/v${digest.version}/${digest.asset}`,
+    digest: digest.sha256,
+  };
+}
+
+async function install(destination, scanner) {
+  const hasSnapshot = Boolean((process.env.NDDEV_CI_REGISTRY_SNAPSHOT ?? "").trim());
+  const defaultDetector = hasSnapshot ? null : fallbackDetector();
+  if (defaultDetector) {
+    const identity = scanner.digest + " " + defaultDetector.digest + "\n";
+    if (ready(destination, identity)) return;
+    if (existsSync(destination)) throw new Error("The destination contains a different source checker.");
+  }
 
   const parent = path.dirname(destination);
   mkdirSync(parent, { recursive: true });
@@ -68,6 +94,11 @@ function install(destination, scanner) {
     download(scanner, archive);
     run("unzip", ["-q", archive, "-d", stage]);
     const source = path.join(stage, "nddev-ci");
+    const detector = (await resolveDetectorFromSnapshot(source)) ?? fallbackDetector();
+    const identity = scanner.digest + " " + detector.digest + "\n";
+    if (ready(destination, identity)) return;
+    if (existsSync(destination)) throw new Error("The destination contains a different source checker.");
+
     const bin = path.join(source, "bin");
     mkdirSync(bin);
     const tar = path.join(stage, "betterleaks.tar.gz");
@@ -93,7 +124,7 @@ try {
   ) {
     throw new Error("Usage: prepare-source-secrets.mjs <destination> <release-tag> <archive-sha256>");
   }
-  install(path.resolve(destination), {
+  await install(path.resolve(destination), {
     release: "NDDev-Technocracy-OpenNetwork/nddev-ci/releases/download/" + tag + "/scan-before-push.zip",
     digest,
   });
