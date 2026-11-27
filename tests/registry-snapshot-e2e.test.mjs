@@ -118,7 +118,10 @@ lines = [{ version = "${v.actionVersion}", role = "latest", commit = "${v.action
         sourceUrl: actionRepo,
       });
       assert.equal(staged.commit, v.actionCommit);
-      assert.equal(readFileSync(path.join(staged.directory, "action.yml"), "utf8"), `name: Checkout ${tag.toUpperCase()}\n`);
+      assert.equal(
+        readFileSync(path.join(staged.directory, "action.yml"), "utf8").replace(/\r\n/g, "\n"),
+        `name: Checkout ${tag.toUpperCase()}\n`,
+      );
     }
 
     // Also prove managed `just` switches from V1 -> V2 automatically when snapshot bumps (POSIX).
