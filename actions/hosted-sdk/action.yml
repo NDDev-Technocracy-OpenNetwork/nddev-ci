@@ -6,7 +6,7 @@ inputs:
     default: ''
   toolchains:
     description: >-
-      Optional comma-separated registry toolchain names (such as node,rust,python,uv,bun,go,java,dart,flutter,dotnet,ruby)
+      Optional comma-separated registry toolchain names (such as node,rust,python,uv,bun,go,java,dart,flutter,dotnet,ruby,android)
       resolved from NDDEV_CI_REGISTRY_SNAPSHOT when present.
     default: ''
   node-version:
@@ -45,6 +45,12 @@ inputs:
   ruby-version:
     description: Optional exact Ruby version, such as 4.0.10.
     default: ''
+  android-sdk:
+    description: >-
+      Optional comma-separated Android SDK packages as name@exact-version (or bare names when
+      NDDEV_CI_REGISTRY_SNAPSHOT is set): cmdline-tools, platform-tools, build-tools, platform,
+      ndk, cmake (each also accepted with an android- prefix).
+    default: ''
   tools:
     description: >-
       Optional comma-separated name@exact-version command-line tools (or bare registry names when
@@ -81,6 +87,7 @@ runs:
         SDK_DART_VERSION: ${{ inputs.dart-version }}
         SDK_DOTNET_VERSION: ${{ inputs.dotnet-version }}
         SDK_RUBY_VERSION: ${{ inputs.ruby-version }}
+        SDK_ANDROID_SDK: ${{ inputs.android-sdk }}
         SDK_TOOLS: ${{ inputs.tools }}
       with:
         step: validate
@@ -185,6 +192,15 @@ runs:
         bundler: none
         bundler-cache: false
         windows-toolchain: none
+    # Android SDK packages are resolved directly from Google's official repository2-3.xml manifest,
+    # verified by published size and checksum, and installed in the managed ANDROID_HOME layout.
+    - name: Prepare the exact Android SDK
+      if: steps.validate.outputs.bootstrap == 'true' && steps.validate.outputs.android-sdk != ''
+      uses: $/actions/hosted-sdk-step
+      env:
+        SDK_ANDROID_SDK: ${{ steps.validate.outputs.android-sdk }}
+      with:
+        step: android
     # install-action verifies each archive against its checksum manifest; nothing is compiled
     # and no other source is tried.
     - name: Prepare the declared tools

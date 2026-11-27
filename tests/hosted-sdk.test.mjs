@@ -7,6 +7,7 @@ import path from "node:path";
 import { cachePlan, imageKey, javaVersion, main, managedPython, managedTools, selections, supported, verify } from "../actions/hosted-sdk/run.mjs";
 import { selectRelease } from "../actions/hosted-sdk/flutter.mjs";
 import { dartArchive, dartDigest } from "../actions/hosted-sdk/dart.mjs";
+import { parseAndroidPackage, parseAndroidSdkSpec, writeAndroidLicenses } from "../actions/hosted-sdk/android.mjs";
 
 const hosted = {SDK_RUNNER_ENVIRONMENT: "github-hosted"};
 
@@ -566,5 +567,231 @@ test("managed SDK resolves Temurin JDK, uv arch aliases, Flutter, Dart, Rust too
     }
   } finally {
     rmSync(root, {recursive: true, force: true});
+  }
+});
+
+const sampleAndroidManifest = `<?xml version="1.0" encoding="UTF-8"?>
+<sdk:sdk-repository xmlns:sdk="http://schemas.android.com/sdk/android/repo/repository2/03" xmlns:common="http://schemas.android.com/repository/android/common/02" xmlns:generic="http://schemas.android.com/repository/android/generic/02" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <license id="android-sdk-license" type="text">Terms and Conditions</license>
+  <remotePackage path="cmdline-tools;23.0">
+    <type-details xsi:type="generic:genericDetailsType"/>
+    <revision><major>23</major><minor>0</minor></revision>
+    <display-name>Android SDK Command-line Tools</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <channelRef ref="channel-0"/>
+    <archives>
+      <archive>
+        <complete><size>181052239</size><checksum type="sha1">e025545c62a8e64c7559119566a569fb1dec5f60</checksum><url>commandlinetools-linux-16111833_latest.zip</url></complete>
+        <host-os>linux</host-os>
+      </archive>
+      <archive>
+        <complete><size>155582504</size><checksum type="sha1">112cf9618794a997ff273537d55bee02c22abffe</checksum><url>commandlinetools-mac_x86_64-16111833_latest.zip</url></complete>
+        <host-os>macosx</host-os>
+        <host-arch>x64</host-arch>
+      </archive>
+      <archive>
+        <complete><size>155384151</size><checksum type="sha1">ad03dc49bfacfd52c110b14104ea548b8a07e830</checksum><url>commandlinetools-mac_arm64-16111833_latest.zip</url></complete>
+        <host-os>macosx</host-os>
+        <host-arch>aarch64</host-arch>
+      </archive>
+      <archive>
+        <complete><size>154957218</size><checksum type="sha1">57d04f2d75eb8e8fffc5000a987e5de4b5a63e9d</checksum><url>commandlinetools-win-16111833_latest.zip</url></complete>
+        <host-os>windows</host-os>
+      </archive>
+    </archives>
+  </remotePackage>
+  <remotePackage path="platform-tools">
+    <type-details xsi:type="generic:genericDetailsType"/>
+    <revision><major>37</major><minor>0</minor><micro>3</micro></revision>
+    <display-name>Android SDK Platform-Tools</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <channelRef ref="channel-0"/>
+    <archives>
+      <archive>
+        <complete><size>9571024</size><checksum type="sha1">e1579b288a7ae4e9bc28dedec6a154d78b3c04ed</checksum><url>platform-tools_r37.0.3-linux.zip</url></complete>
+        <host-os>linux</host-os>
+      </archive>
+      <archive>
+        <complete><size>16597626</size><checksum type="sha1">d48920e2650321710b4d15d3acd9e277d59cd55b</checksum><url>platform-tools_r37.0.3-darwin.zip</url></complete>
+        <host-os>macosx</host-os>
+      </archive>
+    </archives>
+  </remotePackage>
+  <remotePackage path="platforms;android-37.0">
+    <type-details xsi:type="sdk:platformDetailsType"><api-level>37.0</api-level></type-details>
+    <revision><major>2</major></revision>
+    <display-name>Android SDK Platform 37.0</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <channelRef ref="channel-0"/>
+    <archives>
+      <archive>
+        <complete><size>67281901</size><checksum type="sha1">ed8ebf7f8822a4de5686d427f237d2fa30ff7410</checksum><url>platform-37.0_r02.zip</url></complete>
+      </archive>
+    </archives>
+  </remotePackage>
+  <remotePackage path="cmake;4.1.2">
+    <type-details xsi:type="generic:genericDetailsType"/>
+    <revision><major>4</major><minor>1</minor><micro>2</micro></revision>
+    <display-name>CMake 4.1.2</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <channelRef ref="channel-0"/>
+    <archives>
+      <archive>
+        <complete><size>31275750</size><checksum type="sha1">c8c4f1c19b75c56f28b9dcf1af928d25cf1a1471</checksum><url>cmake-4.1.2-linux.zip</url></complete>
+        <host-os>linux</host-os>
+      </archive>
+    </archives>
+  </remotePackage>
+  <remotePackage path="build-tools;37.0.0">
+    <type-details xsi:type="generic:genericDetailsType"/>
+    <revision><major>37</major><minor>0</minor><micro>0</micro></revision>
+    <display-name>Android SDK Build-Tools 37</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <channelRef ref="channel-1"/>
+    <archives>
+      <archive>
+        <complete><size>66135704</size><checksum type="sha1">70954e99f4c3d9d46ee70fa32624672fe7cd6ebe</checksum><url>build-tools_r37_linux.zip</url></complete>
+        <host-os>linux</host-os>
+      </archive>
+    </archives>
+  </remotePackage>
+</sdk:sdk-repository>
+`;
+
+test("Android SDK specs and repository2-3.xml resolution enforce exact stable packages and platform support", () => {
+  const parsed = parseAndroidSdkSpec("android-cmdline-tools@23.0,platform-tools@37.0.3,build-tools@37.0.0,platform@37.0,ndk@28.2.13676358,cmake@3.22.1");
+  assert.equal(parsed.normalized, "cmdline-tools@23.0,platform-tools@37.0.3,build-tools@37.0.0,platform@37.0,ndk@28.2.13676358,cmake@3.22.1");
+  assert.deepEqual(parsed.versions, {
+    "cmdline-tools": "23.0",
+    "platform-tools": "37.0.3",
+    "build-tools": "37.0.0",
+    platform: "37.0",
+    ndk: "28.2.13676358",
+    cmake: "3.22.1",
+  });
+  for (const bad of ["cmdline-tools", "unknown@1.0.0", "ndk@1.0.0,android-ndk@2.0.0", "build-tools@latest", "platform@android-37"]) {
+    assert.throws(() => parseAndroidSdkSpec(bad), bad);
+  }
+
+  const linCmd = parseAndroidPackage(sampleAndroidManifest, "cmdline-tools", "23.0", "linux", "x64");
+  assert.equal(linCmd.filename, "commandlinetools-linux-16111833_latest.zip");
+  assert.equal(linCmd.size, 181052239);
+  assert.equal(linCmd.algorithm, "sha1");
+  assert.equal(linCmd.strip, 1);
+  assert.match(linCmd.packageXml, /<localPackage path="cmdline-tools;23\.0" obsolete="false">/);
+  assert.doesNotMatch(linCmd.packageXml, /<archives>|<channelRef/);
+
+  const macArmCmd = parseAndroidPackage(sampleAndroidManifest, "cmdline-tools", "23.0", "darwin", "arm64");
+  assert.equal(macArmCmd.filename, "commandlinetools-mac_arm64-16111833_latest.zip");
+  const macX64Cmd = parseAndroidPackage(sampleAndroidManifest, "cmdline-tools", "23.0", "darwin", "x64");
+  assert.equal(macX64Cmd.filename, "commandlinetools-mac_x86_64-16111833_latest.zip");
+  const winCmd = parseAndroidPackage(sampleAndroidManifest, "cmdline-tools", "23.0", "win32", "x64");
+  assert.equal(winCmd.filename, "commandlinetools-win-16111833_latest.zip");
+
+  const pt = parseAndroidPackage(sampleAndroidManifest, "platform-tools", "37.0.3", "linux", "x64");
+  assert.equal(pt.filename, "platform-tools_r37.0.3-linux.zip");
+  assert.throws(() => parseAndroidPackage(sampleAndroidManifest, "platform-tools", "37.0.2", "linux", "x64"), /no single stable/);
+
+  const plat = parseAndroidPackage(sampleAndroidManifest, "platform", "37.0", "darwin", "arm64");
+  assert.equal(plat.filename, "platform-37.0_r02.zip");
+
+  const cm = parseAndroidPackage(sampleAndroidManifest, "cmake", "4.1.2", "linux", "x64");
+  assert.equal(cm.strip, 0);
+
+  // Non-stable channel-1 package is rejected.
+  assert.throws(() => parseAndroidPackage(sampleAndroidManifest, "build-tools", "37.0.0", "linux", "x64"), /no single stable/);
+  // Unsupported host architectures are rejected.
+  assert.throws(() => parseAndroidPackage(sampleAndroidManifest, "cmdline-tools", "23.0", "linux", "arm64"), /x64 or macOS/);
+  assert.throws(() => parseAndroidPackage(sampleAndroidManifest, "cmdline-tools", "23.0", "win32", "arm64"), /x64 or macOS/);
+  assert.throws(() => supported({}, "linux", "arm64", parsed.entries), /x64 or macOS/);
+  assert.throws(() => supported({}, "win32", "arm64", parsed.entries), /x64 or macOS/);
+  supported({}, "linux", "x64", parsed.entries);
+  supported({}, "darwin", "arm64", parsed.entries);
+});
+
+test("Android SDK cache planning, license acceptance and managed verification follow the managed ANDROID_HOME layout", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "android-sdk-verify-"));
+  try {
+    const cache = path.join(root, "cache");
+    const plan = cachePlan({
+      ...hosted,
+      RUNNER_TOOL_CACHE: cache,
+      ImageOS: "ubuntu24",
+      RUNNER_ARCH: "X64",
+      SDK_ANDROID_SDK: "platform-tools@37.0.3,cmdline-tools@23.0",
+    });
+    assert.equal(plan.key, "nddev-sdk-v1-ubuntu24-X64-android-cmdline-tools-23.0-android-platform-tools-37.0.3");
+    assert.deepEqual(plan.paths, [
+      path.join(cache, "android", "cmdline-tools", "23.0"),
+      path.join(cache, "android", "platform-tools"),
+      path.join(cache, "android", "licenses"),
+    ]);
+
+    const androidHome = path.join(cache, "android");
+    writeAndroidLicenses(androidHome, [{ licenseId: "android-sdk-license", licenseText: "Terms and Conditions" }]);
+    const licText = readFileSync(path.join(androidHome, "licenses", "android-sdk-license"), "utf8");
+    assert.ok(licText.includes("24333f8a63b6825ea9c5514f83c2829b004d1fee"));
+    assert.ok(licText.includes("da39a3ee5e6b4b0d3255bfef95601890afd80709"));
+
+    if (process.platform === "darwin" || process.arch === "x64") {
+      const cmdDir = path.join(androidHome, "cmdline-tools", "23.0");
+      mkdirSync(path.join(cmdDir, "bin"), { recursive: true });
+      writeFileSync(path.join(cmdDir, "bin", process.platform === "win32" ? "sdkmanager.bat" : "sdkmanager"), "", { mode: 0o755 });
+      writeFileSync(path.join(cmdDir, "package.xml"),
+        '<localPackage path="cmdline-tools;23.0" obsolete="false"><revision><major>23</major><minor>0</minor></revision></localPackage>');
+
+      const ptDir = path.join(androidHome, "platform-tools");
+      mkdirSync(ptDir, { recursive: true });
+      writeFileSync(path.join(ptDir, process.platform === "win32" ? "adb.exe" : "adb"), "", { mode: 0o755 });
+      writeFileSync(path.join(ptDir, "package.xml"),
+        '<localPackage path="platform-tools" obsolete="false"><revision><major>37</major><minor>0</minor><micro>3</micro></revision></localPackage>');
+
+      const platDir = path.join(androidHome, "platforms", "android-37.0");
+      mkdirSync(platDir, { recursive: true });
+      writeFileSync(path.join(platDir, "android.jar"), "");
+      writeFileSync(path.join(platDir, "package.xml"),
+        '<localPackage path="platforms;android-37.0" obsolete="false"><revision><major>2</major></revision></localPackage>');
+
+      // Fallback to source.properties when package.xml is absent.
+      const ndkDir = path.join(androidHome, "ndk", "28.2.13676358");
+      mkdirSync(ndkDir, { recursive: true });
+      writeFileSync(path.join(ndkDir, "source.properties"), "Pkg.Desc = Android NDK\nPkg.Revision = 28.2.13676358\n");
+
+      const out = path.join(root, "out");
+      const ghPath = path.join(root, "path");
+      const ghEnv = path.join(root, "env");
+      main("verify", {
+        SDK_RUNNER_ENVIRONMENT: "self-hosted",
+        RUNNER_TOOL_CACHE: cache,
+        PATH: path.join(root, "empty"),
+        SDK_ANDROID_SDK: "cmdline-tools@23.0,platform-tools@37.0.3,platform@37.0,ndk@28.2.13676358",
+        GITHUB_OUTPUT: out,
+        GITHUB_PATH: ghPath,
+        GITHUB_ENV: ghEnv,
+      });
+      const receipt = JSON.parse(readFileSync(out, "utf8").trim().slice("receipt=".length));
+      assert.deepEqual(receipt.android, {
+        "cmdline-tools": "23.0",
+        "platform-tools": "37.0.3",
+        platform: "37.0",
+        ndk: "28.2.13676358",
+      });
+      const exportedEnv = readFileSync(ghEnv, "utf8");
+      assert.ok(exportedEnv.includes(`ANDROID_HOME=${androidHome}`));
+      assert.ok(exportedEnv.includes(`ANDROID_SDK_ROOT=${androidHome}`));
+      const exportedPath = readFileSync(ghPath, "utf8");
+      assert.ok(exportedPath.includes(path.join(cmdDir, "bin")));
+      assert.ok(exportedPath.includes(ptDir));
+
+      // Mismatched revision must fail verification cleanly.
+      assert.throws(() => verify({
+        SDK_RUNNER_ENVIRONMENT: "self-hosted",
+        RUNNER_TOOL_CACHE: cache,
+        PATH: path.join(root, "empty"),
+        SDK_ANDROID_SDK: "platform-tools@37.0.2",
+      }), /reports revision 37\.0\.3/);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

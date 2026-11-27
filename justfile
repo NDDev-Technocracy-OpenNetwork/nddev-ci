@@ -70,6 +70,7 @@ check: (_tools "check") scan-source-secrets
     node --check actions/hosted-sdk/flutter.mjs
     node --check actions/hosted-sdk/archive.mjs
     node --check actions/hosted-sdk/dart.mjs
+    node --check actions/hosted-sdk/android.mjs
     node --check tests/bun-source.test.mjs
     node --check tests/hosted-sdk.test.mjs
     node --check tests/sdk-runtime.test.mjs

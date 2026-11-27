@@ -2,7 +2,7 @@ name: Hosted SDK helper step
 description: Run one local Node helper for hosted or managed SDK preparation without third-party script wrappers.
 inputs:
   step:
-    description: Helper command to execute (validate, verify, bun, flutter or dart).
+    description: Helper command to execute (validate, verify, bun, flutter, dart or android).
     required: true
 outputs:
   bootstrap:

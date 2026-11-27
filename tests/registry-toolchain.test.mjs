@@ -49,6 +49,36 @@ lines = [{ version = "11.0.100", role = "latest" }]
 kind = "toolchain"
 lines = [{ version = "4.0.10", role = "latest" }]
 
+[technologies.android-cmdline-tools]
+kind = "toolchain"
+lines = [{ version = "23.0", role = "latest" }]
+
+[technologies.android-platform-tools]
+kind = "toolchain"
+lines = [{ version = "37.0.3", role = "latest" }]
+
+[technologies.android-build-tools]
+kind = "toolchain"
+lines = [{ version = "37.0.0", role = "latest" }]
+
+[technologies.android-platform]
+kind = "toolchain"
+lines = [{ version = "37.0", role = "held" }]
+
+[technologies.android-ndk]
+kind = "toolchain"
+lines = [
+  { version = "30.0.16248370", role = "latest" },
+  { version = "28.2.13676358", role = "compat" },
+]
+
+[technologies.android-cmake]
+kind = "toolchain"
+lines = [
+  { version = "4.1.2", role = "latest" },
+  { version = "3.22.1", role = "compat" },
+]
+
 [technologies.just]
 kind = "toolchain"
 lines = [
@@ -110,6 +140,43 @@ test("toolchain kind resolves latest and validates explicit versions against reg
     assert.match(outText, /^rust-version=1\.100\.0$/m);
     assert.match(outText, /^dotnet-version=11\.0\.100$/m);
     assert.match(outText, /^ruby-version=4\.0\.10$/m);
+
+    // Android SDK resolves from snapshot via toolchains: android or android-sdk bare names,
+    // honoring explicit compat overrides and rejecting out-of-snapshot lines.
+    const androidResolved = resolveSelectionEnvironment({
+      SDK_RUNNER_ENVIRONMENT: "self-hosted",
+      SDK_TOOLCHAINS: "java,android,android-ndk",
+      SDK_ANDROID_SDK: "ndk@28.2.13676358",
+      NDDEV_CI_REGISTRY_SNAPSHOT: snapshotPath,
+    });
+    assert.equal(androidResolved.selected.java, "27.0.1.1");
+    assert.deepEqual(androidResolved.android.versions, {
+      ndk: "28.2.13676358",
+      "cmdline-tools": "23.0",
+      "platform-tools": "37.0.3",
+      "build-tools": "37.0.0",
+      platform: "37.0",
+    });
+    assert.throws(() => resolveSelectionEnvironment({
+      SDK_RUNNER_ENVIRONMENT: "self-hosted",
+      SDK_ANDROID_SDK: "build-tools@35.0.0",
+      NDDEV_CI_REGISTRY_SNAPSHOT: snapshotPath,
+    }), /outside the snapshot/);
+
+    if (process.platform === "darwin" || process.arch === "x64") {
+      const androidOut = path.join(root, "validate-android.out");
+      hostedSdkMain("validate", {
+        SDK_RUNNER_ENVIRONMENT: "self-hosted",
+        SDK_ANDROID_SDK: "cmdline-tools,platform-tools,build-tools,platform,cmake",
+        NDDEV_CI_REGISTRY_SNAPSHOT: snapshotPath,
+        GITHUB_OUTPUT: androidOut,
+      });
+      const androidOutText = readFileSync(androidOut, "utf8");
+      assert.match(
+        androidOutText,
+        /^android-sdk=cmdline-tools@23\.0,platform-tools@37\.0\.3,build-tools@37\.0\.0,platform@37\.0,cmake@4\.1\.2$/m,
+      );
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

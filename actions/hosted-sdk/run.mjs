@@ -6,6 +6,14 @@ import { pathToFileURL } from "node:url";
 import { loadRegistrySnapshot, resolveTool, resolveToolchain } from "../../lib/registry-resolve.mjs";
 import { ActionError } from "../../lib/release-asset.mjs";
 import { managedRunner } from "../../lib/runner-profile.mjs";
+import {
+  androidCachePaths,
+  androidComponents,
+  androidDefaultComponents,
+  normalizeAndroidComponent,
+  parseAndroidSdkSpec,
+  verifyAndroidSdk,
+} from "./android.mjs";
 
 const names = ["node", "python", "uv", "bun", "rust", "java", "go", "flutter", "dart", "dotnet", "ruby"];
 const toolExecutables = Object.freeze({
@@ -66,6 +74,7 @@ export function resolveSelectionEnvironment(environment) {
   const selected = {};
 
   const requestedToolchains = (environment.SDK_TOOLCHAINS ?? "").trim();
+  const requestedAndroidFromToolchains = [];
   if (requestedToolchains !== "") {
     if (!snapshot) {
       throw new ActionError("Selecting toolchains by registry name requires NDDEV_CI_REGISTRY_SNAPSHOT.");
@@ -73,7 +82,24 @@ export function resolveSelectionEnvironment(environment) {
     const seen = new Set();
     for (const item of requestedToolchains.split(",")) {
       const name = item.trim();
-      if (!names.includes(name) || seen.has(name)) {
+      if (!name || seen.has(name)) {
+        throw new ActionError(`Unknown or duplicate toolchain selection: ${JSON.stringify(item)}.`);
+      }
+      if (name === "android") {
+        seen.add(name);
+        for (const component of androidDefaultComponents) requestedAndroidFromToolchains.push(component);
+        continue;
+      }
+      if (name.startsWith("android-")) {
+        const component = normalizeAndroidComponent(name);
+        if (!component) {
+          throw new ActionError(`Unknown or duplicate toolchain selection: ${JSON.stringify(item)}.`);
+        }
+        seen.add(name);
+        requestedAndroidFromToolchains.push(component);
+        continue;
+      }
+      if (!names.includes(name)) {
         throw new ActionError(`Unknown or duplicate toolchain selection: ${JSON.stringify(item)}.`);
       }
       seen.add(name);
@@ -93,6 +119,20 @@ export function resolveSelectionEnvironment(environment) {
     selected[name] = version;
   }
 
+  let android = parseAndroidSdkSpec(environment.SDK_ANDROID_SDK ?? "", snapshot);
+  if (requestedAndroidFromToolchains.length > 0) {
+    const combined = android.entries.map((entry) => `${entry.name}@${entry.version}`);
+    const present = new Set(android.entries.map((entry) => entry.name));
+    for (const component of requestedAndroidFromToolchains) {
+      if (present.has(component)) continue;
+      present.add(component);
+      const version = resolveToolchain(snapshot, androidComponents[component].registryKey).version;
+      combined.push(`${component}@${version}`);
+    }
+    android = parseAndroidSdkSpec(combined.join(","), snapshot);
+  }
+  if (android.normalized !== "") resolvedEnv.SDK_ANDROID_SDK = android.normalized;
+
   const tools = resolveToolsList(environment.SDK_TOOLS ?? "", snapshot);
   if (tools !== "") resolvedEnv.SDK_TOOLS = tools;
 
@@ -103,7 +143,7 @@ export function resolveSelectionEnvironment(environment) {
         !/^[a-z0-9][a-z0-9_-]*(,[a-z0-9][a-z0-9_-]*)*$/.test(value))
       throw new ActionError("Rust components and targets require a selected toolchain and comma-separated names.");
   }
-  return { selected, resolvedEnv, tools };
+  return { selected, resolvedEnv, tools, android };
 }
 
 export function selections(environment) {
@@ -114,11 +154,13 @@ export function selections(environment) {
 // entry per exact selection, runner image and architecture lets later jobs skip those downloads.
 export const toolCacheNames = Object.freeze({node: "node", python: "Python", uv: "uv", flutter: "flutter", dart: "dart"});
 
-// Flutter publishes its SDK for Linux and Windows on x64 only, and for macOS on x64 and ARM64.
+// Flutter and Android SDK publish Linux and Windows host binaries for x64 only, and macOS for x64 and ARM64.
 // Temurin publishes no JDK for Windows on ARM64.
-export function supported(selected, platform = process.platform, arch = process.arch) {
+export function supported(selected, platform = process.platform, arch = process.arch, androidEntries = []) {
   if (selected.flutter && platform !== "darwin" && arch !== "x64")
     throw new ActionError("Flutter publishes no SDK for this system and architecture; select an x64 runner.");
+  if (androidEntries.length > 0 && platform !== "darwin" && arch !== "x64")
+    throw new ActionError("Android SDK publishes no host binaries for this system and architecture; select an x64 or macOS runner.");
   if (selected.java && platform === "win32" && arch === "arm64")
     throw new ActionError("Temurin publishes no JDK for Windows on ARM64; select another runner.");
 }
@@ -143,19 +185,26 @@ export function imageKey(environment, platform = process.platform, readRelease =
 // The macOS Python build installs its framework under /Library/Frameworks and leaves only links in
 // the tool cache, so a restored copy would be broken there; it is prepared fresh instead.
 export function cachePlan(environment, platform = process.platform) {
-  const selected = selections(environment);
+  const { selected, android } = resolveSelectionEnvironment(environment);
   if (managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)) return {key: "", paths: []};
   const root = environment.RUNNER_TOOL_CACHE;
   const parts = Object.keys(toolCacheNames).filter((name) => selected[name] &&
     !(name === "python" && platform === "darwin"));
-  if (!parts.length) return {key: "", paths: []};
+  if (!parts.length && !android.entries.length) return {key: "", paths: []};
   if (!root || /[\r\n]/.test(root)) throw new ActionError("The runner tool cache is required.");
   const image = imageKey(environment);
+  const androidKeyParts = [...android.entries]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((entry) => `android-${entry.name}-${entry.version}`);
   return {
     key: ["nddev-sdk-v1", image, environment.RUNNER_ARCH ?? process.arch,
-      ...parts.map((name) => `${name}-${selected[name]}`)].join("-"),
-    paths: parts.map((name) => path.join(root, toolCacheNames[name],
-      ["flutter", "dart"].includes(name) ? `${selected[name]}-${process.arch}` : selected[name])),
+      ...parts.map((name) => `${name}-${selected[name]}`),
+      ...androidKeyParts].join("-"),
+    paths: [
+      ...parts.map((name) => path.join(root, toolCacheNames[name],
+        ["flutter", "dart"].includes(name) ? `${selected[name]}-${process.arch}` : selected[name])),
+      ...androidCachePaths(root, android.entries),
+    ],
   };
 }
 
@@ -355,9 +404,9 @@ function prependPath(environment, bin) {
 }
 
 function verifiedSelection(environment) {
-  const { selected, resolvedEnv } = resolveSelectionEnvironment(environment);
+  const { selected, resolvedEnv, android } = resolveSelectionEnvironment(environment);
   environment = resolvedEnv;
-  supported(selected);
+  supported(selected, process.platform, process.arch, android.entries);
   const isManaged = managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED);
   const runtimes = {};
   const runtimeEnv = {};
@@ -371,6 +420,13 @@ function verifiedSelection(environment) {
         environment = { ...environment, ...found.env };
       }
     }
+  }
+  const androidVerified = verifyAndroidSdk(environment, android.entries, isManaged);
+  if (androidVerified.androidHome) {
+    runtimeEnv.ANDROID_HOME = androidVerified.androidHome;
+    runtimeEnv.ANDROID_SDK_ROOT = androidVerified.androidHome;
+    environment = { ...environment, ANDROID_HOME: androidVerified.androidHome, ANDROID_SDK_ROOT: androidVerified.androidHome };
+    for (const bin of [...androidVerified.bins].reverse()) environment = prependPath(environment, bin);
   }
   // Verification must not let rustup install a missing toolchain through a compiler proxy.
   if (selected.rust) {
@@ -403,14 +459,22 @@ function verifiedSelection(environment) {
       throw new ActionError(`The selected ${name} executable does not provide version ${expected}.`);
     tools[name] = measured;
   }
-  const runtimeBins = Object.values(runtimes).map((item) => item.bin);
+  const runtimeBins = [...Object.values(runtimes).map((item) => item.bin), ...androidVerified.bins];
+  const receipt = {
+    schema_version: 1,
+    platform: process.platform,
+    architecture: process.arch,
+    versions,
+    tools,
+    ...(android.entries.length ? { android: androidVerified.versions } : {}),
+  };
   return {
     node: runtimes.node ?? null,
     bun: runtimes.bun ?? null,
     runtimeBins,
     runtimeEnv,
     folders,
-    receipt: {schema_version: 1, platform: process.platform, architecture: process.arch, versions, tools},
+    receipt,
   };
 }
 
@@ -422,6 +486,7 @@ function selectionPayload(environment) {
   const fields = [
     "SDK_RUNNER_ENVIRONMENT",
     "SDK_MANAGED",
+    "SDK_ANDROID_SDK",
     "SDK_TOOLS",
     "SDK_RUST_COMPONENTS",
     "SDK_RUST_TARGETS",
@@ -447,8 +512,8 @@ function mergeSelection(environment) {
 
 export function main(mode, environment = process.env) {
   if (mode === "validate") {
-    const { selected, resolvedEnv, tools } = resolveSelectionEnvironment(environment);
-    supported(selected);
+    const { selected, resolvedEnv, tools, android } = resolveSelectionEnvironment(environment);
+    supported(selected, process.platform, process.arch, android.entries);
     const plan = cachePlan(resolvedEnv);
     const selection = JSON.stringify(selectionPayload(resolvedEnv));
     const versionOutputs = names
@@ -456,7 +521,7 @@ export function main(mode, environment = process.env) {
       .join("\n");
     if (environment.GITHUB_OUTPUT)
       appendFileSync(environment.GITHUB_OUTPUT,
-        `bootstrap=${!managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)}\ncache-key=${plan.key}\nselection=${selection}\n${versionOutputs}\ntools=${tools}\ncache-paths<<NDDEV_SDK_PATHS\n${plan.paths.join("\n")}\nNDDEV_SDK_PATHS\n`);
+        `bootstrap=${!managedRunner(environment.SDK_RUNNER_ENVIRONMENT, environment.SDK_MANAGED)}\ncache-key=${plan.key}\nselection=${selection}\n${versionOutputs}\nandroid-sdk=${android.normalized}\ntools=${tools}\ncache-paths<<NDDEV_SDK_PATHS\n${plan.paths.join("\n")}\nNDDEV_SDK_PATHS\n`);
     return;
   }
   if (mode !== "verify") throw new ActionError("Unknown hosted SDK command.");

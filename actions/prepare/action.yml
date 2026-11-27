@@ -127,6 +127,12 @@ inputs:
   ruby-version:
     description: Optional exact Ruby version.
     default: ''
+  android-sdk:
+    description: >-
+      Optional comma-separated Android SDK packages as name@exact-version (or bare names when
+      NDDEV_CI_REGISTRY_SNAPSHOT is set): cmdline-tools, platform-tools, build-tools, platform,
+      ndk, cmake.
+    default: ''
   tools:
     description: Optional comma-separated name@exact-version command-line tools for hosted runners.
     default: ''
@@ -388,6 +394,7 @@ runs:
         flutter-version: ${{ inputs.flutter-version }}
         dotnet-version: ${{ inputs.dotnet-version }}
         ruby-version: ${{ inputs.ruby-version }}
+        android-sdk: ${{ inputs.android-sdk }}
         tools: ${{ inputs.tools }}
         # jscpd:ignore-end
 
