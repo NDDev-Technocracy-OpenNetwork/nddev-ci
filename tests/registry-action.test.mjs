@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { collectActionCheckFiles } from "../actions/merge-stops/run.mjs";
 import {
   checkWorkflowActions,
   loadRegistrySnapshot,
@@ -102,6 +103,28 @@ lines = [{ version = "6.1.0", role = "latest", commit = "${shaV2}" }]
       readFileSync(path.join(dest, "action.yml"), "utf8").replace(/\r\n/g, "\n"),
       "name: Fixture v1\n",
     );
+
+    // Composite local actions under .github/actions are collected alongside workflows.
+    const repoTree = path.join(root, "repo-tree");
+    mkdirSync(path.join(repoTree, ".github", "workflows"), { recursive: true });
+    mkdirSync(path.join(repoTree, ".github", "actions", "helper"), { recursive: true });
+    writeFileSync(
+      path.join(repoTree, ".github", "workflows", "ci.yml"),
+      `steps:\n  - uses: actions/checkout@${shaV1}\n`,
+    );
+    writeFileSync(
+      path.join(repoTree, ".github", "actions", "helper", "action.yml"),
+      `runs:\n  using: composite\n  steps:\n    - uses: actions/cache/restore@${shaV2}\n    - uses: actions/checkout@v7\n`,
+    );
+    const collected = collectActionCheckFiles(repoTree);
+    assert.deepEqual(collected.map((entry) => entry.path), [
+      ".github/workflows/ci.yml",
+      ".github/actions/helper/action.yml",
+    ]);
+    const compositeCheck = checkWorkflowActions(snapshot, collected);
+    assert.equal(compositeCheck.checked.length, 2);
+    assert.equal(compositeCheck.violations.length, 1);
+    assert.equal(compositeCheck.violations[0].path, ".github/actions/helper/action.yml");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

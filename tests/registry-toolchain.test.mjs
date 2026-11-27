@@ -41,6 +41,14 @@ lines = [
 kind = "toolchain"
 lines = [{ version = "3.50.1", role = "latest" }]
 
+[technologies.dotnet]
+kind = "toolchain"
+lines = [{ version = "11.0.100", role = "latest" }]
+
+[technologies.ruby]
+kind = "toolchain"
+lines = [{ version = "4.0.10", role = "latest" }]
+
 [technologies.just]
 kind = "toolchain"
 lines = [
@@ -60,20 +68,24 @@ test("toolchain kind resolves latest and validates explicit versions against reg
     assert.equal(resolveToolchain(snapshot, "java").version, "27.0.1.1");
     assert.equal(resolveToolchain(snapshot, "java", "25.0.5.1+2").version, "25.0.5.1+2");
     assert.equal(resolveToolchain(snapshot, "flutter").version, "3.50.1");
+    assert.equal(resolveToolchain(snapshot, "dotnet").version, "11.0.100");
+    assert.equal(resolveToolchain(snapshot, "ruby").version, "4.0.10");
     assert.equal(checkToolchain(snapshot, "just", "1.59.0").version, "1.59.0");
     assert.equal(resolveToolchain(snapshot, "just").version, "1.60.0");
 
     assert.throws(() => resolveToolchain(snapshot, "node", "24.0.0"), /outside the snapshot/);
     assert.throws(() => resolveToolchain(snapshot, "java", "21.0.1"), /outside the snapshot/);
+    assert.throws(() => resolveToolchain(snapshot, "dotnet", "9.0.100"), /outside the snapshot/);
+    assert.throws(() => resolveToolchain(snapshot, "ruby", "3.4.1"), /outside the snapshot/);
     assert.throws(() => resolveToolchain(snapshot, "missing"), /does not declare toolchain/);
 
     // actions/hosted-sdk resolves SDK_TOOLCHAINS from snapshot and validates explicit selections.
     const resolved = resolveSelectionEnvironment({
       SDK_RUNNER_ENVIRONMENT: "self-hosted",
-      SDK_TOOLCHAINS: "node,rust",
+      SDK_TOOLCHAINS: "node,rust,dotnet,ruby",
       NDDEV_CI_REGISTRY_SNAPSHOT: snapshotPath,
     });
-    assert.deepEqual(resolved.selected, { node: "26.13.1", rust: "1.100.0" });
+    assert.deepEqual(resolved.selected, { node: "26.13.1", rust: "1.100.0", dotnet: "11.0.100", ruby: "4.0.10" });
 
     assert.throws(() => resolveSelectionEnvironment({
       SDK_RUNNER_ENVIRONMENT: "self-hosted",
@@ -89,13 +101,15 @@ test("toolchain kind resolves latest and validates explicit versions against reg
     const out = path.join(root, "validate.out");
     hostedSdkMain("validate", {
       SDK_RUNNER_ENVIRONMENT: "self-hosted",
-      SDK_TOOLCHAINS: "node,rust",
+      SDK_TOOLCHAINS: "node,rust,dotnet,ruby",
       NDDEV_CI_REGISTRY_SNAPSHOT: snapshotPath,
       GITHUB_OUTPUT: out,
     });
     const outText = readFileSync(out, "utf8");
     assert.match(outText, /^node-version=26\.13\.1$/m);
     assert.match(outText, /^rust-version=1\.100\.0$/m);
+    assert.match(outText, /^dotnet-version=11\.0\.100$/m);
+    assert.match(outText, /^ruby-version=4\.0\.10$/m);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

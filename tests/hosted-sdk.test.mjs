@@ -431,3 +431,140 @@ test("validate emits a selection payload that verify consumes without repeating 
   const receipt = JSON.parse(receiptLine.slice("receipt=".length));
   assert.equal(receipt.schema_version, 1);
 });
+
+test("dotnet and ruby exact versions validate and verify across hosted and managed profiles", {skip: process.platform === "win32"}, () => {
+  assert.deepEqual(
+    selections({...hosted, SDK_DOTNET_VERSION: "11.0.100", SDK_RUBY_VERSION: "4.0.10"}),
+    {dotnet: "11.0.100", ruby: "4.0.10"},
+  );
+  assert.throws(() => selections({...hosted, SDK_DOTNET_VERSION: "11.0"}));
+  assert.throws(() => selections({...hosted, SDK_RUBY_VERSION: "4.0"}));
+
+  const root = mkdtempSync(path.join(tmpdir(), "managed-dotnet-ruby-"));
+  try {
+    const cache = path.join(root, "cache");
+    const dotnetDir = path.join(cache, "dotnet", "11.0.100", process.arch);
+    const rubyBin = path.join(cache, "ruby", "4.0.10", process.arch, "bin");
+    mkdirSync(dotnetDir, {recursive: true});
+    mkdirSync(rubyBin, {recursive: true});
+    writeFileSync(path.join(dotnetDir, "dotnet"), "#!/bin/sh\nprintf '11.0.100\\n'\n", {mode: 0o755});
+    writeFileSync(path.join(rubyBin, "ruby"), "#!/bin/sh\nprintf 'ruby 4.0.10 (2026-11-01) [x86_64-linux]\\n'\n", {mode: 0o755});
+
+    const out = path.join(root, "out");
+    const ghPath = path.join(root, "path");
+    const ghEnv = path.join(root, "env");
+    main("verify", {
+      SDK_RUNNER_ENVIRONMENT: "self-hosted",
+      RUNNER_TOOL_CACHE: cache,
+      PATH: path.join(root, "empty"),
+      SDK_DOTNET_VERSION: "11.0.100",
+      SDK_RUBY_VERSION: "4.0.10",
+      GITHUB_OUTPUT: out,
+      GITHUB_PATH: ghPath,
+      GITHUB_ENV: ghEnv,
+    });
+    const receipt = JSON.parse(readFileSync(out, "utf8").trim().slice("receipt=".length));
+    assert.deepEqual(receipt.versions, {dotnet: "11.0.100", ruby: "4.0.10"});
+    const exportedPath = readFileSync(ghPath, "utf8");
+    assert.ok(exportedPath.includes(dotnetDir));
+    assert.ok(exportedPath.includes(rubyBin));
+  } finally {
+    rmSync(root, {recursive: true, force: true});
+  }
+});
+
+test("managed SDK resolves Temurin JDK, uv arch aliases, Flutter, Dart, Rust toolchain and bin/ tool aliases", {skip: process.platform === "win32"}, () => {
+  const root = mkdtempSync(path.join(tmpdir(), "managed-multiline-sdk-"));
+  try {
+    const cache = path.join(root, "cache");
+    const archAlias = process.arch === "x64" ? "x86_64" : (process.arch === "arm64" ? "aarch64" : process.arch);
+
+    const jdkHome = path.join(cache, "Java_Temurin-Hotspot_jdk", "25.0.5.1", process.arch);
+    mkdirSync(path.join(jdkHome, "bin"), {recursive: true});
+    writeFileSync(
+      path.join(jdkHome, "bin", "java"),
+      "#!/bin/sh\nprintf 'openjdk 25.0.5.1 2026-10-01\\nOpenJDK Runtime Environment Temurin-25.0.5.1+2 (build 25.0.5.1+2)\\n'\n",
+      {mode: 0o755},
+    );
+
+    const uvDir = path.join(cache, "uv", "0.13.10", archAlias);
+    mkdirSync(uvDir, {recursive: true});
+    writeFileSync(path.join(uvDir, "uv"), "#!/bin/sh\nprintf 'uv 0.13.10\\n'\n", {mode: 0o755});
+
+    const flutterHome = path.join(cache, "flutter", `stable-3.50.1-${process.arch}`, "flutter");
+    mkdirSync(path.join(flutterHome, "bin"), {recursive: true});
+    writeFileSync(
+      path.join(flutterHome, "bin", "flutter"),
+      "#!/bin/sh\nprintf '{\"frameworkVersion\":\"3.50.1\",\"dartSdkVersion\":\"3.14.1 (stable)\"}\\n'\n",
+      {mode: 0o755},
+    );
+
+    const dartBin = path.join(cache, "dart", `3.14.1-${process.arch}`, "dart-sdk", "bin");
+    mkdirSync(dartBin, {recursive: true});
+    writeFileSync(
+      path.join(dartBin, "dart"),
+      "#!/bin/sh\nprintf 'Dart SDK version: 3.14.1 (stable) on linux_x64\\n' >&2\n",
+      {mode: 0o755},
+    );
+
+    const cmakeBin = path.join(cache, "cmake", "4.5.1", process.arch, "bin");
+    mkdirSync(cmakeBin, {recursive: true});
+    writeFileSync(path.join(cmakeBin, "cmake"), "#!/bin/sh\nprintf 'cmake version 4.5.1\\n'\n", {mode: 0o755});
+
+    const mavenBin = path.join(cache, "maven", "3.10.2", process.arch, "bin");
+    mkdirSync(mavenBin, {recursive: true});
+    writeFileSync(path.join(mavenBin, "mvn"), "#!/bin/sh\nprintf 'Apache Maven 3.10.2 (abc)\\n'\n", {mode: 0o755});
+
+    const batsBin = path.join(cache, "bats-core", "1.14.0", process.arch, "bin");
+    mkdirSync(batsBin, {recursive: true});
+    writeFileSync(path.join(batsBin, "bats"), "#!/bin/sh\nprintf 'Bats 1.14.0\\n'\n", {mode: 0o755});
+
+    const rustBin = path.join(root, "rust-bin");
+    mkdirSync(rustBin, {recursive: true});
+    writeFileSync(
+      path.join(rustBin, "rustc"),
+      "#!/bin/sh\nprintf 'rustc %s (000000000 2026-11-01)\\n' \"${RUSTUP_TOOLCHAIN:-0.0.0}\"\n",
+      {mode: 0o755},
+    );
+
+    const out = path.join(root, "out");
+    const ghPath = path.join(root, "path");
+    const ghEnv = path.join(root, "env");
+    const env = {
+      SDK_RUNNER_ENVIRONMENT: "self-hosted",
+      RUNNER_TOOL_CACHE: cache,
+      PATH: rustBin,
+      SDK_JAVA_VERSION: "25.0.5.1+2",
+      SDK_UV_VERSION: "0.13.10",
+      SDK_DART_VERSION: "3.14.1",
+      SDK_RUST_VERSION: "1.100.0",
+      ...(process.platform === "darwin" || process.arch === "x64" ? { SDK_FLUTTER_VERSION: "3.50.1" } : {}),
+      SDK_TOOLS: "cmake@4.5.1,maven@3.10.2,bats-core@1.14.0",
+      GITHUB_OUTPUT: out,
+      GITHUB_PATH: ghPath,
+      GITHUB_ENV: ghEnv,
+    };
+
+    assert.deepEqual(managedTools(env), [cmakeBin, mavenBin, batsBin]);
+    main("verify", env);
+
+    const receipt = JSON.parse(readFileSync(out, "utf8").trim().slice("receipt=".length));
+    assert.equal(receipt.versions.java, "25.0.5.1+2");
+    assert.equal(receipt.versions.uv, "0.13.10");
+    assert.equal(receipt.versions.dart, "3.14.1");
+    assert.equal(receipt.versions.rust, "1.100.0");
+    if (process.platform === "darwin" || process.arch === "x64") {
+      assert.equal(receipt.versions.flutter, "3.50.1");
+    }
+    assert.deepEqual(receipt.tools, {cmake: "4.5.1", maven: "3.10.2", "bats-core": "1.14.0"});
+
+    const exportedEnv = readFileSync(ghEnv, "utf8");
+    assert.match(exportedEnv, new RegExp(`^JAVA_HOME=${jdkHome.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"));
+    assert.match(exportedEnv, /^RUSTUP_TOOLCHAIN=1\.100\.0$/m);
+    if (process.platform === "darwin" || process.arch === "x64") {
+      assert.match(exportedEnv, new RegExp(`^FLUTTER_ROOT=${flutterHome.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"));
+    }
+  } finally {
+    rmSync(root, {recursive: true, force: true});
+  }
+});

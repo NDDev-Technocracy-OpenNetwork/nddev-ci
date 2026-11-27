@@ -121,6 +121,12 @@ inputs:
   flutter-version:
     description: Optional exact stable Flutter version for hosted runners, with its Dart SDK.
     default: ''
+  dotnet-version:
+    description: Optional exact .NET SDK version.
+    default: ''
+  ruby-version:
+    description: Optional exact Ruby version.
+    default: ''
   tools:
     description: Optional comma-separated name@exact-version command-line tools for hosted runners.
     default: ''
@@ -380,6 +386,8 @@ runs:
         go-version: ${{ inputs.go-version }}
         dart-version: ${{ inputs.dart-version }}
         flutter-version: ${{ inputs.flutter-version }}
+        dotnet-version: ${{ inputs.dotnet-version }}
+        ruby-version: ${{ inputs.ruby-version }}
         tools: ${{ inputs.tools }}
         # jscpd:ignore-end
 

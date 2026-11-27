@@ -295,11 +295,12 @@ All four job-needed technology kinds are installable and checkable from `NDDEV_C
 - `tool`: `tools` accepts bare registry names when a snapshot is present; managed runners take
   verified tools (`just`, merge-stop tools, daily security scanners and `osv-scanner`) from their
   managed tool cache against the snapshot with zero library-hardcoded versions.
-- `image`: `image.yml` checks Dockerfile base images and `# syntax=` directives against the
-  snapshot, and `actions/image-builder` verifies managed Buildx and hosted BuildKit/Buildx inputs
-  against it.
-- `action`: external GitHub Action commit pins in `.github/workflows` are checked against the
-  snapshot's pinned `commit` SHAs, and actions can be materialized directly from snapshot commits.
+- `image`: `image.yml` checks Dockerfile base images (OS, toolchain and service container images)
+  and `# syntax=` directives against the snapshot, and `actions/image-builder` verifies managed
+  Buildx and hosted BuildKit/Buildx inputs against it.
+- `action`: external GitHub Action commit pins in `.github/workflows` and local composite actions
+  under `.github/actions` are checked against the snapshot's pinned `commit` SHAs, and actions can
+  be materialized directly from snapshot commits.
 
 On GitHub-hosted runners, callers pass explicit inputs (`just-version`, `tool-pins`,
 `buildx-version`, `buildkit-image` and SDK version inputs); unmigrated public callers temporarily
@@ -396,8 +397,8 @@ Public promotion uses `ubuntu-24.04` by default. Set `hosted-runner` on `promote
 another standard Ubuntu 24.04 or 26.04 image.
 
 [hosted-sdk](actions/hosted-sdk/action.yml) prepares only selected exact Node, Python,
-uv, Bun, Rust, Temurin Java, Go, standalone Dart or stable Flutter versions and selected
-`name@version` command-line tools. Managed runners verify those selections against
+uv, Bun, Rust, Temurin Java, Go, standalone Dart, stable Flutter, .NET or Ruby versions and
+selected `name@version` command-line tools. Managed runners verify those selections against
 their prepared SDK, without sudo or global installation. A managed SDK keeps every Python
 line in uv's `UV_PYTHON_INSTALL_DIR`; the selected line goes first on `PATH` and becomes
 `UV_PYTHON`. Without it, the `python` on `PATH` must have that version. External runners bootstrap
