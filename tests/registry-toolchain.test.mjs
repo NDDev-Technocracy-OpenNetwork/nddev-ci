@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -128,9 +128,10 @@ test("managed just frontend selects the snapshot version from RUNNER_TOOL_CACHE 
       GITHUB_OUTPUT: out,
       GITHUB_PATH: ghPath,
     });
-    assert.equal(chosen, v60);
+    const v60Real = realpathSync(v60);
+    assert.equal(chosen, v60Real);
     assert.equal(readFileSync(out, "utf8").trim(), "just-version=1.60.0");
-    assert.equal(readFileSync(ghPath, "utf8").trim(), path.dirname(v60));
+    assert.equal(readFileSync(ghPath, "utf8").trim(), path.dirname(v60Real));
 
     // Without a snapshot, a managed runner still works with its highest verified tool-cache just.
     const outNoSnap = path.join(root, "out-nosnap");
@@ -140,7 +141,7 @@ test("managed just frontend selects the snapshot version from RUNNER_TOOL_CACHE 
       PATH: path.join(root, "empty"),
       GITHUB_OUTPUT: outNoSnap,
     });
-    assert.equal(chosenNoSnap, v60);
+    assert.equal(chosenNoSnap, v60Real);
     assert.equal(readFileSync(outNoSnap, "utf8").trim(), "just-version=1.60.0");
 
     // Requesting a version outside the snapshot fails cleanly.

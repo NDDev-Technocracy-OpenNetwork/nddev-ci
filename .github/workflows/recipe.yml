@@ -3,6 +3,7 @@ name: recipe
 on:
   workflow_call:
     inputs:
+      # jscpd:ignore-start -- shared protected registry and hosted tool override workflow_call inputs
       registry-commit:
         description: Exact commit of the protected registry input selected by the caller.
         type: string
@@ -23,6 +24,7 @@ on:
         description: Optional digest-pinned BuildKit image for GitHub-hosted runners.
         type: string
         default: ''
+      # jscpd:ignore-end
       artifact-registry:
         description: Optional tool-download registry; empty uses the runner setting or official upstream sources.
         type: string
@@ -246,6 +248,7 @@ jobs:
         id: setup
         uses: $/actions/prepare
         with:
+          # jscpd:ignore-start -- shared actions/prepare contract
           managed: ${{ runner.environment == 'self-hosted' }}
           artifact-registry: ${{ inputs.artifact-registry }}
           registry-commit: ${{ inputs.registry-commit }}
@@ -285,6 +288,7 @@ jobs:
           flutter-version: ${{ inputs.flutter-version }}
           tools: ${{ inputs.tools }}
           tool-assets: ${{ inputs.tool-assets }}
+          # jscpd:ignore-end
 
       - name: Prepare only the declared dependencies
         id: dependencies

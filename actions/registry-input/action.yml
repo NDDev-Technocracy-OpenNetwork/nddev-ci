@@ -9,7 +9,7 @@ inputs:
     required: true
   first:
     description: First fragment of the encoded snapshot.
-    required: true
+    default: ''
   second:
     description: Second fragment, if present.
     default: ''
@@ -18,6 +18,9 @@ inputs:
     default: ''
   fourth:
     description: Fourth fragment, if present.
+    default: ''
+  encoded:
+    description: Optional single concatenated base64 snapshot string (alternative to first..fourth).
     default: ''
 outputs:
   failure-reason:

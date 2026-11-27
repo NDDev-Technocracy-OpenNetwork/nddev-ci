@@ -12,6 +12,7 @@ on:
         description: Keep a separate concurrency group per run so every image build finishes.
         type: boolean
         default: false
+      # jscpd:ignore-start -- shared protected registry and hosted builder workflow_call inputs
       registry-commit:
         description: Exact commit of the protected registry input selected by the caller.
         type: string
@@ -24,6 +25,7 @@ on:
         description: Optional digest-pinned BuildKit image for GitHub-hosted runners.
         type: string
         default: ''
+      # jscpd:ignore-end
       check-registry-images:
         description: Verify Dockerfile base images against the protected registry snapshot when registry-commit is set.
         type: boolean
@@ -66,6 +68,7 @@ on:
           native platform: ubuntu-24.04 (linux/amd64) or ubuntu-24.04-arm (linux/arm64).
         type: string
         default: ubuntu-24.04
+    # jscpd:ignore-start -- shared protected registry snapshot secrets
     secrets:
       REGISTRY_SNAPSHOT_FIRST:
         description: Protected environment snapshot fragment.
@@ -79,6 +82,7 @@ on:
       REGISTRY_SNAPSHOT_FOURTH:
         description: Protected environment snapshot fragment.
         required: false
+    # jscpd:ignore-end
     outputs:
       reference:
         description: The pushed image by digest, ghcr.io/<owner>/<image>@sha256:<digest>; empty when nothing was pushed.
@@ -135,6 +139,7 @@ jobs:
         with:
           persist-credentials: false
 
+      # jscpd:ignore-start -- shared telemetry and actions/registry-input steps
       - name: Outside telemetry off
         uses: $/actions/telemetry
 
@@ -149,6 +154,7 @@ jobs:
           second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
           third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
           fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+      # jscpd:ignore-end
 
       # Managed image jobs share the machine's builder and kept layers.
       - name: Image builder

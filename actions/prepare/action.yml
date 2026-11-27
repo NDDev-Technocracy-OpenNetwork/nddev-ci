@@ -193,6 +193,7 @@ runs:
           echo "CARGO_BUILD_WARNINGS=deny" >> "$GITHUB_ENV"
         fi
 
+    # jscpd:ignore-start -- shared artifact-registry and actions/registry-input steps
     - name: Artifact registry
       uses: $/actions/artifact-registry
       with:
@@ -209,6 +210,7 @@ runs:
         second: ${{ inputs.registry-snapshot-second }}
         third: ${{ inputs.registry-snapshot-third }}
         fourth: ${{ inputs.registry-snapshot-fourth }}
+    # jscpd:ignore-end
 
     - name: The job's own read token for the project commands
       # Opt-in: the job's token reads only this repository's contents, and nothing else.
@@ -364,6 +366,7 @@ runs:
     - name: Prepare or verify declared SDKs
       uses: $/actions/hosted-sdk
       with:
+        # jscpd:ignore-start -- shared actions/hosted-sdk input forwarding
         managed: ${{ inputs.managed }}
         toolchains: ${{ inputs.toolchains }}
         node-version: ${{ inputs.node-version }}
@@ -378,6 +381,7 @@ runs:
         dart-version: ${{ inputs.dart-version }}
         flutter-version: ${{ inputs.flutter-version }}
         tools: ${{ inputs.tools }}
+        # jscpd:ignore-end
 
     - name: Require the managed private native tool profile
       if: inputs.tool-assets != '' && inputs.managed == 'true'

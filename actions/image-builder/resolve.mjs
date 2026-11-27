@@ -3,8 +3,6 @@
 // Hosted runners take explicit caller inputs, validate against any snapshot, or fall back to hosted compatibility pins.
 import { spawnSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { hostedImageBuilderPin } from "../../lib/hosted-compat-pins.mjs";
 import {
   checkImageReference,
@@ -12,6 +10,7 @@ import {
   resolveToolchain,
 } from "../../lib/registry-resolve.mjs";
 import { ActionError } from "../../lib/release-asset.mjs";
+import { runActionCli } from "../../lib/tool-prepare.mjs";
 
 const buildxVersionPattern = /^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
 const buildkitImagePattern = /^[a-z0-9./_-]+:v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)@sha256:[0-9a-f]{64}$/;
@@ -76,11 +75,4 @@ export function main(mode = process.argv[2], environment = process.env) {
   throw new ActionError(`Unknown image-builder resolver mode: ${mode}`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  try {
-    main();
-  } catch (error) {
-    console.error(`::error::${error instanceof ActionError ? error.message : "Image builder resolution failed."}`);
-    process.exitCode = 1;
-  }
-}
+runActionCli(import.meta.url, () => main(), "Image builder resolution failed.");

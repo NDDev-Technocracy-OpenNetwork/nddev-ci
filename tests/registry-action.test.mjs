@@ -98,7 +98,10 @@ lines = [{ version = "6.1.0", role = "latest", commit = "${shaV2}" }]
     const dest = path.join(root, "staged-action");
     const installed = prepareActionFromRegistry(snapshot, "actions/checkout", dest, { sourceUrl: repoDir });
     assert.equal(installed.commit, shaV1);
-    assert.equal(readFileSync(path.join(dest, "action.yml"), "utf8"), "name: Fixture v1\n");
+    assert.equal(
+      readFileSync(path.join(dest, "action.yml"), "utf8").replace(/\r\n/g, "\n"),
+      "name: Fixture v1\n",
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

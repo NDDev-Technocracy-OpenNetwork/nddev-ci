@@ -39,6 +39,7 @@ check: (_tools "check") scan-source-secrets
     node --check lib/toml.mjs
     node --check lib/hosted-compat-pins.mjs
     node --check lib/registry-resolve.mjs
+    node --check lib/tool-prepare.mjs
     node --check actions/image-builder/resolve.mjs
     node --check actions/image-builder/check-dockerfile.mjs
     node --check actions/merge-stops/prepare-tools.mjs

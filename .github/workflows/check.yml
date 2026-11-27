@@ -39,6 +39,7 @@ on:
         description: Optional JSON map from verify part group IDs to repository-relative path prefixes; unmapped or global changes run every part.
         type: string
         default: '{}'
+      # jscpd:ignore-start -- shared protected registry and hosted tool override workflow_call inputs
       registry-commit:
         description: Exact commit of the protected registry input selected by the caller.
         type: string
@@ -63,6 +64,7 @@ on:
         description: Optional digest-pinned BuildKit image for GitHub-hosted runners.
         type: string
         default: ''
+      # jscpd:ignore-end
       artifact-registry:
         description: Optional tool-download registry; empty uses the runner setting or official upstream sources.
         type: string
@@ -315,6 +317,7 @@ jobs:
           sparse-checkout-cone-mode: ${{ inputs.sparse-checkout != '' && inputs.sparse-checkout-cone-mode || false }}
       - name: Outside telemetry off
         uses: $/actions/telemetry
+      # jscpd:ignore-start -- shared actions/registry-input contract
       - name: Receive the protected registry input
         id: registry-input
         if: inputs.registry-commit != ''
@@ -326,6 +329,7 @@ jobs:
           third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
           fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
           sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
+      # jscpd:ignore-end
       - name: Native task runner
         uses: $/actions/frontend
         with:
@@ -396,6 +400,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      # jscpd:ignore-start -- shared actions/registry-input contract
       - name: Receive the protected registry input
         id: registry-input
         uses: $/actions/registry-input
@@ -406,6 +411,7 @@ jobs:
           third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
           fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
           sha256: ${{ vars.REGISTRY_SNAPSHOT_SHA256 }}
+      # jscpd:ignore-end
       - name: Check direct choices
         id: registry-check
         uses: $/actions/registry-project
@@ -475,6 +481,7 @@ jobs:
         uses: $/actions/prepare
         with:
           full-history: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && inputs.inline-merge-stops && inputs.sparse-checkout == '' && inputs.runner != 'nddev-macos' && inputs.runner != 'nddev-windows' && inputs['runner-profile'] != 'macos-arm64' && inputs['runner-profile'] != 'windows-x64' }}
+          # jscpd:ignore-start -- the shared prepare action takes these explicit registry, checkout and SDK inputs from each caller
           managed: ${{ runner.environment == 'self-hosted' }}
           artifact-registry: ${{ inputs.artifact-registry }}
           registry-commit: ${{ inputs.registry-commit }}
@@ -490,7 +497,6 @@ jobs:
           images: ${{ inputs.images && github.event_name != 'pull_request' && !(github.event_name == 'merge_group' && !inputs['merge-group-full-check']) }}
           diagnostics: ${{ inputs.diagnostics }}
           reports: ${{ inputs.reports }}
-          # jscpd:ignore-start -- the shared prepare action takes these explicit checkout and SDK inputs from each caller
           fetch-depth: ${{ inputs.fetch-depth }}
           filter: ${{ inputs.filter }}
           sparse-checkout: ${{ inputs.sparse-checkout }}

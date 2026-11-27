@@ -47,6 +47,7 @@ on:
         description: Optional tool-download registry origin.
         type: string
         default: ''
+      # jscpd:ignore-start -- shared protected registry workflow_call inputs
       registry-commit:
         description: Exact commit of the protected registry input selected by the caller.
         type: string
@@ -59,6 +60,7 @@ on:
         description: Optional exact Just version for GitHub-hosted runners.
         type: string
         default: ''
+      # jscpd:ignore-end
       rust-version:
         description: Optional exact Rust version.
         type: string
@@ -104,6 +106,7 @@ on:
         type: boolean
         default: false
     secrets:
+      # jscpd:ignore-start -- shared protected registry snapshot secrets
       REGISTRY_SNAPSHOT_FIRST:
         description: Protected environment snapshot fragment.
         required: false
@@ -116,6 +119,7 @@ on:
       REGISTRY_SNAPSHOT_FOURTH:
         description: Protected environment snapshot fragment.
         required: false
+      # jscpd:ignore-end
       read-app-private-key:
         description: GitHub App PEM key for scoped private module reads.
         required: false

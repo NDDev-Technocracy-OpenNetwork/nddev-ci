@@ -15,6 +15,7 @@ on:
         description: Give each run its own concurrency group and let it finish.
         type: boolean
         default: false
+      # jscpd:ignore-start -- shared protected registry and hosted tool-pins inputs
       registry-commit:
         description: Exact commit of the protected registry input selected by the caller.
         type: string
@@ -23,6 +24,7 @@ on:
         description: Optional JSON map of explicit version and per-arch sha256 tool pins for GitHub-hosted runners.
         type: string
         default: ''
+      # jscpd:ignore-end
       new-clones:
         description: Reject new code clones using the pull request base's .jscpd.json.
         type: boolean
@@ -53,6 +55,7 @@ on:
         description: Optional branch in this repository that mirrors a fork's upstream; its commit ancestry is skipped by authorship.
         type: string
         default: ''
+    # jscpd:ignore-start -- shared protected registry snapshot secrets
     secrets:
       REGISTRY_SNAPSHOT_FIRST:
         description: Protected environment snapshot fragment.
@@ -66,6 +69,7 @@ on:
       REGISTRY_SNAPSHOT_FOURTH:
         description: Protected environment snapshot fragment.
         required: false
+    # jscpd:ignore-end
 
 permissions: {}
 
@@ -118,6 +122,7 @@ jobs:
             ${{ !inputs.new-clones && inputs.sparse-checkout && '/.gitleaksignore' || '' }}
           sparse-checkout-cone-mode: false
 
+      # jscpd:ignore-start -- shared telemetry, artifact-registry and actions/registry-input steps
       - name: Outside telemetry off
         uses: $/actions/telemetry
 
@@ -137,6 +142,7 @@ jobs:
           second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
           third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
           fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+      # jscpd:ignore-end
 
       - name: Merge stops
         id: stops

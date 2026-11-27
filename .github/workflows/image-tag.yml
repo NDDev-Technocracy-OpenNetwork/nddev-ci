@@ -18,6 +18,7 @@ on:
         description: The label of our runners, used by private repositories.
         type: string
         default: nddev-linux-standart
+      # jscpd:ignore-start -- shared protected registry inputs and secrets
       registry-commit:
         description: Exact commit of the protected registry input selected by the caller.
         type: string
@@ -39,6 +40,7 @@ on:
       REGISTRY_SNAPSHOT_FOURTH:
         description: Protected environment snapshot fragment.
         required: false
+    # jscpd:ignore-end
     outputs:
       reference:
         description: The released image by digest.
@@ -62,6 +64,7 @@ jobs:
       - name: Start
         run: date +%s > "$RUNNER_TEMP/nddev-ci-started"
 
+      # jscpd:ignore-start -- shared telemetry and actions/registry-input steps
       - name: Outside telemetry off
         uses: $/actions/telemetry
 
@@ -76,6 +79,7 @@ jobs:
           second: ${{ secrets.REGISTRY_SNAPSHOT_SECOND }}
           third: ${{ secrets.REGISTRY_SNAPSHOT_THIRD }}
           fourth: ${{ secrets.REGISTRY_SNAPSHOT_FOURTH }}
+      # jscpd:ignore-end
 
       - name: BuildKit client
         uses: $/actions/buildx-client
