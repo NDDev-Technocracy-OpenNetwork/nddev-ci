@@ -50,6 +50,7 @@ check: (_tools "check") scan-source-secrets
     node --check tests/registry-image.test.mjs
     node --check tests/registry-action.test.mjs
     node --check tests/registry-snapshot-e2e.test.mjs
+    node --check tests/registry-digests.test.mjs
     node --check tests/no-hardcoded-versions.test.mjs
     node --check tests/registry-input.test.mjs
     node --check tests/registry-project.test.mjs

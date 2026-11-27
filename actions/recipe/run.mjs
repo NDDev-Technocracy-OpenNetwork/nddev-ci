@@ -10,6 +10,7 @@ import {
   realpathSync,
   renameSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -23,6 +24,7 @@ import {
   loadRegistrySnapshot,
   measureToolVersion,
   resolveToolchain,
+  resolveToolDigest,
 } from "../../lib/registry-resolve.mjs";
 import { managedRunner } from "../../lib/runner-profile.mjs";
 import {
@@ -121,65 +123,88 @@ async function executable(environment) {
     }
     return { binary: found.binary, expectedVersion: found.version };
   }
-  const configuration = hostedJustPin(environment);
-  const targetVersion = requested || (snapshot ? resolveToolchain(snapshot, "just").version : configuration.version);
-  if (snapshot) resolveToolchain(snapshot, "just", targetVersion);
-  if (targetVersion !== configuration.version) {
-    throw new ActionError(
-      `Hosted just ${targetVersion} has no verified asset digest in this release; supply tool-assets or use a managed runner.`,
-    );
-  }
   const target = `${process.platform}-${process.arch}`;
-  const asset = configuration.targets[target];
-  if (!asset)
-    throw new ActionError(
-      "This runner architecture has no admitted task runner asset.",
-    );
   if (!environment.RUNNER_TEMP)
     throw new ActionError("A runner-owned temporary directory is required.");
-  const directory = path.join(
-    environment.RUNNER_TEMP,
-    "nddev-ci",
-    "just",
-    targetVersion,
-    target,
-  );
-  const binary = path.join(
-    directory,
-    process.platform === "win32" ? "just.exe" : "just",
-  );
-  if (!existsSync(binary) || digest(binary) !== asset.binary_sha256) {
+
+  const regDigest = snapshot
+    ? resolveToolDigest(snapshot, "just", { version: requested, target, optional: true })
+    : null;
+
+  let expectedVersion, directory, downloadSpec, memberSpec, cachedValid, onExtracted;
+  if (regDigest) {
+    expectedVersion = regDigest.version;
+    directory = path.join(
+      environment.RUNNER_TEMP,
+      "nddev-ci",
+      "just",
+      `${regDigest.version}-${regDigest.sha256.slice(0, 16)}`,
+      target,
+    );
+    const receipt = path.join(directory, ".binary-sha256");
+    downloadSpec = {
+      repository: regDigest.repository || "casey/just",
+      tag: regDigest.version,
+      name: regDigest.asset,
+      sha256: regDigest.sha256,
+      maxBytes: 64 * 1024 * 1024,
+    };
+    memberSpec = (name) => ({ path: name, maxBytes: 64 * 1024 * 1024 });
+    cachedValid = (binary) => {
+      const cachedSha = existsSync(receipt) ? readFileSync(receipt, "utf8").trim() : "";
+      return existsSync(binary) && /^[0-9a-f]{64}$/.test(cachedSha) && digest(binary) === cachedSha;
+    };
+    onExtracted = (extracted) => writeFileSync(receipt, `${extracted.sha256}\n`, { mode: 0o600 });
+  } else {
+    const configuration = hostedJustPin(environment);
+    const targetVersion = requested || (snapshot ? resolveToolchain(snapshot, "just").version : configuration.version);
+    if (snapshot) resolveToolchain(snapshot, "just", targetVersion);
+    if (targetVersion !== configuration.version) {
+      throw new ActionError(
+        `Hosted just ${targetVersion} has no verified asset digest in this release; supply tool-assets or use a managed runner.`,
+      );
+    }
+    const asset = configuration.targets[target];
+    if (!asset)
+      throw new ActionError("This runner architecture has no admitted task runner asset.");
+    expectedVersion = targetVersion;
+    directory = path.join(environment.RUNNER_TEMP, "nddev-ci", "just", targetVersion, target);
+    downloadSpec = { ...asset, repository: configuration.repository, tag: targetVersion };
+    memberSpec = (name) => ({ path: name, size: asset.binary_size, sha256: asset.binary_sha256 });
+    cachedValid = (binary) => existsSync(binary) && digest(binary) === asset.binary_sha256;
+    onExtracted = () => {};
+  }
+
+  const binary = path.join(directory, process.platform === "win32" ? "just.exe" : "just");
+  if (!cachedValid(binary)) {
     mkdirSync(directory, { recursive: true });
     const temporary = mkdtempSync(path.join(directory, "download-"));
     try {
-      const archive = path.join(temporary, asset.name);
+      const archive = path.join(temporary, downloadSpec.name);
       await downloadAsset(
-        { ...asset, repository: configuration.repository, tag: targetVersion },
+        downloadSpec,
         archive,
         environment["INPUT_GITHUB-TOKEN"],
         environment.NDDEV_CI_ARTIFACT_REGISTRY,
       );
       const source = path.join(temporary, path.basename(binary));
-      await extract(
+      const extracted = await extract(
         archive,
-        {
-          path: path.basename(binary),
-          size: asset.binary_size,
-          sha256: asset.binary_sha256,
-        },
+        memberSpec(path.basename(binary)),
         source,
         commandEnvironment(environment),
       );
       chmodSync(source, 0o755);
       if (existsSync(binary)) rmSync(binary);
       renameSync(source, binary);
+      onExtracted(extracted);
     } finally {
       rmSync(temporary, { recursive: true, force: true });
     }
   }
   if (environment.GITHUB_PATH)
     appendFileSync(environment.GITHUB_PATH, `${directory}\n`);
-  return { binary, expectedVersion: targetVersion };
+  return { binary, expectedVersion };
 }
 
 function commandEnvironment(environment) {

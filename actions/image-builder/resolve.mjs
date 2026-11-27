@@ -7,6 +7,7 @@ import { hostedImageBuilderPin } from "../../lib/hosted-compat-pins.mjs";
 import {
   checkImageReference,
   loadRegistrySnapshot,
+  resolveBuildkitImage,
   resolveToolchain,
 } from "../../lib/registry-resolve.mjs";
 import { ActionError } from "../../lib/release-asset.mjs";
@@ -19,14 +20,22 @@ export function resolveHostedImageBuilder(environment = process.env) {
   const snapshot = loadRegistrySnapshot(environment);
   const explicitBuildx = (environment.INPUT_BUILDX_VERSION ?? "").trim();
   const explicitBuildkit = (environment.INPUT_BUILDKIT_IMAGE ?? "").trim();
-  const fallback = hostedImageBuilderPin(environment);
+  let cachedFallback = null;
+  const fallback = () => (cachedFallback ??= hostedImageBuilderPin(environment));
 
-  const buildxRaw = explicitBuildx || fallback.buildxVersion;
+  const buildxRaw =
+    explicitBuildx ||
+    (snapshot ? resolveToolchain(snapshot, "buildx").version : "") ||
+    fallback().buildxVersion;
   if (!buildxVersionPattern.test(buildxRaw)) {
     throw new ActionError(`Buildx version must be an exact semantic version: ${buildxRaw}.`);
   }
   const buildxVersion = buildxRaw.startsWith("v") ? buildxRaw : `v${buildxRaw}`;
-  const buildkitImage = explicitBuildkit || fallback.buildkitImage;
+
+  const buildkitImage =
+    explicitBuildkit ||
+    (snapshot ? resolveBuildkitImage(snapshot, "", { optional: true }) : "") ||
+    fallback().buildkitImage;
   if (!buildkitImagePattern.test(buildkitImage)) {
     throw new ActionError("BuildKit image must be pinned by exact version tag and @sha256 digest.");
   }
