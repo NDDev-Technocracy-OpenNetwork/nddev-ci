@@ -184,6 +184,7 @@ runs:
         rubygems: default
         bundler: none
         bundler-cache: false
+        windows-toolchain: none
     # install-action verifies each archive against its checksum manifest; nothing is compiled
     # and no other source is tried.
     - name: Prepare the declared tools
