@@ -128,10 +128,7 @@ inputs:
     description: Optional exact Ruby version.
     default: ''
   android-sdk:
-    description: >-
-      Optional comma-separated Android SDK packages as name@exact-version (or bare names when
-      NDDEV_CI_REGISTRY_SNAPSHOT is set): cmdline-tools, platform-tools, build-tools, platform,
-      ndk, cmake.
+    description: Optional comma-separated Android SDK packages (name@exact-version or bare registry names).
     default: ''
   tools:
     description: Optional comma-separated name@exact-version command-line tools for hosted runners.

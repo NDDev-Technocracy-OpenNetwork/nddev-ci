@@ -433,6 +433,25 @@ test("validate emits a selection payload that verify consumes without repeating 
   assert.equal(receipt.schema_version, 1);
 });
 
+function runManagedVerify(root, extraEnv) {
+  const out = path.join(root, "out");
+  const ghPath = path.join(root, "path");
+  const ghEnv = path.join(root, "env");
+  main("verify", {
+    SDK_RUNNER_ENVIRONMENT: "self-hosted",
+    PATH: path.join(root, "empty"),
+    GITHUB_OUTPUT: out,
+    GITHUB_PATH: ghPath,
+    GITHUB_ENV: ghEnv,
+    ...extraEnv,
+  });
+  return {
+    receipt: JSON.parse(readFileSync(out, "utf8").trim().slice("receipt=".length)),
+    exportedPath: existsSync(ghPath) ? readFileSync(ghPath, "utf8") : "",
+    exportedEnv: existsSync(ghEnv) ? readFileSync(ghEnv, "utf8") : "",
+  };
+}
+
 test("dotnet and ruby exact versions validate and verify across hosted and managed profiles", {skip: process.platform === "win32"}, () => {
   assert.deepEqual(
     selections({...hosted, SDK_DOTNET_VERSION: "11.0.100", SDK_RUBY_VERSION: "4.0.10"}),
@@ -451,22 +470,12 @@ test("dotnet and ruby exact versions validate and verify across hosted and manag
     writeFileSync(path.join(dotnetDir, "dotnet"), "#!/bin/sh\nprintf '11.0.100\\n'\n", {mode: 0o755});
     writeFileSync(path.join(rubyBin, "ruby"), "#!/bin/sh\nprintf 'ruby 4.0.10 (2026-11-01) [x86_64-linux]\\n'\n", {mode: 0o755});
 
-    const out = path.join(root, "out");
-    const ghPath = path.join(root, "path");
-    const ghEnv = path.join(root, "env");
-    main("verify", {
-      SDK_RUNNER_ENVIRONMENT: "self-hosted",
+    const { receipt, exportedPath } = runManagedVerify(root, {
       RUNNER_TOOL_CACHE: cache,
-      PATH: path.join(root, "empty"),
       SDK_DOTNET_VERSION: "11.0.100",
       SDK_RUBY_VERSION: "4.0.10",
-      GITHUB_OUTPUT: out,
-      GITHUB_PATH: ghPath,
-      GITHUB_ENV: ghEnv,
     });
-    const receipt = JSON.parse(readFileSync(out, "utf8").trim().slice("receipt=".length));
     assert.deepEqual(receipt.versions, {dotnet: "11.0.100", ruby: "4.0.10"});
-    const exportedPath = readFileSync(ghPath, "utf8");
     assert.ok(exportedPath.includes(dotnetDir));
     assert.ok(exportedPath.includes(rubyBin));
   } finally {
@@ -757,29 +766,18 @@ test("Android SDK cache planning, license acceptance and managed verification fo
       mkdirSync(ndkDir, { recursive: true });
       writeFileSync(path.join(ndkDir, "source.properties"), "Pkg.Desc = Android NDK\nPkg.Revision = 28.2.13676358\n");
 
-      const out = path.join(root, "out");
-      const ghPath = path.join(root, "path");
-      const ghEnv = path.join(root, "env");
-      main("verify", {
-        SDK_RUNNER_ENVIRONMENT: "self-hosted",
+      const { receipt, exportedEnv, exportedPath } = runManagedVerify(root, {
         RUNNER_TOOL_CACHE: cache,
-        PATH: path.join(root, "empty"),
         SDK_ANDROID_SDK: "cmdline-tools@23.0,platform-tools@37.0.3,platform@37.0,ndk@28.2.13676358",
-        GITHUB_OUTPUT: out,
-        GITHUB_PATH: ghPath,
-        GITHUB_ENV: ghEnv,
       });
-      const receipt = JSON.parse(readFileSync(out, "utf8").trim().slice("receipt=".length));
       assert.deepEqual(receipt.android, {
         "cmdline-tools": "23.0",
         "platform-tools": "37.0.3",
         platform: "37.0",
         ndk: "28.2.13676358",
       });
-      const exportedEnv = readFileSync(ghEnv, "utf8");
       assert.ok(exportedEnv.includes(`ANDROID_HOME=${androidHome}`));
       assert.ok(exportedEnv.includes(`ANDROID_SDK_ROOT=${androidHome}`));
-      const exportedPath = readFileSync(ghPath, "utf8");
       assert.ok(exportedPath.includes(path.join(cmdDir, "bin")));
       assert.ok(exportedPath.includes(ptDir));
 
