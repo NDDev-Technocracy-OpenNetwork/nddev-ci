@@ -24,13 +24,17 @@ import {
   collectFiles,
   defaultChunkBytes,
   inspectOciArtifact,
+  ociArchiveLayerMediaType,
   ociArtifactType,
   ociManifestMediaType,
+  packDeterministicTarGz,
   packageName,
   pullOciArtifacts,
   pushOciArtifact,
   repositoryIsPrivate,
   retryableFetch,
+  unpackSafeTarGz,
+  validateOciArtifact,
 } from "../lib/oci-artifacts.mjs";
 import { client, transferArtifacts } from "../lib/qualification.mjs";
 
@@ -781,6 +785,242 @@ test("unretried OCI transport failures report sanitized error codes without leak
     });
   } finally {
     await dropper.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("OCI push packs directories over 128 files into one deterministic tar+gzip layer and unpacks or retains it by mode", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "oci-bundle-"));
+  const reg = await startOciRegistry();
+  try {
+    const work = path.join(root, "work");
+    const siteDir = path.join(work, "dist");
+    mkdirSync(path.join(siteDir, "_astro", "chunks"), { recursive: true });
+    mkdirSync(path.join(siteDir, "nested", "very-long-directory-segment-for-pax-testing", "another-long-directory-segment-here"), { recursive: true });
+
+    // Create 136 files including underscore directories (_astro), >100-byte PAX path, empty file and executable script.
+    const longRel = "nested/very-long-directory-segment-for-pax-testing/another-long-directory-segment-here/long-named-asset-file-1234567890.json";
+    writeFileSync(path.join(siteDir, longRel), "{\"pax\":true}\n");
+    writeFileSync(path.join(siteDir, "_astro", "chunks", "empty.txt"), "");
+    const scriptPath = path.join(siteDir, "_astro", "chunks", "run.sh");
+    writeFileSync(scriptPath, "#!/bin/sh\necho ok\n");
+    chmodSync(scriptPath, 0o755);
+    for (let i = 0; i < 133; i++) {
+      writeFileSync(
+        path.join(siteDir, "_astro", "chunks", `chunk-${String(i).padStart(3, "0")}.js`),
+        `export const id = ${i};\n`,
+      );
+    }
+
+    // Validate mode checks the tree without touching GHCR.
+    const validated = await validateOciArtifact({
+      name: "site-dist",
+      pathsText: "dist",
+      cwd: work,
+      allowedRoots: [work],
+    });
+    assert.equal(validated.files.length, 136);
+    assert.equal(validated.bundled, true);
+
+    const { main: ociAction } = await import("../actions/oci-artifact/run.mjs");
+    const validateResult = await ociAction({
+      GITHUB_WORKSPACE: work,
+      RUNNER_TEMP: root,
+      INPUT_MODE: "validate",
+      INPUT_NAME: "site-dist",
+      INPUT_PATH: "dist",
+    });
+    assert.equal(validateResult.bundled, true);
+    assert.equal(validateResult.files.length, 136);
+
+    // Push twice under different artifact names to prove byte-for-byte deterministic tar+gzip digests.
+    const first = await pushOciArtifact({
+      repository: where.repository,
+      sha: where.sha,
+      branch: where.branch,
+      runId: 301,
+      runAttempt: 1,
+      name: "site-dist",
+      part: "verify: build",
+      pathsText: "dist",
+      cwd: work,
+      allowedRoots: [work],
+      token: "ghs_bundle_token",
+      registryUrl: reg.url,
+    });
+    assert.equal(first.bundled, true);
+    assert.equal(first.archiveTitle, "site-dist.tar.gz");
+    assert.equal(first.files.length, 136);
+
+    const second = await pushOciArtifact({
+      repository: where.repository,
+      sha: where.sha,
+      branch: where.branch,
+      runId: 301,
+      runAttempt: 1,
+      name: "site-dist-copy",
+      part: "verify: build",
+      pathsText: "dist",
+      cwd: work,
+      allowedRoots: [work],
+      token: "ghs_bundle_token",
+      registryUrl: reg.url,
+    });
+    assert.equal(second.archiveDigest, first.archiveDigest);
+    assert.equal(second.archiveSize, first.archiveSize);
+    assert.ok(reg.headBlobHits.includes(first.archiveDigest));
+
+    // Verify OCI manifest structure matches both standard OCI readers and strict manifest validators.
+    const inspected = await inspectOciArtifact({
+      repository: where.repository,
+      sha: where.sha,
+      branch: where.branch,
+      runId: 301,
+      runAttempt: 1,
+      nameOrDigest: "site-dist",
+      token: "ghs_bundle_token",
+      registryUrl: reg.url,
+    });
+    assert.equal(inspected.manifest.schemaVersion, 2);
+    assert.equal(inspected.manifest.mediaType, ociManifestMediaType);
+    assert.equal(inspected.manifest.artifactType, ociArtifactType);
+    assert.equal(inspected.manifest.layers.length, 1);
+    assert.equal(inspected.manifest.layers[0].mediaType, ociArchiveLayerMediaType);
+    assert.equal(inspected.manifest.layers[0].annotations["org.opencontainers.image.title"], "site-dist.tar.gz");
+    assert.equal(inspected.manifest.layers[0].annotations["org.nddev.ci.archive"], "tar+gzip");
+    assert.equal(inspected.manifest.layers[0].annotations["org.nddev.ci.file_count"], "136");
+    assert.equal(inspected.manifest.annotations["org.nddev.ci.archive"], "tar+gzip");
+    assert.equal(inspected.manifest.annotations["org.nddev.ci.file_count"], "136");
+
+    // topLevelOnly: false unpacks all 136 files including PAX paths, empty files and executable bits.
+    const unpackedDir = path.join(root, "unpacked");
+    const unpacked = await pullOciArtifacts({
+      repository: where.repository,
+      sha: where.sha,
+      branch: where.branch,
+      runId: 301,
+      runAttempt: 1,
+      names: ["site-dist"],
+      destination: unpackedDir,
+      topLevelOnly: false,
+      token: "ghs_bundle_token",
+      registryUrl: reg.url,
+    });
+    assert.equal(unpacked.files.length, 136);
+    assert.equal(readFileSync(path.join(unpackedDir, longRel), "utf8"), "{\"pax\":true}\n");
+    assert.equal(readFileSync(path.join(unpackedDir, "_astro", "chunks", "empty.txt"), "utf8"), "");
+    assert.equal(readFileSync(path.join(unpackedDir, "_astro", "chunks", "chunk-042.js"), "utf8"), "export const id = 42;\n");
+    if (process.platform !== "win32") {
+      assert.equal(statSync(path.join(unpackedDir, "_astro", "chunks", "run.sh")).mode & 0o100, 0o100);
+    }
+
+    // topLevelOnly: true keeps the single top-level tar+gzip archive intact for release/controller consumers.
+    const topLevelDir = path.join(root, "top-level");
+    const topLevel = await pullOciArtifacts({
+      repository: where.repository,
+      sha: where.sha,
+      branch: where.branch,
+      runId: 301,
+      runAttempt: 1,
+      names: ["site-dist"],
+      destination: topLevelDir,
+      topLevelOnly: true,
+      token: "ghs_bundle_token",
+      registryUrl: reg.url,
+    });
+    assert.deepEqual(topLevel.files.map((f) => f.name), ["site-dist.tar.gz"]);
+    assert.equal(sha(readFileSync(path.join(topLevelDir, "site-dist.tar.gz"))), first.archiveDigest);
+
+    // Exactly 128 files stays unbundled (per-file layers).
+    const smallDir = path.join(work, "exact128");
+    mkdirSync(smallDir, { recursive: true });
+    for (let i = 0; i < 128; i++) writeFileSync(path.join(smallDir, `f-${String(i).padStart(3, "0")}.txt`), `v${i}`);
+    const unbundled = await pushOciArtifact({
+      repository: where.repository,
+      sha: where.sha,
+      branch: where.branch,
+      runId: 301,
+      runAttempt: 1,
+      name: "exact-128",
+      pathsText: "exact128",
+      cwd: work,
+      allowedRoots: [work],
+      token: "ghs_bundle_token",
+      registryUrl: reg.url,
+    });
+    assert.equal(unbundled.bundled, false);
+    const smallInspected = await inspectOciArtifact({
+      repository: where.repository,
+      sha: where.sha,
+      branch: where.branch,
+      runId: 301,
+      runAttempt: 1,
+      nameOrDigest: "exact-128",
+      token: "ghs_bundle_token",
+      registryUrl: reg.url,
+    });
+    assert.equal(smallInspected.manifest.layers.length, 128);
+    assert.equal(smallInspected.manifest.annotations["org.nddev.ci.archive"], undefined);
+  } finally {
+    await reg.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("unpackSafeTarGz rejects symlinks, traversal, bad checksums, duplicates and truncated archives", async () => {
+  const { gzipSync } = await import("node:zlib");
+  const root = mkdtempSync(path.join(tmpdir(), "oci-tar-sec-"));
+  const makeHeader = (name, { size = 0, typeflag = "0", badChecksum = false } = {}) => {
+    const h = Buffer.alloc(512, 0);
+    Buffer.from(name, "utf8").copy(h, 0);
+    h.write("0000644\0", 100, 8, "ascii");
+    h.write("0000000\0", 108, 8, "ascii");
+    h.write("0000000\0", 116, 8, "ascii");
+    h.write(`${size.toString(8).padStart(11, "0")}\0`, 124, 12, "ascii");
+    h.write("00000000000\0", 136, 12, "ascii");
+    h.fill(0x20, 148, 156);
+    h.write(typeflag, 156, 1, "ascii");
+    h.write("ustar\0", 257, 6, "ascii");
+    h.write("00", 263, 2, "ascii");
+    let sum = 0;
+    for (let i = 0; i < 512; i++) sum += h[i];
+    if (badChecksum) sum += 7;
+    h.write(`${sum.toString(8).padStart(6, "0")}\0 `, 148, 8, "ascii");
+    return h;
+  };
+  const eof = Buffer.alloc(1024, 0);
+  const runCase = async (label, rawTar) => {
+    const archive = path.join(root, `${label}.tar.gz`);
+    const stage = path.join(root, `stage-${label}`);
+    mkdirSync(stage, { recursive: true });
+    writeFileSync(archive, gzipSync(rawTar));
+    const state = { files: [], seen: new Set(), total: 0 };
+    return unpackSafeTarGz(archive, stage, path.join(root, `dest-${label}`), state);
+  };
+  try {
+    await assert.rejects(runCase("symlink", Buffer.concat([makeHeader("link", { typeflag: "2" }), eof])), /regular files/);
+    await assert.rejects(runCase("hardlink", Buffer.concat([makeHeader("hard", { typeflag: "1" }), eof])), /regular files/);
+    await assert.rejects(runCase("traversal", Buffer.concat([makeHeader("../escape.txt"), eof])), /invalid file name/);
+    await assert.rejects(runCase("absolute", Buffer.concat([makeHeader("/etc/passwd"), eof])), /unsafe path/);
+    await assert.rejects(runCase("hidden", Buffer.concat([makeHeader(".env"), eof])), /invalid file name/);
+    await assert.rejects(runCase("checksum", Buffer.concat([makeHeader("ok.txt", { badChecksum: true }), eof])), /checksum/);
+    await assert.rejects(runCase("duplicate", Buffer.concat([makeHeader("Dup.txt"), makeHeader("dup.txt"), eof])), /repeated/);
+    await assert.rejects(runCase("truncated", Buffer.concat([makeHeader("cut.txt", { size: 512 }), Buffer.alloc(100, 0x41)])), /mid-entry|truncated/);
+    await assert.rejects(runCase("empty", eof), /no regular files/);
+    // Also verify packDeterministicTarGz directly produces valid output on single file.
+    const src = path.join(root, "plain.txt");
+    writeFileSync(src, "hello\n");
+    const packed = await packDeterministicTarGz(
+      [{ title: "plain.txt", path: src, size: 6, executable: false }],
+      path.join(root, "single.tar.gz"),
+    );
+    const stageOk = path.join(root, "stage-ok");
+    mkdirSync(stageOk, { recursive: true });
+    const stateOk = { files: [], seen: new Set(), total: 0 };
+    const out = await unpackSafeTarGz(packed.path, stageOk, path.join(root, "dest-ok"), stateOk);
+    assert.equal(out.length, 1);
+    assert.equal(readFileSync(path.join(stageOk, "plain.txt"), "utf8"), "hello\n");
+  } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });

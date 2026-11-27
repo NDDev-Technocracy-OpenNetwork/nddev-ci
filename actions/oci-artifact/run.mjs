@@ -1,7 +1,13 @@
 import { appendFileSync, existsSync, mkdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { defaultRegistryUrl, inspectOciArtifact, pullOciArtifacts, pushOciArtifact } from "../../lib/oci-artifacts.mjs";
+import {
+  defaultRegistryUrl,
+  inspectOciArtifact,
+  pullOciArtifacts,
+  pushOciArtifact,
+  validateOciArtifact,
+} from "../../lib/oci-artifacts.mjs";
 
 function writeOutputs(file, entries) {
   if (!file) return;
@@ -49,7 +55,29 @@ export async function main(environment = process.env) {
       registryUrl,
     });
     writeOutputs(outputFile, { digest: result.digest, reference: result.reference, part: input("part") });
-    console.log(`Pushed OCI artifact ${name} (${result.files.length} files): ${result.reference}`);
+    console.log(
+      result.bundled
+        ? `Pushed OCI artifact ${name} (${result.files.length} files bundled in ${result.archiveTitle}): ${result.reference}`
+        : `Pushed OCI artifact ${name} (${result.files.length} files): ${result.reference}`,
+    );
+    return result;
+  }
+
+  if (mode === "validate") {
+    const cwd = environment.GITHUB_WORKSPACE || process.cwd();
+    const allowedRoots = [cwd, environment.RUNNER_TEMP].filter(Boolean);
+    const result = await validateOciArtifact({
+      name,
+      pathsText: environment.INPUT_PATH ?? "",
+      cwd,
+      allowedRoots,
+    });
+    writeOutputs(outputFile, { part: input("part") });
+    console.log(
+      result.bundled
+        ? `Validated OCI artifact ${name} (${result.files.length} files, will bundle as ${name}.tar.gz).`
+        : `Validated OCI artifact ${name} (${result.files.length} files).`,
+    );
     return result;
   }
 

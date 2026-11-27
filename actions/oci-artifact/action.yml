@@ -4,7 +4,7 @@ description: >-
   without using GitHub Actions artifact storage.
 inputs:
   mode:
-    description: push, verify or pull.
+    description: push, verify, pull or validate.
     default: push
   name:
     description: Plain artifact name, or sha256 digest when pulling by digest.
